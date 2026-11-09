@@ -1,0 +1,453 @@
+/* =====================================================================
+   Najem magazynów – style
+   Kolory: specyfikacja 12.4. --bg, --surface, --fg, --muted, --line są
+   tymczasowe – do podmiany na wartości z Budżetu domowego.
+   ===================================================================== */
+
+/* ---------- Czcionki lokalne (OFL-1.1, fonts/LICENSE.txt) ---------- */
+@font-face {
+  font-family: 'Bricolage Grotesque'; font-style: normal; font-weight: 200 800; font-display: swap;
+  src: url(../fonts/bricolage-grotesque-latin-wght-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Bricolage Grotesque'; font-style: normal; font-weight: 200 800; font-display: swap;
+  src: url(../fonts/bricolage-grotesque-latin-ext-wght-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Source Sans 3'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(../fonts/source-sans-3-latin-400-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Source Sans 3'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(../fonts/source-sans-3-latin-ext-400-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Source Sans 3'; font-style: normal; font-weight: 600; font-display: swap;
+  src: url(../fonts/source-sans-3-latin-600-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Source Sans 3'; font-style: normal; font-weight: 600; font-display: swap;
+  src: url(../fonts/source-sans-3-latin-ext-600-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Source Sans 3'; font-style: normal; font-weight: 700; font-display: swap;
+  src: url(../fonts/source-sans-3-latin-700-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Source Sans 3'; font-style: normal; font-weight: 700; font-display: swap;
+  src: url(../fonts/source-sans-3-latin-ext-700-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(../fonts/ibm-plex-mono-latin-400-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(../fonts/ibm-plex-mono-latin-ext-400-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500; font-display: swap;
+  src: url(../fonts/ibm-plex-mono-latin-500-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500; font-display: swap;
+  src: url(../fonts/ibm-plex-mono-latin-ext-500-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* ---------- Zmienne ---------- */
+:root {
+  color-scheme: light dark;
+
+  --bg: #F4F6F8;
+  --surface: #FFFFFF;
+  --surface-2: #EEF1F5;
+  --fg: #172030;
+  --muted: #566070;
+  --line: #DCE1E8;
+
+  --accent: #24508F;
+  --accent-fg: #FFFFFF;
+  --accent-soft: #E3EBF6;
+
+  /* Statusy (12.4). Wersje bazowe do ikon, ramek i wypełnień (wymóg 3:1). */
+  --st-ok: #2A7D4F;
+  --st-partial: #A86A12;
+  --st-late: #B4472E;
+  --st-free: #6B5BB5;
+  --st-off: #7D8784;
+  /* Wersje do TEKSTU – w trybie jasnym --st-partial i --st-off mają za mały kontrast (WCAG AA 4,5:1). */
+  --st-ok-text: var(--st-ok);
+  --st-partial-text: #8A5500;
+  --st-late-text: var(--st-late);
+  --st-free-text: var(--st-free);
+  --st-off-text: #5F6966;
+
+  --on-late: #FFFFFF;          /* tekst na tle --st-late (licznik) */
+  --toast-bg: #1D2533;
+  --toast-fg: #F2F5F9;
+  --toast-shadow: 0 6px 24px rgb(0 0 0 / .2);
+
+  --font-head: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Source Sans 3', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --r-sm: 8px;
+  --r: 14px;
+  --gap: 12px;
+  --pad: 16px;
+  --tab-h: 64px;
+  --head-h: 56px;
+  --shadow: 0 1px 2px rgb(16 24 40 / .06), 0 1px 3px rgb(16 24 40 / .08);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #10141A;
+    --surface: #181E26;
+    --surface-2: #212833;
+    --fg: #E6EBF2;
+    --muted: #9AA5B4;
+    --line: #2A323D;
+
+    --accent: #8DB4F0;
+    --accent-fg: #0E1A2B;
+    --accent-soft: #1E2B40;
+
+    --st-ok: #5FCF8F;
+    --st-partial: #E9B65A;
+    --st-late: #F08A70;
+    --st-free: #B3A6F2;
+    --st-off: #9DA6A3;
+    --st-partial-text: var(--st-partial);
+    --st-off-text: var(--st-off);
+
+    --on-late: #10141A;
+    --toast-bg: #E6EBF2;
+    --toast-fg: #10141A;
+    --shadow: none;
+  }
+}
+
+/* ---------- Podstawa ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 400 16px/1.45 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+h1, h2, h3 { font-family: var(--font-head); line-height: 1.2; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+h1 { font-size: 1.3rem; }
+h2 { font-size: 1.08rem; }
+h3 { font-size: 1rem; }
+p { margin: 0 0 .5em; }
+a { color: var(--accent); }
+button, input, select, textarea { font: inherit; color: inherit; }
+svg { flex: none; }
+[hidden] { display: none !important; }
+
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.kwota, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+.wyciszony { color: var(--muted); }
+.maly { font-size: .875rem; }
+
+/* ---------- Układ ---------- */
+.aplikacja {
+  min-height: 100dvh;
+  display: grid;
+  /* minmax(0, …): szerokie paski filtrów i miesięcy przewijają się w sobie,
+     zamiast rozpychać kolumnę ponad szerokość ekranu (wtedy telefon pomniejsza stronę). */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  grid-template-areas: "head" "main";
+}
+.naglowek {
+  grid-area: head;
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 8px;
+  min-height: calc(var(--head-h) + var(--safe-t));
+  padding: var(--safe-t) 8px 0 var(--pad);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: saturate(1.4) blur(10px);
+  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.naglowek h1 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Tytuł dostaje fokus tylko programowo (czytnik ekranu ogłasza nowy ekran) – to nie jest kontrolka. */
+#tytul:focus { outline: none; }
+.naglowek .wstecz {
+  display: inline-flex; align-items: center; gap: 2px;
+  margin-left: -8px; padding: 8px; color: var(--accent); text-decoration: none; font-weight: 600;
+}
+
+.widok {
+  grid-area: main;
+  width: 100%; max-width: 1180px; margin: 0 auto;
+  padding: var(--pad) var(--pad) calc(var(--tab-h) + var(--safe-b) + 32px);
+}
+.widok:focus { outline: none; }
+
+.zakladki {
+  position: fixed; inset: auto 0 0 0; z-index: 30;
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  height: calc(var(--tab-h) + var(--safe-b));
+  padding-bottom: var(--safe-b);
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+.zakladki .marka { display: none; }
+.zakladki a {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  color: var(--muted); text-decoration: none; font-size: .75rem; font-weight: 600;
+}
+.zakladki a[aria-current] { color: var(--accent); }
+.zakladki a[aria-current]::before {
+  content: ""; position: absolute; top: 0; left: 28%; right: 28%; height: 3px;
+  border-radius: 0 0 3px 3px; background: var(--accent);
+}
+.licznik {
+  position: absolute; top: 7px; left: calc(50% + 6px);
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--st-late); color: var(--on-late);
+  font: 600 11px/18px var(--font-body); text-align: center;
+}
+
+@media (min-width: 900px) {
+  .aplikacja {
+    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    grid-template-areas: "nav head" "nav main";
+  }
+  .zakladki {
+    grid-area: nav;
+    position: sticky; inset: 0 auto auto 0; align-self: start;
+    height: 100dvh; overflow-y: auto; padding: 0 12px 12px;
+    display: flex; flex-direction: column; gap: 4px;
+    border-top: 0; border-right: 1px solid var(--line);
+  }
+  .zakladki a {
+    flex-direction: row; justify-content: flex-start; gap: 12px;
+    padding: 10px 12px; border-radius: var(--r-sm); font-size: .95rem;
+  }
+  .zakladki .marka {
+    display: flex; align-items: center; gap: 10px;
+    min-height: var(--head-h); margin: 0 0 12px; padding: 0 4px;
+    font: 650 1rem/1.2 var(--font-head);
+  }
+  .zakladki .marka img { width: 28px; height: 28px; border-radius: 7px; }
+  .zakladki a:hover { background: var(--surface-2); }
+  .zakladki a[aria-current] { background: var(--accent-soft); }
+  .zakladki a[aria-current]::before { display: none; }
+  .licznik { position: static; margin-left: auto; }
+  .widok { padding: 24px 32px 48px; }
+  .naglowek { padding-left: 32px; }
+}
+
+/* ---------- Przyciski ---------- */
+.przycisk {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 44px; padding: 0 16px;
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  background: var(--accent); color: var(--accent-fg);
+  font-weight: 600; text-decoration: none; cursor: pointer;
+}
+.przycisk:hover { filter: brightness(1.08); }
+.przycisk.drugi { background: var(--surface); color: var(--accent); border-color: var(--line); }
+.przycisk.drugi:hover { background: var(--surface-2); filter: none; }
+.przycisk[disabled], .przycisk[aria-disabled="true"] { opacity: .5; cursor: not-allowed; filter: none; }
+.przycisk.pelny { width: 100%; }
+
+.ikona-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; border: 0; border-radius: 50%;
+  background: transparent; color: var(--fg); cursor: pointer; text-decoration: none;
+}
+.ikona-btn:hover { background: var(--surface-2); }
+
+.link-btn { border: 0; background: none; padding: 0; color: var(--accent); font-weight: 600; cursor: pointer; text-decoration: underline; }
+
+.pasek-akcji { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--pad); }
+
+/* ---------- Filtry i wybór miesiąca ---------- */
+.filtry, .miesiace {
+  display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+  margin: 0 calc(-1 * var(--pad)) var(--pad); padding: 2px var(--pad);
+  /* Bez scroll-snap: po zmianie wysokości okna (chowanie paska adresu na iPhonie)
+     przeglądarka „przyciągała” pasek miesięcy z powrotem w złe miejsce. */
+}
+.filtry::-webkit-scrollbar, .miesiace::-webkit-scrollbar { display: none; }
+.filtry button, .miesiace button {
+  flex: none;
+  min-height: 36px; padding: 0 14px; border-radius: 18px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--fg);
+  font-weight: 600; font-size: .9rem; cursor: pointer; white-space: nowrap;
+}
+.filtry button[aria-pressed="true"], .miesiace button[aria-pressed="true"] {
+  background: var(--accent); border-color: var(--accent); color: var(--accent-fg);
+}
+@media (min-width: 900px) {
+  .filtry, .miesiace { margin-inline: 0; padding-inline: 0; flex-wrap: wrap; }
+}
+
+.szukaj {
+  width: 100%; min-height: 44px; margin-bottom: var(--gap); padding: 0 14px;
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface);
+}
+
+/* ---------- Karty i kafelki ---------- */
+.siatka { display: grid; gap: var(--gap); grid-template-columns: 1fr; }
+@media (min-width: 900px) { .siatka { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.karta {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+  box-shadow: var(--shadow); padding: var(--pad);
+}
+.karta > h2 { margin-bottom: 10px; }
+.stos { display: grid; gap: var(--gap); align-content: start; }
+
+.kafelki { display: grid; gap: var(--gap); grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: var(--gap); }
+@media (min-width: 900px) { .kafelki { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.kafelek {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+  box-shadow: var(--shadow); padding: 12px 14px; min-width: 0;
+}
+.kafelek .etykieta { color: var(--muted); font-size: .85rem; font-weight: 600; }
+.kafelek .wartosc { display: block; margin-top: 2px; font: 500 1.35rem/1.2 var(--font-mono); font-variant-numeric: tabular-nums; }
+.kafelek .opis { color: var(--muted); font-size: .85rem; }
+
+/* ---------- Listy ---------- */
+.lista { list-style: none; margin: 0; padding: 0; }
+.lista > li { border-top: 1px solid var(--line); }
+.lista > li:first-child { border-top: 0; }
+.wiersz {
+  display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 10px 2px;
+  color: inherit; text-decoration: none;
+}
+a.wiersz:hover { background: var(--surface-2); }
+.wiersz .glowna { flex: 1; min-width: 0; }
+.wiersz .glowna > strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.wiersz .glowna > span { display: block; color: var(--muted); font-size: .875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wiersz .prawa { text-align: right; }
+
+.chip {
+  display: inline-block; padding: 1px 8px; border-radius: 6px; margin: 2px 4px 0 0;
+  background: var(--surface-2); border: 1px solid var(--line);
+  font: 500 .8rem/1.5 var(--font-mono); color: var(--fg);
+}
+
+/* Status: zawsze kolor + ikona/tekst (12.5) */
+.status { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; font-size: .875rem; }
+.status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.status.ok { color: var(--st-ok-text); }
+.status.czesciowo { color: var(--st-partial-text); }
+.status.zalega { color: var(--st-late-text); }
+.status.wolna { color: var(--st-free-text); }
+.status.wylaczona { color: var(--st-off-text); }
+.status.zajeta { color: var(--fg); }
+.status.zajeta::before { background: transparent; box-shadow: inset 0 0 0 2px currentColor; }
+
+/* ---------- Jednostki ---------- */
+.grupa + .grupa { margin-top: 20px; }
+.grupa > h2 { margin-bottom: 8px; display: flex; align-items: baseline; gap: 8px; }
+.jednostki { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.jednostka {
+  display: block; padding: 10px 12px; border-radius: var(--r-sm);
+  background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line);
+  color: inherit; text-decoration: none;
+}
+a.jednostka:hover { background: var(--surface-2); }
+.jednostka.wolna { border-left-color: var(--st-free); }
+.jednostka.zajeta { border-left-color: var(--muted); }
+.jednostka.wylaczona { border-left-color: var(--st-off); }
+.jednostka strong { font: 500 1rem var(--font-mono); }
+.jednostka span { display: block; color: var(--muted); font-size: .85rem; }
+
+/* ---------- Puste stany i komunikaty ---------- */
+.pusty { text-align: center; padding: 32px 16px; color: var(--muted); }
+.pusty p { max-width: 36ch; margin: 0 auto 16px; }
+.pusty .pasek-akcji { justify-content: center; margin: 0; }
+
+.baner {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 14px; margin-bottom: var(--gap);
+  border-radius: var(--r-sm); border: 1px solid var(--line); border-left: 4px solid var(--accent);
+  background: var(--surface); font-size: .925rem;
+}
+.baner.ostrzezenie { border-left-color: var(--st-partial); }
+.baner.blad { border-left-color: var(--st-late); }
+button.baner { width: 100%; color: var(--fg); text-align: left; font-weight: 600; cursor: pointer; }
+button.baner:hover { background: var(--surface-2); }
+
+.pomin {
+  position: absolute; left: 8px; top: -100px; z-index: 60;
+  padding: 10px 14px; border-radius: var(--r-sm); background: var(--accent); color: var(--accent-fg); font-weight: 600;
+}
+.pomin:focus { top: calc(8px + var(--safe-t)); }
+
+.plan {
+  margin-top: var(--gap); padding: 12px 14px; border-radius: var(--r-sm);
+  border: 1px dashed var(--line); color: var(--muted); font-size: .9rem;
+}
+
+.toast {
+  position: fixed; left: 50%; bottom: calc(var(--tab-h) + var(--safe-b) + 12px); z-index: 50;
+  transform: translate(-50%, 8px); opacity: 0; pointer-events: none;
+  width: max-content; max-width: min(92vw, 480px); padding: 10px 16px; border-radius: 10px;
+  background: var(--toast-bg); color: var(--toast-fg); font-weight: 600; box-shadow: var(--toast-shadow);
+  transition: opacity .18s, transform .18s;
+}
+.toast.widoczny { opacity: 1; transform: translate(-50%, 0); }
+@media (min-width: 900px) { .toast { bottom: 24px; left: calc(50% + 110px); } }
+
+/* ---------- Opisy (dl) ---------- */
+.opis-pol { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
+.opis-pol dt { color: var(--muted); }
+.opis-pol dd { margin: 0; text-align: right; }
+
+/* ---------- Formularze ---------- */
+.pole { display: block; margin-bottom: 14px; }
+.pole label { display: block; margin-bottom: 4px; font-weight: 600; font-size: .925rem; }
+.pole input, .pole select, .pole textarea {
+  width: 100%; min-height: 44px; padding: 8px 12px;
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface);
+}
+.pole input[aria-invalid="true"] { border-color: var(--st-late); }
+.pole .blad, .blad-tekst { margin: 4px 0 12px; color: var(--st-late-text); font-size: .875rem; font-weight: 600; }
+.pole input[disabled] { opacity: .6; cursor: not-allowed; }
+
+/* ---------- Ekran logowania ---------- */
+.logowanie { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
+.logowanie .karta { width: 100%; max-width: 400px; padding: 24px; }
+.logowanie .logo { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.logowanie .logo img { width: 44px; height: 44px; border-radius: 10px; }
+.logowanie .lub { text-align: center; margin: 14px 0 10px; color: var(--muted); font-size: .875rem; }
+
+.ladowanie { min-height: 60dvh; display: grid; place-items: center; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; scroll-behavior: auto !important; }
+}

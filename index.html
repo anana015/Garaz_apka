@@ -1,1 +1,53 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Najem magazynów</title>
+  <meta name="description" content="Czynsze, wpłaty i zaległości za wynajem jednostek magazynowych">
 
+  <!-- PWA (rozdz. 3): instalacja na telefonie, otwieranie bez paska przeglądarki (test 19) -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#F4F6F8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#10141A" media="(prefers-color-scheme: dark)">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Najem">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+
+  <!-- Najczęściej używane kroje ładowane od razu, żeby tekst nie „przeskakiwał” -->
+  <link rel="preload" href="fonts/source-sans-3-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/source-sans-3-latin-ext-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/app.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <a class="pomin" href="#widok">Przejdź do treści</a>
+
+  <!-- Ekran startowy do czasu odczytania sesji -->
+  <div id="start" class="ladowanie" role="status">Uruchamianie…</div>
+
+  <!-- Logowanie (rozdz. 11) – treść wstawia js/views/logowanie.js -->
+  <div id="ekran-logowania" hidden></div>
+
+  <div id="app" class="aplikacja" hidden>
+    <header class="naglowek">
+      <a id="wstecz" class="wstecz" href="#/pulpit" hidden></a>
+      <h1 id="tytul" tabindex="-1">Pulpit</h1>
+      <a id="przycisk-import" class="ikona-btn" href="#/import" aria-label="Import wyciągu" title="Import wyciągu"></a>
+      <a id="przycisk-ustawienia" class="ikona-btn" href="#/ustawienia" aria-label="Ustawienia" title="Ustawienia"></a>
+    </header>
+
+    <nav id="zakladki" class="zakladki" aria-label="Główne ekrany"></nav>
+
+    <main id="widok" class="widok" tabindex="-1"></main>
+  </div>
+
+  <!-- Komunikaty (12.2): nad paskiem zakładek, ogłaszane przez czytnik ekranu -->
+  <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <noscript><p class="pusty">Aplikacja wymaga włączonej obsługi JavaScript.</p></noscript>
+</body>
+</html>

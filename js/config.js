@@ -1,0 +1,51 @@
+// Konfiguracja aplikacji. Uzupełnij po utworzeniu projektu Supabase (README.md, krok 2).
+// Klucz publiczny (anon albo publishable) może być w kodzie strony – dane chroni RLS.
+// Klucza service_role NIGDY tu nie wpisuj.
+
+export const CONFIG = Object.freeze({
+  supabaseUrl: '',   // np. 'sdxgdeyvlfgnnzwgkbce.supabase.co'
+  supabaseKey: '',   // klucz publiczny: 'sb_publishable_aFlZhbycefQPMj6imB3jFQ_KSLQmZ28'
+});
+
+export const WERSJA = '0.1.0';
+
+/** Tabele z rozdziału 4 – kolejność nie ma znaczenia, służy do pobierania i kopii zapasowej. */
+export const TABELE = Object.freeze([
+  'units', 'clients', 'contracts', 'rentals', 'rental_rates', 'charge_adjustments',
+  'bank_accounts', 'imports', 'payments', 'payers', 'deposits', 'client_notes',
+  'tax_payments', 'settings',
+]);
+
+/** Etykiety terminowości (5.5). Sprawdzane od góry. */
+export const PROGI_TERMINOWOSCI = Object.freeze({
+  minNaleznosci: 3,            // poniżej: „Za mało danych”
+  wzorowyMinNaleznosci: 6,     // „Wzorowy”: 100% i co najmniej 6 należności
+  terminowy: 0.9,              // co najmniej 90%
+  zdarzaSie: 0.7,              // 70–89%
+});
+
+export const TYPY_JEDNOSTEK = Object.freeze({
+  kontener: { nazwa: 'Kontener', mnoga: 'Kontenery' },
+  garaz: { nazwa: 'Garaż', mnoga: 'Garaże' },
+  box: { nazwa: 'Box', mnoga: 'Boxy' },
+});
+
+/** Wartości domyślne ustawień – takie same jak w supabase/schema.sql (tabela settings). */
+export const DOMYSLNE_USTAWIENIA = Object.freeze({
+  tolerance_days: 3,
+  punctuality_months: 12,
+  expiring_days: 30,
+  default_last_period: 'proporcjonalnie',
+  tax_period: 'kwartal',
+  tax_rate_low_bp: 850,
+  tax_rate_high_bp: 1250,
+  tax_threshold_gr: 10_000_000,
+  vat_limit_gr: 24_000_000,
+  tax_account: null,
+  data_start: '2026-01-01',
+  last_backup_at: null,
+});
+
+export const TOAST_MS = 2600;           // 12.2
+export const DNI_BEZ_IMPORTU = 14;      // 8.1, pasek „Brak importu z konta … od 14 dni”
+export const DNI_PRZYPOMNIENIA_KOPII = 30;
