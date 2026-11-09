@@ -2,7 +2,7 @@
 
 Aplikacja PWA do śledzenia czynszów za jednostki magazynowe: kto zapłacił, kto zalega, ile wpłynęło i ile ryczałtu zapłacić. Specyfikacja: „Najem magazynów – specyfikacja” v0.1 (projekt „Magazyny – apka, obsługa”).
 
-**Stan:** szkielet etapu 1 – powłoka aplikacji, logowanie, 5 zakładek, schemat bazy z RLS, PWA. Wyliczenia (należności, salda, ryczałt) i formularze powstają w krokach 1a–1d (rozdział 15 specyfikacji).
+**Stan:** szkielet etapu 1 – powłoka aplikacji, logowanie, 5 zakładek, schemat bazy z RLS, PWA – oraz wyliczanie okresów i należności (`js/okresy.js`, testy akceptacyjne 1–3). Salda, ryczałt i formularze powstają w krokach 1a–1d (rozdział 15 specyfikacji).
 
 ## Uruchomienie lokalne
 
@@ -35,6 +35,7 @@ npm test        # Node 22+
 | Plik | Co sprawdza |
 | --- | --- |
 | `tests/utils.test.js` | kwoty w groszach, daty (Z5, strefa Europe/Warsaw), normalizacja nazw, walidacja NIP, telefonu, e-maila i rachunku |
+| `tests/okresy.test.js` | okresy i należności: testy akceptacyjne 1–3, niepełny pierwszy okres (Z7), koniec najmu (Z8), najem sprzed `data_start` (Z34), okresy 3-miesięczne, korekty, rok przestępny |
 | `tests/dane.test.js` | indeksy danych, najem w dniu, stawka na dzień, wpłaty do przypisania, próg Raportów |
 | `tests/schema.test.js` | `supabase/schema.sql` na prawdziwym PostgreSQL (PGlite): RLS, brak dostępu dla `anon`, test akceptacyjny 16 (nakładające się najmy), ograniczenia, bucket |
 | `tests/pwa.test.js` | każdy plik aplikacji jest w pamięci podręcznej `sw.js`, manifest, odwołania w `index.html`, importy modułów |
@@ -53,6 +54,7 @@ js/state.js            jeden obiekt stanu
 js/app.js              start, router (#/ekran/id), render(), delegacja zdarzeń
 js/db.js               jedyny moduł rozmawiający z Supabase (logowanie, pobieranie)
 js/dane.js             indeksy i proste zapytania na pobranych danych (czyste funkcje)
+js/okresy.js           okresy rozliczeniowe i należności z najmów (5.1, czyste funkcje)
 js/utils.js            kwoty, daty, tekst, walidacja (czyste funkcje)
 js/ui.js               ikony, komunikat (toast), puste stany, filtry
 js/views/              pulpit, wplaty, klienci (z kartą klienta), jednostki (ze szczegółami),
@@ -64,7 +66,14 @@ supabase/schema.sql    schemat bazy
 tests/                 node --test
 ```
 
-Moduły z rozdziału 3, które dojdą w kolejnych krokach: `okresy.js` (1a), `csv.js`, `banki.js`, `rozliczenia.js` (1b), `statystyki.js` (1c), `podatek.js`, `wykresy.js` (1d).
+Moduły z rozdziału 3, które dojdą w kolejnych krokach: `csv.js`, `banki.js`, `rozliczenia.js` (1b), `statystyki.js` (1c), `podatek.js`, `wykresy.js` (1d).
+
+## Decyzje doprecyzowujące specyfikację (9.11.2026)
+
+| Temat | Decyzja |
+| --- | --- |
+| Najem sprzed `data_start` (Z34, 5.1) | Należność za okres zaczęty przed `data_start` (np. 15.12.2025–14.01.2026) jest w saldzie otwarcia klienta. Pierwsza wyliczana należność ma termin ≥ `data_start` (tu 15.01.2026). Dane z 2025 r. zostaną wczytane później – wystarczy wtedy przesunąć `data_start`, należności przeliczą się same (Z38) |
+| Niepełny pierwszy okres (Z7) | Od dnia startu do dnia przed najbliższym dniem płatności. Kwota = stawka × dni ÷ dni pełnego okresu kończącego się tego samego dnia, zaokrąglona do pełnego złotego. Przykład: start 10.03, płatność 1. dnia, 300 zł → 300 × 22 ÷ 31 = 213 zł |
 
 ## Różnice względem specyfikacji
 

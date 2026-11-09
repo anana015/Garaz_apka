@@ -3,11 +3,11 @@
 // Klucza service_role NIGDY tu nie wpisuj.
 
 export const CONFIG = Object.freeze({
-  supabaseUrl: '',   // np. 'sdxgdeyvlfgnnzwgkbce.supabase.co'
-  supabaseKey: '',   // klucz publiczny: 'sb_publishable_aFlZhbycefQPMj6imB3jFQ_KSLQmZ28'
+  supabaseUrl: '',   // np. 'https://abcdefghijkl.supabase.co'
+  supabaseKey: '',   // klucz publiczny: 'eyJ…' (anon) albo 'sb_publishable_…'
 });
 
-export const WERSJA = '0.1.0';
+export const WERSJA = '0.1.1';
 
 /** Tabele z rozdziału 4 – kolejność nie ma znaczenia, służy do pobierania i kopii zapasowej. */
 export const TABELE = Object.freeze([
