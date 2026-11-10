@@ -6,24 +6,27 @@ import * as db from './db.js';
 import { doPrzypisania, scalDane } from './dane.js';
 import { wartosciFormularza } from './formularz.js';
 import { ikona, toast } from './ui.js';
-import { esc } from './utils.js';
+import { dzisiaj, esc } from './utils.js';
 
 import pulpit from './views/pulpit.js';
 import wplaty from './views/wplaty.js';
 import klienci from './views/klienci.js';
 import jednostki from './views/jednostki.js';
 import raporty from './views/raporty.js';
+import zadaniaWidok from './views/zadania.js';
+import { oznaczZadanie, pilneZadania } from './zadania.js';
 import importWidok from './views/import.js';
 import ustawienia from './views/ustawienia.js';
 import najmy from './views/najmy.js';
 import logowanie from './views/logowanie.js';
 
 // najmy: formularze najmu (nowy, stawka, koniec, korekta, podwyżka) – bez własnej zakładki.
-const EKRANY = { pulpit, wplaty, klienci, jednostki, raporty, import: importWidok, ustawienia, najmy };
+const EKRANY = { pulpit, wplaty, klienci, zadania: zadaniaWidok, jednostki, raporty, import: importWidok, ustawienia, najmy };
 const ZAKLADKI = [
   { id: 'pulpit', tekst: 'Pulpit' },
   { id: 'wplaty', tekst: 'Wpłaty' },
   { id: 'klienci', tekst: 'Klienci' },
+  { id: 'zadania', tekst: 'Zadania' },
   { id: 'jednostki', tekst: 'Jednostki' },
   { id: 'raporty', tekst: 'Raporty' },
 ];
@@ -88,7 +91,7 @@ function zbudujPowloke() {
 function liczniki() {
   return {
     wplaty: { n: doPrzypisania(state.dane.payments).length, opis: 'do przypisania' },
-    klienci: { n: 0, opis: 'dłużników' },   // liczba dłużników – krok 1c (statystyki.js)
+    zadania: { n: pilneZadania(state.dane.client_notes, dzisiaj()), opis: 'zadań na dziś i po terminie' },
   };
 }
 
@@ -180,6 +183,7 @@ function aktywnyWidok() {
 
 /** Akcje wspólne dla wszystkich widoków. */
 const AKCJE_WSPOLNE = {
+  'zadanie-zrobione': (el) => oznaczZadanie(el, ctx),
   filtr(el) {
     state.ui.filtry[state.ui.ekran] = el.dataset.wartosc;
     render();

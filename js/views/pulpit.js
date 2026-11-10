@@ -3,6 +3,7 @@
 
 import { TYPY_JEDNOSTEK } from '../config.js';
 import { doPrzypisania, najemTrwa } from '../dane.js';
+import { pilneZadania } from '../zadania.js';
 import { pustyStan, wPlanie } from '../ui.js';
 import {
   esc, dzisiaj, formatZl, formatData, kluczMiesiaca, MIESIACE_W, odmiana, porownajKody, roznicaDni,
@@ -22,6 +23,11 @@ function paskiOstrzezen(s) {
   if (n) {
     paski.push(`<button type="button" class="baner ostrzezenie pelny-wiersz" data-akcja="idz"
       data-ekran="wplaty" data-filtr="do-przypisania">${odmiana(n, ['wpłata czeka', 'wpłaty czekają', 'wpłat czeka'])} na przypisanie ›</button>`);
+  }
+  const z = pilneZadania(s.dane.client_notes, dzisiaj());
+  if (z) {
+    paski.push(`<button type="button" class="baner ostrzezenie pelny-wiersz" data-akcja="idz"
+      data-ekran="zadania" data-filtr="do-zrobienia">${odmiana(z, ['zadanie', 'zadania', 'zadań'])} na dziś i po terminie ›</button>`);
   }
   // Kolejne paski (kończące się umowy, ryczałt, brak importu, limit VAT) – kolejne porcje.
   return paski.join('');
@@ -85,7 +91,7 @@ function listaBrakujacych(b, dzis) {
 /** Ostatnia obietnica zapłaty klienta, a gdy jej brak – ostatnia notatka (8.1, karta 8). */
 function ostatniaNotatka(notatki, klientId, dzis) {
   const jego = notatki.filter((n) => n.client_id === klientId).sort((a, b) => b.created_at.localeCompare(a.created_at));
-  const obietnica = jego.find((n) => n.kind === 'obietnica' && n.promised_on);
+  const obietnica = jego.find((n) => n.kind === 'obietnica' && n.promised_on && !n.done_at);
   if (obietnica) {
     return `<span class="status ${obietnica.promised_on < dzis ? 'zalega' : 'czesciowo'}">obiecał${
       obietnica.promised_gr ? ` ${formatZl(obietnica.promised_gr)}` : ''} do ${formatData(obietnica.promised_on)}</span>`;

@@ -16,6 +16,7 @@ import { rozliczeniaKlientow, ustawienia } from './wspolne.js';
 import { PROGI_TERMINOWOSCI } from '../config.js';
 import { doCsv } from '../csv.js';
 import { kartoteka, terminowosc } from '../rozliczenia.js';
+import { KTO, RODZAJE_NOTATEK } from '../zadania.js';
 
 /** Klient aktywny: niezarchiwizowany i bez najmów albo z najmem, który się nie skończył. */
 function czyAktywny(klient, najmy, dzien) {
@@ -277,9 +278,6 @@ function sekcjaTerminowosci(t) {
 // Notatki i historia kontaktu (8.5), obietnice zapłaty (5.4)
 // ---------------------------------------------------------------------
 
-export const RODZAJE_NOTATEK = Object.freeze({
-  notatka: 'Notatka', telefon: 'Telefon', sms: 'SMS', email: 'E-mail', obietnica: 'Obietnica zapłaty',
-});
 
 function sekcjaNotatek(s, klient) {
   const notatki = s.dane.client_notes.filter((n) => n.client_id === klient.id)
@@ -288,20 +286,32 @@ function sekcjaNotatek(s, klient) {
   if (!notatki.length) return `<p class="wyciszony">Brak notatek.</p>${dodaj}`;
   const dzis = dzisiaj();
   return `<ul class="lista">${notatki.map((n) => {
-    const obietnica = n.kind === 'obietnica' && n.promised_on
-      ? `<span class="status ${n.promised_on < dzis ? 'zalega' : 'czesciowo'}">obiecał${n.promised_gr ? ` ${formatZl(n.promised_gr)}` : ''} do ${formatData(n.promised_on)}</span>` : '';
+    let termin = '';
+    if (n.promised_on) {
+      const klasa = n.done_at ? 'ok' : n.promised_on < dzis ? 'zalega' : 'czesciowo';
+      const tekst = n.done_at ? `zrobione ${formatData(dataZeZnacznika(n.done_at))}`
+        : n.kind === 'obietnica' ? `obiecał${n.promised_gr ? ` ${formatZl(n.promised_gr)}` : ''} do ${formatData(n.promised_on)}`
+          : `termin ${formatData(n.promised_on)} · ${KTO[n.task_owner ?? 'ja'].toLowerCase()}`;
+      termin = `<span class="status ${klasa}">${tekst}</span>`;
+    }
+    const obietnica = termin;
     return `<li><div class="wiersz">
       <div class="glowna"><strong>${esc(RODZAJE_NOTATEK[n.kind] ?? n.kind)}</strong>
         <span>${formatData(dataZeZnacznika(n.created_at))}${obietnica ? ` · ${obietnica}` : ''}</span>
         <span class="tekst-notatki">${esc(n.body)}</span></div>
-      <div class="prawa"><button type="button" class="link-btn" data-akcja="usun-notatke" data-id="${esc(n.id)}"
+      <div class="prawa">${n.promised_on ? `<button type="button" class="przycisk drugi maly" data-akcja="zadanie-zrobione"
+        data-id="${esc(n.id)}" data-zrobione="${n.done_at ? '' : '1'}">${n.done_at ? 'Przywróć' : 'Zrobione'}</button>` : ''}
+        <button type="button" class="link-btn" data-akcja="usun-notatke" data-id="${esc(n.id)}"
         aria-label="Usuń notatkę z ${formatData(dataZeZnacznika(n.created_at))}">Usuń</button></div>
     </div></li>`;
   }).join('')}</ul>${dodaj}`;
 }
 
 function formularzNotatki(s, klient) {
-  const f = stanFormularza(s, `klienci/${klient.id}/notatka`, () => ({ kind: s.ui.zapytanie.rodzaj === 'obietnica' ? 'obietnica' : 'telefon' }));
+  const f = stanFormularza(s, `klienci/${klient.id}/notatka`, () => {
+    const obiet = s.ui.zapytanie.rodzaj === 'obietnica';
+    return { kind: obiet ? 'obietnica' : 'telefon', task_owner: obiet ? 'klient' : 'ja' };
+  });
   const obietnica = f.wartosci.kind === 'obietnica';
   return formularz(f, {
     nazwa: 'notatka',
@@ -310,10 +320,15 @@ function formularzNotatki(s, klient) {
     tresc: `
       ${opcje(f, { nazwa: 'kind', legenda: 'Rodzaj', odswiez: true,
     opcje: Object.entries(RODZAJE_NOTATEK).map(([wartosc, tekst]) => ({ wartosc, tekst })) })}
-      ${obietnica ? `<div class="pola-w-rzedzie">
-        ${pole(f, { nazwa: 'promised_on', etykieta: 'Zapłaci do', typ: 'date', wymagane: true })}
-        ${pole(f, { nazwa: 'promised_gr', etykieta: 'Kwota (zł, opcjonalnie)', typ: 'kwota' })}</div>` : ''}
-      ${obszar(f, { nazwa: 'body', etykieta: obietnica ? 'Co ustaliliście' : 'Treść', wymagane: true, wiersze: 3, maks: 1000 })}`,
+      ${obszar(f, { nazwa: 'body', etykieta: obietnica ? 'Co ustaliliście' : 'Treść', wymagane: true, wiersze: 3, maks: 1000 })}
+      <div class="pola-w-rzedzie">
+        ${pole(f, { nazwa: 'promised_on', etykieta: obietnica ? 'Zapłaci do' : 'Termin (opcjonalnie)', typ: 'date',
+    wymagane: obietnica, odswiez: true,
+    podpowiedz: obietnica ? '' : 'Z terminem notatka staje się zadaniem w zakładce „Zadania”.' })}
+        ${obietnica ? pole(f, { nazwa: 'promised_gr', etykieta: 'Kwota (zł, opcjonalnie)', typ: 'kwota' }) : ''}
+      </div>
+      ${f.wartosci.promised_on ? opcje(f, { nazwa: 'task_owner', legenda: 'Czyje to zadanie',
+    opcje: Object.entries(KTO).map(([wartosc, tekst]) => ({ wartosc, tekst: wartosc === 'ja' ? 'Moje' : 'Klienta' })) }) : ''}`,
   });
 }
 
@@ -526,6 +541,12 @@ export default {
     },
   },
 
+  przyZmianie: {
+    notatka(nazwa, f) {
+      if (nazwa === 'kind') f.wartosci.task_owner = f.wartosci.kind === 'obietnica' ? 'klient' : 'ja';
+    },
+  },
+
   formularze: {
     async notatka(form, ctx) {
       const s = ctx.state;
@@ -538,8 +559,10 @@ export default {
       else if (body.length > 1000) bledy.body = 'Najwyżej 1000 znaków.';
       let promised_on = null;
       let promised_gr = null;
+      promised_on = /^\d{4}-\d{2}-\d{2}$/.test(w.promised_on ?? '') ? w.promised_on : null;
+      if (String(w.promised_on ?? '').trim() && !promised_on) bledy.promised_on = 'Nieprawidłowa data.';
+      const task_owner = promised_on ? (w.task_owner === 'klient' ? 'klient' : 'ja') : null;
       if (kind === 'obietnica') {
-        promised_on = /^\d{4}-\d{2}-\d{2}$/.test(w.promised_on ?? '') ? w.promised_on : null;
         if (!promised_on) bledy.promised_on = 'Podaj datę.';
         if (String(w.promised_gr ?? '').trim()) {
           promised_gr = parseKwota(w.promised_gr);
@@ -548,9 +571,9 @@ export default {
       }
       if (maBledy(ctx, w, bledy)) return;
       await zapisz(ctx, async () => {
-        const n = await ctx.db.wstaw('client_notes', { client_id: klientId, kind, body, promised_on, promised_gr });
+        const n = await ctx.db.wstaw('client_notes', { client_id: klientId, kind, body, promised_on, promised_gr, task_owner });
         ctx.scal({ client_notes: [n] });
-        ctx.toast('Zapisano notatkę');
+        ctx.toast(promised_on ? 'Zapisano zadanie' : 'Zapisano notatkę');
         ctx.nawiguj(`klienci/${encodeURIComponent(klientId)}`);
       });
     },

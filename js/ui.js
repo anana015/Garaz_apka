@@ -10,6 +10,7 @@ const SCIEZKI = {
   wplaty: '<path d="M12 3v11"/><path d="m7.5 9.5 4.5 4.5 4.5-4.5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',
   klienci: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.7-3.5 3.3-5.5 6.5-5.5s5.8 2 6.5 5.5"/><path d="M15.5 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M18 14.9c1.8.8 3 2.4 3.5 5.1"/>',
   jednostki: '<path d="M3 20V9l9-5 9 5v11"/><path d="M7 20v-8h10v8"/><path d="M7 15h10"/><path d="M7 17.5h10"/>',
+  zadania: '<rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 3v2.5"/><path d="M15 3v2.5"/><path d="m8.5 13 2.3 2.3 4.7-4.6"/>',
   raporty: '<path d="M4 20V11"/><path d="M10 20V5"/><path d="M16 20v-6"/><path d="M21 20H3"/>',
   import: '<path d="M14 3H6.5a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3v5h5"/><path d="M12 18v-6"/><path d="m9 14.5 3-3 3 3"/>',
   ustawienia: '<path d="M4 6h9"/><path d="M19 6h1"/><circle cx="16" cy="6" r="2.2"/><path d="M4 12h3"/><path d="M13 12h7"/><circle cx="10" cy="12" r="2.2"/><path d="M4 18h11"/><circle cx="18" cy="18" r="2.2"/>',
