@@ -220,3 +220,9 @@ export async function linkDoUmowy(sciezka) {
 export async function usun(tabela, id) {
   sprawdz(await (await polacz()).from(tabela).delete().eq('id', id));
 }
+
+/** Ta sama zmiana dla wielu wierszy (np. dopasowanie kolejnych wpłat po zapamiętaniu płatnika). */
+export async function zmienWiele(tabela, ids, zmiany) {
+  if (!ids.length) return [];
+  return sprawdz(await (await polacz()).from(tabela).update(zmiany).in('id', ids).select());
+}

@@ -1,16 +1,18 @@
 // Wpłaty (8.2): filtry, wyszukiwanie, lista, wpłata gotówką.
-// Adresy: #/wplaty, #/wplaty/gotowka[?klient=<id>], #/wplaty/<id>/edycja (tylko gotówka).
-// Przypisywanie wpłat z wyciągu i „Zapamiętaj płatnika” – kolejne porcje kroku 1b.
+// Adresy: #/wplaty, #/wplaty/gotowka[?klient=<id>], #/wplaty/<id>/edycja (gotówka),
+// #/wplaty/<id>/przypisz (przelew: klient, rodzaj, „Zapamiętaj płatnika”).
 
 import { doPrzypisania, najemZakonczony } from '../dane.js';
 import {
-  formularz, maBledy, obszar, opcje, pole, stanFormularza, wartosciFormularza, wybor, zapisz,
+  formularz, maBledy, obszar, opcje, pole, przelacznik, stanFormularza, wartosciFormularza, wybor, zapisz,
 } from '../formularz.js';
-import { filtry, poleSzukaj, przycisk, pustyStan, wPlanie } from '../ui.js';
+import { filtry, poleSzukaj, przycisk, pustyStan } from '../ui.js';
 import {
-  esc, dzisiaj, formatZl, formatData, kwotaDoPola, normalizujTekst, kluczMiesiaca, etykietaMiesiaca, porownajKody,
+  esc, dzisiaj, formatZl, formatData, formatRachunek, kwotaDoPola, normalizujTekst, kluczMiesiaca, etykietaMiesiaca,
+  odmiana, porownajKody,
 } from '../utils.js';
 import { RODZAJE_GOTOWKI, walidujGotowke } from '../walidacja.js';
+import { pasujaceDoPlatnika, planZapamietania } from '../rozpoznanie.js';
 import { ustawienia, wyborMiesiaca, pokazWybranyMiesiac } from './wspolne.js';
 
 const FILTRY = {
@@ -29,24 +31,29 @@ const PUSTE = {
   pominiete: () => 'Brak pominiętych wpłat.',
 };
 
+const RODZAJE_PRZELEWU = { czynsz: 'Czynsz', przychod_inny: 'Inny przychód', pominieta: 'Pomiń (nie dotyczy najmu)' };
+
 function wiersz(w, s) {
   const klient = w.client_id ? s.indeksy.klienci.get(w.client_id) : null;
   const gotowka = w.method === 'gotowka';
   const nadawca = gotowka ? (klient?.name ?? 'gotówka') : (w.counterparty || '—');
-  const kogo = gotowka
-    ? `gotówka${w.kind === 'przychod_inny' ? ' · inny przychód' : ''}`
-    : klient ? esc(klient.name)
-      : w.kind === 'czynsz' ? '<span class="status czesciowo">Do przypisania</span>' : '';
+  let kogo;
+  if (gotowka) kogo = `gotówka${w.kind === 'przychod_inny' ? ' · inny przychód' : ''}`;
+  else if (w.kind === 'pominieta') kogo = '<span class="status wylaczona">pominięta</span>';
+  else if (klient) {
+    kogo = `${esc(klient.name)}${w.match_confirmed ? '' : ' <span class="status czesciowo">sprawdź</span>'}${
+      w.kind === 'przychod_inny' ? ' · inny przychód' : ''}`;
+  } else kogo = w.kind === 'czynsz' ? '<span class="status czesciowo">Do przypisania</span>' : '';
   const opisWiersza = w.title || (gotowka ? w.note : null);
   const tresc = `
     <div class="glowna"><strong>${esc(nadawca)}</strong>
       <span>${formatData(w.booked_on)}${opisWiersza ? ` · ${esc(opisWiersza)}` : ''}</span></div>
     <div class="prawa"><div class="kwota">${formatZl(w.amount_gr)}</div><div class="maly">${kogo}</div></div>`;
-  // Wpłatę gotówką można poprawić; wpłaty z wyciągu – menu wiersza w kolejnej porcji.
-  return gotowka
-    ? `<li><a class="wiersz" href="#/wplaty/${encodeURIComponent(w.id)}/edycja"
-        aria-label="Popraw wpłatę gotówką ${esc(nadawca)}, ${formatData(w.booked_on)}">${tresc}</a></li>`
-    : `<li><div class="wiersz">${tresc}</div></li>`;
+  const id = encodeURIComponent(w.id);
+  const [href, etykieta] = gotowka
+    ? [`#/wplaty/${id}/edycja`, `Popraw wpłatę gotówką ${nadawca}`]
+    : [`#/wplaty/${id}/przypisz`, `Przypisz wpłatę ${nadawca}`];
+  return `<li><a class="wiersz" href="${href}" aria-label="${esc(`${etykieta}, ${formatData(w.booked_on)}, ${formatZl(w.amount_gr)}`)}">${tresc}</a></li>`;
 }
 
 function lista(s) {
@@ -80,7 +87,7 @@ function lista(s) {
       ${widoczne.length ? `<ul class="lista">${widoczne.map((w) => wiersz(w, s)).join('')}</ul>`
         : pustyStan(szukane ? 'Nic nie pasuje do wyszukiwania.' : PUSTE[filtr](s))}
     </section>
-    ${wPlanie('Przypisywanie wpłat z wyciągu i „Zapamiętaj płatnika” – kolejne porcje kroku 1b.')}`;
+    ${filtr === 'do-przypisania' && widoczne.length ? '<p class="podpowiedz">Kliknij wpłatę, żeby przypisać ją do klienta.</p>' : ''}`;
 }
 
 // ---------------------------------------------------------------------
@@ -131,9 +138,59 @@ function formularzGotowki(s, wplata) {
   });
 }
 
+// ---------------------------------------------------------------------
+// Przypisanie przelewu do klienta (5.2: „Zapamiętaj płatnika”)
+// ---------------------------------------------------------------------
+
+function formularzPrzypisania(s, w) {
+  const f = stanFormularza(s, `wplaty/${w.id}/przypisz`, () => ({
+    client_id: w.client_id ?? '', kind: w.kind === 'kaucja' ? 'czynsz' : w.kind, zapamietaj: 'on', label: '', note: w.note ?? '',
+  }));
+  const plan = f.wartosci.client_id ? planZapamietania(w, f.wartosci.client_id, s.dane.payers) : null;
+  const czego = w.payer_account ? `rachunek …${w.payer_account.slice(-4)}` : `nazwę „${w.counterparty ?? ''}”`;
+  let zapamietanie = '';
+  if (f.wartosci.kind === 'czynsz' && f.wartosci.client_id) {
+    if (plan?.konflikt) {
+      const inny = s.indeksy.klienci.get(plan.konflikt.client_id)?.name ?? 'inny klient';
+      zapamietanie = `<p class="baner">Ten ${w.payer_account ? 'rachunek' : 'nadawca'} należy do: <strong>${esc(inny)}</strong>.
+        Przypiszę tylko tę wpłatę, bez zapamiętywania.</p>`;
+    } else if (plan?.istnieje) {
+      zapamietanie = `<p class="podpowiedz">Ten płatnik jest już zapamiętany u tego klienta.</p>`;
+    } else if (plan?.wpis) {
+      zapamietanie = `${przelacznik(f, { nazwa: 'zapamietaj', etykieta: `Zapamiętaj płatnika (${czego})`, odswiez: true,
+        podpowiedz: 'Kolejne wpłaty od tego płatnika przypiszą się same – także te, które już czekają.' })}
+        ${f.wartosci.zapamietaj === 'on' ? pole(f, { nazwa: 'label', etykieta: 'Kim jest płatnik (opcjonalnie)',
+          podpowiedz: 'Np. „mąż”, „firma”, „brat”.', atrybuty: 'maxlength="40" autocomplete="off"' }) : ''}`;
+    }
+  }
+  const konto = w.bank_account_id ? s.indeksy.konta.get(w.bank_account_id)?.name : null;
+  const szczegoly = `<section class="karta"><dl class="opis-pol">
+    <dt>Nadawca</dt><dd><strong>${esc(w.counterparty || '—')}</strong></dd>
+    ${w.payer_account ? `<dt>Rachunek</dt><dd class="mono">${esc(formatRachunek(w.payer_account))}</dd>` : ''}
+    ${w.title ? `<dt>Tytuł</dt><dd>${esc(w.title)}</dd>` : ''}
+    <dt>Data</dt><dd>${formatData(w.booked_on)}${konto ? ` · ${esc(konto)}` : ''}</dd>
+    <dt>Kwota</dt><dd class="kwota">${formatZl(w.amount_gr)}</dd>
+  </dl></section>`;
+
+  return `${szczegoly}${formularz(f, {
+    nazwa: 'przypisz',
+    uwaga: '',
+    przycisk: 'Zapisz',
+    anuluj: '#/wplaty',
+    tresc: `
+      ${opcje(f, { nazwa: 'kind', legenda: 'Co to za wpłata', odswiez: true,
+        opcje: Object.entries(RODZAJE_PRZELEWU).map(([wartosc, tekst]) => ({ wartosc, tekst })) })}
+      ${f.wartosci.kind !== 'pominieta' ? wybor(f, { nazwa: 'client_id', etykieta: 'Klient', pusta: '— do przypisania —',
+        opcje: opcjeKlientow(s), odswiez: true }) : ''}
+      ${zapamietanie}
+      ${obszar(f, { nazwa: 'note', etykieta: 'Notatka', wiersze: 2, maks: 500 })}`,
+  })}`;
+}
+
 export default {
   tytul(s) {
     if (s.ui.parametr === 'gotowka') return 'Wpłata gotówką';
+    if (s.ui.akcja === 'przypisz') return 'Przypisz wpłatę';
     if (s.ui.parametr) return 'Popraw wpłatę gotówką';
     return 'Wpłaty';
   },
@@ -150,13 +207,65 @@ export default {
     if (!parametr) return lista(s);
     if (parametr === 'gotowka') return formularzGotowki(s, null);
     const w = s.dane.payments.find((p) => p.id === parametr);
+    if (w && s.ui.akcja === 'przypisz' && w.method === 'przelew') return formularzPrzypisania(s, w);
     if (!w || w.method !== 'gotowka') {
       return pustyStan('Nie znaleziono wpłaty gotówką.', [{ tekst: 'Wróć do wpłat', href: '#/wplaty' }]);
     }
     return formularzGotowki(s, w);
   },
 
+  przyZmianie: {
+    /** Po zmianie klienta albo rodzaju „Zapamiętaj płatnika” wraca do domyślnego „włączone”. */
+    przypisz(nazwa, f) {
+      if (nazwa === 'client_id' || nazwa === 'kind') f.wartosci.zapamietaj = 'on';
+    },
+  },
+
   formularze: {
+    /** Przypisanie przelewu; przy „Zapamiętaj płatnika” – wpis w payers i dopasowanie pozostałych wpłat. */
+    async przypisz(form, ctx) {
+      const s = ctx.state;
+      const wplata = s.dane.payments.find((p) => p.id === s.ui.parametr);
+      if (!wplata) return;
+      const w = wartosciFormularza(form);
+      const kind = w.kind in RODZAJE_PRZELEWU ? w.kind : 'czynsz';
+      const klientId = kind === 'pominieta' ? null : (w.client_id || null);
+      const note = String(w.note ?? '').trim() || null;
+      if (maBledy(ctx, w, {})) return;
+      const plan = klientId && kind === 'czynsz' ? planZapamietania(wplata, klientId, s.dane.payers) : null;
+      const zapamietaj = Boolean(plan?.wpis) && w.zapamietaj === 'on';
+
+      await zapisz(ctx, async () => {
+        const zmiany = { payments: [] };
+        zmiany.payments.push(await ctx.db.zmien('payments', wplata.id, {
+          kind, client_id: klientId, note,
+          match_method: klientId ? 'reczne' : null, match_confirmed: Boolean(klientId),
+        }));
+        let dodatkowe = 0;
+        if (zapamietaj) {
+          const platnik = await ctx.db.wstaw('payers', {
+            client_id: klientId, ...plan.wpis, label: String(w.label ?? '').trim() || null,
+          });
+          zmiany.payers = [platnik];
+          const pasujace = pasujaceDoPlatnika(platnik, s.dane.payments, wplata.id);
+          if (pasujace.length) {
+            const zmienione = await ctx.db.zmienWiele('payments', pasujace.map((p) => p.id), {
+              client_id: klientId, match_method: platnik.account ? 'rachunek' : 'nazwa', match_confirmed: true,
+            });
+            zmiany.payments.push(...zmienione);
+            dodatkowe = zmienione.length;
+          }
+        }
+        ctx.scal(zmiany);
+        const kto = klientId ? s.indeksy.klienci.get(klientId)?.name ?? '' : '';
+        ctx.toast(zapamietaj
+          ? `Zapamiętano: ${plan.wpis.account ? `rachunek …${plan.wpis.account.slice(-4)}` : 'nazwa'} → ${kto}${
+            dodatkowe ? ` (+${odmiana(dodatkowe, ['wpłata', 'wpłaty', 'wpłat'])})` : ''}`
+          : kind === 'pominieta' ? 'Wpłata pominięta' : klientId ? `Przypisano do: ${kto}` : 'Zapisano');
+        ctx.nawiguj('wplaty');
+      });
+    },
+
     async gotowka(form, ctx, ev) {
       const s = ctx.state;
       const edytowana = s.ui.parametr === 'gotowka' ? null : s.dane.payments.find((p) => p.id === s.ui.parametr);

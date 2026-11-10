@@ -57,3 +57,23 @@ export function rozpoznaj(w, indeks) {
   if (pasujacy.length === 1) return { klientId: pasujacy[0].id, metoda: 'nazwa', potwierdzone: false };
   return brak;
 }
+
+/**
+ * Co zapamiętać przy ręcznym przypisaniu (5.2): rachunek, a gdy go brak – znormalizowaną nazwę.
+ * Zwraca { wpis: {account|name_key} | null, konflikt: payer innego klienta | null, istnieje: boolean }.
+ */
+export function planZapamietania(wplata, klientId, payers = []) {
+  const wpis = wplata.payer_account ? { account: wplata.payer_account, name_key: null }
+    : kluczNazwy(wplata.counterparty) ? { account: null, name_key: kluczNazwy(wplata.counterparty) } : null;
+  if (!wpis) return { wpis: null, konflikt: null, istnieje: false };
+  const ten = payers.find((p) => (wpis.account ? p.account === wpis.account : p.name_key === wpis.name_key));
+  if (ten && ten.client_id !== klientId) return { wpis: null, konflikt: ten, istnieje: false };
+  return { wpis: ten ? null : wpis, konflikt: null, istnieje: Boolean(ten) };
+}
+
+/** Pozostałe wpłaty „Do przypisania”, które pasują do zapamiętanego płatnika. */
+export function pasujaceDoPlatnika(platnik, wplaty, pominId = null) {
+  return wplaty.filter((w) => w.id !== pominId && w.kind === 'czynsz' && !w.client_id && w.method === 'przelew'
+    && (platnik.account ? w.payer_account === platnik.account
+      : (() => { const n = kluczNazwy(w.counterparty); return n && (n === platnik.name_key || n.includes(platnik.name_key)); })()));
+}
