@@ -1,6 +1,7 @@
 // Fragmenty używane przez kilka widoków.
 
 import { DOMYSLNE_USTAWIENIA } from '../config.js';
+import { rozliczenia } from '../rozliczenia.js';
 import { esc, dzisiaj, kluczMiesiaca, zakresMiesiecy, etykietaMiesiaca, MIESIACE_KROTKO } from '../utils.js';
 
 /** Ustawienia z bazy albo domyślne (tryb podglądu, pierwsze uruchomienie). */
@@ -31,4 +32,10 @@ export function pokazWybranyMiesiac(root) {
   pasek.scrollLeft += (b.left - p.left) - (p.width - b.width) / 2;
   // Szerokość przycisków zmienia się po wczytaniu czcionek – wtedy wyśrodkuj jeszcze raz.
   if (document.fonts?.status === 'loading') document.fonts.ready.then(() => pokazWybranyMiesiac(root));
+}
+
+/** Rozliczenia wszystkich klientów na dziś (rozliczenia.js; liczone raz na stan danych). */
+export function rozliczeniaKlientow(s) {
+  const u = ustawienia(s);
+  return rozliczenia(s.dane, { dataStart: u.data_start, dzis: dzisiaj(), tolerancja: u.tolerance_days });
 }

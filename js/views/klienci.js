@@ -7,11 +7,11 @@ import {
 } from '../formularz.js';
 import { filtry, poleSzukaj, przycisk, pustyStan, wPlanie } from '../ui.js';
 import {
-  esc, dzisiaj, formatData, formatRachunek, formatZl, kwotaDoPola, normalizujTekst, porownajKody,
+  esc, dzisiaj, formatData, formatDataKrotka, formatRachunek, formatZl, kwotaDoPola, normalizujTekst, porownajKody,
 } from '../utils.js';
 import { saldoKaucji, walidujKlienta, walidujPdf } from '../walidacja.js';
 import { koniecUmowy } from './jednostki.js';
-import { ustawienia } from './wspolne.js';
+import { rozliczeniaKlientow, ustawienia } from './wspolne.js';
 
 /** Klient aktywny: niezarchiwizowany i bez najmów albo z najmem, który się nie skończył. */
 function czyAktywny(klient, najmy, dzien) {
@@ -21,7 +21,7 @@ function czyAktywny(klient, najmy, dzien) {
 
 const FILTRY = {
   aktywni: { tekst: 'Aktywni', warunek: (k, najmy, d) => czyAktywny(k, najmy, d) },
-  dluznicy: { tekst: 'Dłużnicy', warunek: () => false },          // krok 1c
+  dluznicy: { tekst: 'Dłużnicy', warunek: (k, najmy, d, r) => !k.archived && Boolean(r?.dluznik) },
   byli: { tekst: 'Byli', warunek: (k, najmy, d) => !czyAktywny(k, najmy, d) },
   wszyscy: { tekst: 'Wszyscy', warunek: () => true },
 };
@@ -29,6 +29,23 @@ const FILTRY = {
 function kodyJednostek(najmy, s, dzien) {
   return najmy.filter((n) => !najemZakonczony(n, dzien))
     .map((n) => s.indeksy.jednostki.get(n.unit_id)?.code).filter(Boolean).sort(porownajKody);
+}
+
+/** Saldo w wierszu listy (8.4): zaległość na czerwono albo „opłacone do” na zielono. */
+function stanSalda(r, s, k) {
+  if (!r) return '';
+  if (r.zalegloscGr > 0) {
+    return `<div class="kwota">${formatZl(-r.zalegloscGr)}</div>
+      <div class="maly"><span class="status ${r.dluznik ? 'zalega' : 'czesciowo'}">${r.dniPoTerminie} ${
+  r.dniPoTerminie === 1 ? 'dzień' : 'dni'} po terminie</span></div>`;
+  }
+  const dzien = dzisiaj();
+  const trwajace = (s.indeksy.najmyKlienta.get(k.id) ?? []).filter((n) => !najemZakonczony(n, dzien));
+  const daty = trwajace.map((n) => r.oplaconeDo.get(n.id)).filter(Boolean);
+  const najblizsza = daty.length ? daty.sort()[0] : null;
+  return `${r.saldoGr > 0 ? `<div class="kwota">+${formatZl(r.saldoGr)}</div>` : ''}
+    ${najblizsza ? `<div class="maly"><span class="status ok">opłacone do ${formatDataKrotka(najblizsza)}</span></div>`
+    : r.saldoGr === 0 ? '<div class="maly wyciszony">rozliczony</div>' : ''}`;
 }
 
 function lista(s) {
@@ -42,28 +59,34 @@ function lista(s) {
       { tekst: 'Wczytaj dane startowe', href: '#/ustawienia/dane-startowe', drugi: true }]);
   }
 
+  const rozl = rozliczeniaKlientow(s);
   const wiersze = s.dane.clients
-    .map((k) => ({ k, najmy: s.indeksy.najmyKlienta.get(k.id) ?? [] }))
-    .filter(({ k, najmy }) => FILTRY[filtr].warunek(k, najmy, dzien))
-    .map(({ k, najmy }) => ({ k, kody: kodyJednostek(najmy, s, dzien) }))
+    .map((k) => ({ k, najmy: s.indeksy.najmyKlienta.get(k.id) ?? [], r: rozl.get(k.id) }))
+    .filter(({ k, najmy, r }) => FILTRY[filtr].warunek(k, najmy, dzien, r))
+    .map(({ k, najmy, r }) => ({ k, r, kody: kodyJednostek(najmy, s, dzien) }))
     .filter(({ k, kody }) => !szukane || normalizujTekst(
       `${k.name} ${k.phone ?? ''} ${k.nip ?? ''} ${kody.join(' ')}`).includes(szukane))
-    .sort((a, b) => a.k.name.localeCompare(b.k.name, 'pl'));
+    .sort(filtr === 'dluznicy'
+      ? (a, b) => b.r.zalegloscGr - a.r.zalegloscGr
+      : (a, b) => a.k.name.localeCompare(b.k.name, 'pl'));
+  const liczbaDluznikow = s.dane.clients.filter((k) => !k.archived && rozl.get(k.id)?.dluznik).length;
 
   let tresc;
-  if (filtr === 'dluznicy') tresc = wPlanie('Lista dłużników powstanie razem z rozliczeniami – krok 1c.');
-  else if (!wiersze.length) tresc = pustyStan(szukane ? 'Nic nie pasuje do wyszukiwania.' : 'Brak klientów w tym widoku.');
-  else {
-    tresc = `<ul class="lista">${wiersze.map(({ k, kody }) => `<li>
+  if (!wiersze.length) {
+    tresc = pustyStan(szukane ? 'Nic nie pasuje do wyszukiwania.'
+      : filtr === 'dluznicy' ? 'Nikt nie zalega.' : 'Brak klientów w tym widoku.');
+  } else {
+    tresc = `<ul class="lista">${wiersze.map(({ k, r, kody }) => `<li>
       <a class="wiersz" href="#/klienci/${encodeURIComponent(k.id)}">
         <div class="glowna"><strong>${esc(k.name)}</strong>
           <span>${kody.length ? kody.map((c) => `<span class="chip">${esc(c)}</span>`).join('') : 'brak aktywnych najmów'}</span></div>
-        <div class="prawa wyciszony maly">saldo: krok 1c</div>
+        <div class="prawa">${stanSalda(r, s, k)}</div>
       </a></li>`).join('')}</ul>`;
   }
 
   return `${akcje}
-    ${filtry(Object.entries(FILTRY).map(([id, f]) => ({ id, tekst: f.tekst })), filtr, 'Grupa klientów')}
+    ${filtry(Object.entries(FILTRY).map(([id, f]) => ({ id, tekst: f.tekst,
+    liczba: id === 'dluznicy' ? liczbaDluznikow : undefined })), filtr, 'Grupa klientów')}
     ${poleSzukaj('klienci', s.ui.szukaj.klienci, 'Szukaj po nazwie, telefonie, NIP, jednostce')}
     <section class="karta">${tresc}</section>`;
 }
@@ -167,8 +190,28 @@ function platnicy(s, klient) {
   </div></li>`).join('')}</ul>`;
 }
 
+function saldo(s, klient, r, najmy, dzien) {
+  if (!r) return '';
+  const zalega = r.zalegloscGr > 0;
+  const glowna = zalega
+    ? `<p><span class="kwota duza">${formatZl(-r.zalegloscGr)}</span>
+        <span class="status ${r.dluznik ? 'zalega' : 'czesciowo'}">zaległość · ${r.dniPoTerminie} ${r.dniPoTerminie === 1 ? 'dzień' : 'dni'} po terminie</span></p>`
+    : `<p><span class="kwota duza">${r.saldoGr > 0 ? '+' : ''}${formatZl(r.saldoGr)}</span>
+        <span class="status ok">${r.saldoGr > 0 ? 'nadpłata' : 'rozliczony'}</span></p>`;
+  const oplacone = najmy.filter((n) => !najemZakonczony(n, dzien)).map((n) => {
+    const kod = s.indeksy.jednostki.get(n.unit_id)?.code ?? '?';
+    const data = r.oplaconeDo.get(n.id);
+    return `<dt class="mono">${esc(kod)}</dt><dd>${data ? `opłacone do ${formatData(data)}` : '<span class="wyciszony">nic nieopłacone</span>'}</dd>`;
+  }).join('');
+  return `${glowna}
+    ${oplacone ? `<dl class="opis-pol">${oplacone}</dl>` : ''}
+    <p class="podpowiedz">Ostatnia wpłata: ${r.ostatniaWplata ? formatData(r.ostatniaWplata) : 'brak'} ·
+      <a href="#/wplaty/gotowka?klient=${encodeURIComponent(klient.id)}">dodaj gotówkę</a></p>`;
+}
+
 function karta(s, klient) {
   const dzien = dzisiaj();
+  const r = rozliczeniaKlientow(s).get(klient.id);
   const najmy = [...(s.indeksy.najmyKlienta.get(klient.id) ?? [])]
     .sort((a, b) => (a.end_on != null) - (b.end_on != null) || b.start_on.localeCompare(a.start_on));
   const umowy = [...s.indeksy.umowy.values()].filter((u) => u.client_id === klient.id)
@@ -191,6 +234,7 @@ function karta(s, klient) {
       ${przycisk({ tekst: 'Edytuj dane', href: `#/klienci/${id}/edycja`, drugi: true })}
     </div>
     <div class="siatka">
+      <section class="karta" aria-labelledby="k-saldo"><h2 id="k-saldo">Saldo</h2>${saldo(s, klient, r, najmy, dzien)}</section>
       <section class="karta" aria-labelledby="k-kontakt"><h2 id="k-kontakt">Kontakt</h2>
         ${kontakt ? `<dl class="opis-pol">${kontakt}</dl>` : '<p class="wyciszony">Brak danych kontaktowych.</p>'}
         ${klient.note ? `<p class="notatka">${esc(klient.note)}</p>` : ''}</section>
@@ -201,7 +245,7 @@ function karta(s, klient) {
       <section class="karta" aria-labelledby="k-dokumenty"><h2 id="k-dokumenty">Dokumenty</h2>${dokumenty(umowy)}</section>
       <section class="karta" aria-labelledby="k-platnicy"><h2 id="k-platnicy">Płatnicy</h2>${platnicy(s, klient)}</section>
     </div>
-    ${wPlanie('Saldo, kartoteka rozrachunków i terminowość – krok 1c. Notatki – krok 1c.')}`;
+    ${wPlanie('Kartoteka rozrachunków, terminowość i notatki – kolejne porcje kroku 1c.')}`;
 }
 
 // ---------------------------------------------------------------------

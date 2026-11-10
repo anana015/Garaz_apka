@@ -532,3 +532,6 @@ fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; scroll-behavior: auto !important; }
 }
+
+/* Saldo na karcie klienta (krok 1c) */
+.kwota.duza { font-size: 1.5rem; margin-right: 8px; }
