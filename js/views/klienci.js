@@ -1,13 +1,14 @@
 // Klienci (8.4), karta klienta (8.5) i formularz klienta (8.6).
-// Adresy: #/klienci, #/klienci/nowy[?dalej=najem&jednostka=<id>], #/klienci/<id>, #/klienci/<id>/edycja
+// Adresy: #/klienci, #/klienci/nowy[?dalej=najem&jednostka=<id>], #/klienci/<id>, #/klienci/<id>/edycja,
+// #/klienci/<id>/notatka[?rodzaj=obietnica]
 
 import { najemTrwa, najemZakonczony, stawkaNaDzien } from '../dane.js';
 import {
   formularz, maBledy, obszar, opcje, pole, stanFormularza, wartosciFormularza, zapisz,
 } from '../formularz.js';
-import { filtry, poleSzukaj, przycisk, pustyStan, wPlanie } from '../ui.js';
+import { filtry, poleSzukaj, przycisk, pustyStan } from '../ui.js';
 import {
-  esc, dzisiaj, etykietaMiesiaca, formatData, formatDataKrotka, formatRachunek, formatZl, kwotaDoPola, normalizujTekst, porownajKody,
+  dataZeZnacznika, esc, dzisiaj, etykietaMiesiaca, formatData, formatDataKrotka, formatRachunek, formatZl, kwotaDoPola, normalizujTekst, parseKwota, porownajKody,
 } from '../utils.js';
 import { saldoKaucji, walidujKlienta, walidujPdf } from '../walidacja.js';
 import { koniecUmowy } from './jednostki.js';
@@ -211,7 +212,8 @@ function saldo(s, klient, r, najmy, dzien) {
     <p class="maly">Terminowość: <strong>${esc(t.etykieta)}</strong></p>
     ${oplacone ? `<dl class="opis-pol">${oplacone}</dl>` : ''}
     <p class="podpowiedz">Ostatnia wpłata: ${r.ostatniaWplata ? formatData(r.ostatniaWplata) : 'brak'} ·
-      <a href="#/wplaty/gotowka?klient=${encodeURIComponent(klient.id)}">dodaj gotówkę</a></p>`;
+      <a href="#/wplaty/gotowka?klient=${encodeURIComponent(klient.id)}">dodaj gotówkę</a>${zalega
+    ? ` · <a href="#/klienci/${encodeURIComponent(klient.id)}/notatka?rodzaj=obietnica">zapisz obietnicę zapłaty</a>` : ''}</p>`;
 }
 
 // ---------------------------------------------------------------------
@@ -271,6 +273,50 @@ function sekcjaTerminowosci(t) {
     <p class="podpowiedz">Zielony – terminowo, bursztynowy – spóźnienie, czerwony – brak zapłaty, szary – brak należności.</p>`;
 }
 
+// ---------------------------------------------------------------------
+// Notatki i historia kontaktu (8.5), obietnice zapłaty (5.4)
+// ---------------------------------------------------------------------
+
+export const RODZAJE_NOTATEK = Object.freeze({
+  notatka: 'Notatka', telefon: 'Telefon', sms: 'SMS', email: 'E-mail', obietnica: 'Obietnica zapłaty',
+});
+
+function sekcjaNotatek(s, klient) {
+  const notatki = s.dane.client_notes.filter((n) => n.client_id === klient.id)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const dodaj = przycisk({ tekst: 'Dodaj notatkę', href: `#/klienci/${encodeURIComponent(klient.id)}/notatka`, drugi: true, ikona: 'plus' });
+  if (!notatki.length) return `<p class="wyciszony">Brak notatek.</p>${dodaj}`;
+  const dzis = dzisiaj();
+  return `<ul class="lista">${notatki.map((n) => {
+    const obietnica = n.kind === 'obietnica' && n.promised_on
+      ? `<span class="status ${n.promised_on < dzis ? 'zalega' : 'czesciowo'}">obiecał${n.promised_gr ? ` ${formatZl(n.promised_gr)}` : ''} do ${formatData(n.promised_on)}</span>` : '';
+    return `<li><div class="wiersz">
+      <div class="glowna"><strong>${esc(RODZAJE_NOTATEK[n.kind] ?? n.kind)}</strong>
+        <span>${formatData(dataZeZnacznika(n.created_at))}${obietnica ? ` · ${obietnica}` : ''}</span>
+        <span class="tekst-notatki">${esc(n.body)}</span></div>
+      <div class="prawa"><button type="button" class="link-btn" data-akcja="usun-notatke" data-id="${esc(n.id)}"
+        aria-label="Usuń notatkę z ${formatData(dataZeZnacznika(n.created_at))}">Usuń</button></div>
+    </div></li>`;
+  }).join('')}</ul>${dodaj}`;
+}
+
+function formularzNotatki(s, klient) {
+  const f = stanFormularza(s, `klienci/${klient.id}/notatka`, () => ({ kind: s.ui.zapytanie.rodzaj === 'obietnica' ? 'obietnica' : 'telefon' }));
+  const obietnica = f.wartosci.kind === 'obietnica';
+  return formularz(f, {
+    nazwa: 'notatka',
+    przycisk: 'Zapisz notatkę',
+    anuluj: `#/klienci/${encodeURIComponent(klient.id)}`,
+    tresc: `
+      ${opcje(f, { nazwa: 'kind', legenda: 'Rodzaj', odswiez: true,
+    opcje: Object.entries(RODZAJE_NOTATEK).map(([wartosc, tekst]) => ({ wartosc, tekst })) })}
+      ${obietnica ? `<div class="pola-w-rzedzie">
+        ${pole(f, { nazwa: 'promised_on', etykieta: 'Zapłaci do', typ: 'date', wymagane: true })}
+        ${pole(f, { nazwa: 'promised_gr', etykieta: 'Kwota (zł, opcjonalnie)', typ: 'kwota' })}</div>` : ''}
+      ${obszar(f, { nazwa: 'body', etykieta: obietnica ? 'Co ustaliliście' : 'Treść', wymagane: true, wiersze: 3, maks: 1000 })}`,
+  });
+}
+
 function karta(s, klient) {
   const dzien = dzisiaj();
   const r = rozliczeniaKlientow(s).get(klient.id);
@@ -311,7 +357,8 @@ function karta(s, klient) {
         ${sekcjaKartoteki(s, klient, r)}</section>` : ''}
       <section class="karta" aria-labelledby="k-platnicy"><h2 id="k-platnicy">Płatnicy</h2>${platnicy(s, klient)}</section>
     </div>
-    ${wPlanie('Notatki i obietnice zapłaty – kolejna porcja kroku 1c.')}`;
+    <section class="karta" aria-labelledby="k-notatki"><h2 id="k-notatki">Notatki i historia kontaktu</h2>
+      ${sekcjaNotatek(s, klient)}</section>`;
 }
 
 // ---------------------------------------------------------------------
@@ -375,13 +422,14 @@ export default {
     if (!parametr) return 'Klienci';
     if (parametr === 'nowy') return 'Nowy klient';
     const nazwa = s.indeksy.klienci.get(parametr)?.name ?? 'Klient';
+    if (akcja === 'notatka') return `Notatka: ${nazwa}`;
     return akcja === 'edycja' ? `Edycja: ${nazwa}` : nazwa;
   },
 
   wstecz(s) {
     const { parametr, akcja } = s.ui;
     if (!parametr) return null;
-    if (akcja === 'edycja') return { href: `#/klienci/${encodeURIComponent(parametr)}`, tekst: s.indeksy.klienci.get(parametr)?.name ?? 'Klient' };
+    if (akcja === 'edycja' || akcja === 'notatka') return { href: `#/klienci/${encodeURIComponent(parametr)}`, tekst: s.indeksy.klienci.get(parametr)?.name ?? 'Klient' };
     if (parametr === 'nowy' && s.ui.zapytanie.dalej === 'najem') return { href: '#/najmy/nowy', tekst: 'Nowy najem' };
     return { href: '#/klienci', tekst: 'Klienci' };
   },
@@ -392,10 +440,22 @@ export default {
     if (parametr === 'nowy') return formularzKlienta(s, null);
     const klient = s.indeksy.klienci.get(parametr);
     if (!klient) return pustyStan('Nie znaleziono klienta.', [{ tekst: 'Wróć do listy', href: '#/klienci' }]);
+    if (akcja === 'notatka') return formularzNotatki(s, klient);
     return akcja === 'edycja' ? formularzKlienta(s, klient) : karta(s, klient);
   },
 
   akcje: {
+    async 'usun-notatke'(el, ctx) {
+      const id = el.dataset.id;
+      try {
+        await ctx.db.usun('client_notes', id);
+        ctx.state.dane = { ...ctx.state.dane, client_notes: ctx.state.dane.client_notes.filter((n) => n.id !== id) };
+        ctx.toast('Usunięto notatkę');
+        ctx.render();
+      } catch (e) {
+        ctx.toast(e.message);
+      }
+    },
     'rok-kartoteki'(el, ctx) {
       ctx.state.ui.kartotekaRok = el.dataset.wartosc;
       ctx.render();
@@ -467,6 +527,34 @@ export default {
   },
 
   formularze: {
+    async notatka(form, ctx) {
+      const s = ctx.state;
+      const klientId = s.ui.parametr;
+      const w = wartosciFormularza(form);
+      const kind = w.kind in RODZAJE_NOTATEK ? w.kind : 'notatka';
+      const bledy = {};
+      const body = String(w.body ?? '').trim();
+      if (!body) bledy.body = 'Wpisz treść.';
+      else if (body.length > 1000) bledy.body = 'Najwyżej 1000 znaków.';
+      let promised_on = null;
+      let promised_gr = null;
+      if (kind === 'obietnica') {
+        promised_on = /^\d{4}-\d{2}-\d{2}$/.test(w.promised_on ?? '') ? w.promised_on : null;
+        if (!promised_on) bledy.promised_on = 'Podaj datę.';
+        if (String(w.promised_gr ?? '').trim()) {
+          promised_gr = parseKwota(w.promised_gr);
+          if (promised_gr == null || promised_gr <= 0) bledy.promised_gr = 'Podaj kwotę większą od zera albo zostaw puste.';
+        }
+      }
+      if (maBledy(ctx, w, bledy)) return;
+      await zapisz(ctx, async () => {
+        const n = await ctx.db.wstaw('client_notes', { client_id: klientId, kind, body, promised_on, promised_gr });
+        ctx.scal({ client_notes: [n] });
+        ctx.toast('Zapisano notatkę');
+        ctx.nawiguj(`klienci/${encodeURIComponent(klientId)}`);
+      });
+    },
+
     async klient(form, ctx) {
       const s = ctx.state;
       const k = s.ui.parametr === 'nowy' ? null : s.indeksy.klienci.get(s.ui.parametr);

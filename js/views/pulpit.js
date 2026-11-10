@@ -82,17 +82,31 @@ function listaBrakujacych(b, dzis) {
   }).join('')}</ul>`;
 }
 
-function listaDluznikow(d) {
+/** Ostatnia obietnica zapłaty klienta, a gdy jej brak – ostatnia notatka (8.1, karta 8). */
+function ostatniaNotatka(notatki, klientId, dzis) {
+  const jego = notatki.filter((n) => n.client_id === klientId).sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const obietnica = jego.find((n) => n.kind === 'obietnica' && n.promised_on);
+  if (obietnica) {
+    return `<span class="status ${obietnica.promised_on < dzis ? 'zalega' : 'czesciowo'}">obiecał${
+      obietnica.promised_gr ? ` ${formatZl(obietnica.promised_gr)}` : ''} do ${formatData(obietnica.promised_on)}</span>`;
+  }
+  return jego[0] ? esc(jego[0].body.length > 60 ? `${jego[0].body.slice(0, 60)}…` : jego[0].body) : '';
+}
+
+function listaDluznikow(d, s, dzis) {
   if (!d.length) return '<p class="wyciszony">Nikt nie zalega.</p>';
   const wiecej = d.length > LICZBA_DLUZNIKOW
     ? `<p><button type="button" class="link-btn" data-akcja="idz" data-ekran="klienci" data-filtr="dluznicy">Wszyscy dłużnicy (${d.length}) ›</button></p>` : '';
-  return `<ul class="lista">${d.slice(0, LICZBA_DLUZNIKOW).map(({ klient, r }) => `<li>
+  return `<ul class="lista">${d.slice(0, LICZBA_DLUZNIKOW).map(({ klient, r }) => {
+    const notatka = ostatniaNotatka(s.dane.client_notes, klient.id, dzis);
+    return `<li>
     <a class="wiersz" href="#/klienci/${encodeURIComponent(klient.id)}">
       <div class="glowna"><strong>${esc(klient.name)}</strong>
-        <span>ostatnia wpłata: ${r.ostatniaWplata ? formatData(r.ostatniaWplata) : 'brak'}</span></div>
+        <span>${notatka || `ostatnia wpłata: ${r.ostatniaWplata ? formatData(r.ostatniaWplata) : 'brak'}`}</span></div>
       <div class="prawa"><div class="kwota">${formatZl(-r.zalegloscGr)}</div>
         <div class="maly"><span class="status zalega">${dni(r.dniPoTerminie)} po terminie</span></div></div>
-    </a></li>`).join('')}</ul>${wiecej}`;
+    </a></li>`;
+  }).join('')}</ul>${wiecej}`;
 }
 
 function oblozenie(s, dzis) {
@@ -141,7 +155,7 @@ export default {
         <section class="karta" aria-labelledby="k-brakujace"><h2 id="k-brakujace">Brakujące wpłaty w ${miesiacW}</h2>
           ${listaBrakujacych(p.brakujace, p.dzis)}</section>
         <section class="karta" aria-labelledby="k-dluznicy"><h2 id="k-dluznicy">Najwięksi dłużnicy</h2>
-          ${listaDluznikow(p.dluznicy)}</section>
+          ${listaDluznikow(p.dluznicy, s, p.dzis)}</section>
         <section class="karta" aria-labelledby="k-oblozenie"><h2 id="k-oblozenie">Obłożenie</h2>
           ${oblozenie(s, p.dzis)}</section>
         <section class="karta" aria-labelledby="k-ryczalt"><h2 id="k-ryczalt">Ryczałt</h2>

@@ -546,3 +546,4 @@ fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 .kwadrat.czeka { background: transparent; box-shadow: inset 0 0 0 2px var(--line); }
 .karta.szeroka { grid-column: 1 / -1; }
 .tabela .kwota { text-align: right; white-space: nowrap; }
+.tekst-notatki { display: block; color: var(--text); white-space: pre-wrap; margin-top: 2px; }
