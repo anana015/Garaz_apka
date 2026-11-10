@@ -52,8 +52,8 @@ export async function zapisz(ctx, dzialanie) {
     ctx.render();
     return;
   }
-  if (ctx.state.offline) {
-    f.blad = 'Brak internetu. Zapis wymaga połączenia.';
+  if (ctx.state.offline || ctx.state.zKopii) {
+    f.blad = 'Brak połączenia z serwerem. Zapis wymaga połączenia.';
     ctx.render();
     return;
   }

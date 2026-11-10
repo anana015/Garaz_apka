@@ -1,5 +1,5 @@
 // Service worker (rozdz. 3, „Offline”): pliki aplikacji w pamięci podręcznej.
-// Dane z Supabase NIE są tu buforowane – kopię danych trzyma db.js w IndexedDB (krok 1d).
+// Dane z Supabase NIE są tu buforowane – kopię ostatnio pobranych danych trzyma db.js w IndexedDB.
 //
 // Strategia:
 //  - kod i style (HTML, JS, CSS): najpierw sieć, bez sieci kopia – po wdrożeniu nowej wersji
@@ -8,7 +8,7 @@
 // Po dodaniu pliku do aplikacji dopisz go do PLIKI (pilnuje tego tests/pwa.test.js)
 // i podnieś WERSJA, żeby stara pamięć podręczna została usunięta.
 
-const WERSJA = 'najem-0.6.0';
+const WERSJA = 'najem-0.7.0';
 const LIMIT_SIECI_MS = 4000;   // słaby zasięg: po 4 s pokaż kopię, jeśli jest
 
 const PLIKI = [
@@ -25,6 +25,8 @@ const PLIKI = [
   'js/zadania.js',
   'js/statystyki.js',
   'js/podatek.js',
+  'js/kopia.js',
+  'js/eksport.js',
   'js/dane.js',
   'js/db.js',
   'js/formularz.js',

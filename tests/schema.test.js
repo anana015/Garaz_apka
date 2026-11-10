@@ -249,3 +249,46 @@ test('migracja 001: stare ograniczenie typu (3 typy) zmienia na 4 typy; typ „b
   await db.exec(`delete from units where code = 'B-STARY'`);
   await db.exec(migracja);
 });
+
+/** Kopia jak z aplikacji: wszystkie wiersze użytkownika z każdej tabeli. */
+async function kopiaUzytkownika(userId) {
+  const p = {};
+  for (const t of TABELE) p[t] = (await db.query(`select to_jsonb(x) as w from ${t} x where user_id = $1`, [userId])).rows.map((r) => r.w);
+  return p;
+}
+
+test('wczytaj_kopie: zastępuje dane użytkownika kopią, nadpisuje user_id, nie rusza innych kont', async () => {
+  await jako(A);
+  await db.exec('reset role');
+  const liczbaB = (await db.query('select count(*)::int as n from units where user_id = $1', [B])).rows[0].n;
+  await jako(A);
+  const kopia = await kopiaUzytkownika(A);
+  assert.ok(kopia.units.length > 0 && kopia.rentals.length > 0 && kopia.payments.length > 0, 'są dane do kopii');
+  // zmiany po zrobieniu kopii – po wczytaniu mają zniknąć
+  await db.query("insert into units (code, type) values ('PO-KOPII', 'garaz')");
+  await db.query("update settings set tolerance_days = 9 where user_id = $1", [A]);
+  // wiersz z cudzym user_id w pliku – funkcja i tak zapisze go jako A
+  kopia.client_notes = [...kopia.client_notes, { id: crypto.randomUUID(), user_id: B, client_id: kopia.clients[0].id,
+    kind: 'notatka', body: 'z kopii', created_at: '2026-11-11T08:00:00Z' }];
+
+  const { rows: [{ w }] } = await db.query('select public.wczytaj_kopie($1) as w', [kopia]);
+  assert.equal(w.units, kopia.units.length);
+  assert.equal(w.payments, kopia.payments.length);
+  const { rows: jednostki } = await db.query("select 1 from units where code = 'PO-KOPII'");
+  assert.equal(jednostki.length, 0, 'zmiany po kopii zniknęły');
+  assert.equal((await db.query('select tolerance_days from settings')).rows[0].tolerance_days, kopia.settings[0].tolerance_days);
+  assert.equal((await db.query("select user_id from client_notes where body = 'z kopii'")).rows[0].user_id, A);
+  await db.exec('reset role');
+  assert.equal((await db.query('select count(*)::int as n from units where user_id = $1', [B])).rows[0].n, liczbaB, 'konto B bez zmian');
+});
+
+test('wczytaj_kopie: błąd w kopii cofa wszystko (dane sprzed wczytania zostają)', async () => {
+  await jako(A);
+  const kopia = await kopiaUzytkownika(A);
+  const przed = (await db.query('select count(*)::int as n from rentals')).rows[0].n;
+  const zla = { ...kopia, rentals: [...kopia.rentals, { ...kopia.rentals[0], id: crypto.randomUUID() }] };   // nakładający się najem
+  await assert.rejects(db.query('select public.wczytaj_kopie($1)', [zla]), /rentals_no_overlap/);
+  assert.equal((await db.query('select count(*)::int as n from rentals')).rows[0].n, przed);
+  await jako('');   // sesja bez zalogowanego użytkownika: auth.uid() = null
+  await oczekujBledu('select public.wczytaj_kopie($1)', [kopia], /Brak zalogowanego/);
+});

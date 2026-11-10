@@ -3,18 +3,17 @@
 
 import { TYPY_JEDNOSTEK } from '../config.js';
 import { najemTrwa, pelneMiesiaceWplat } from '../dane.js';
-import { doCsv } from '../csv.js';
 import { formularz, maBledy, pole, stanFormularza, wartosciFormularza, zapisz } from '../formularz.js';
 import {
-  etykietaKwartalu, NAGLOWEK_CSV, progRoku, STATUSY_KWARTALU, wierszeCsv, zestawienieRoku,
+  etykietaKwartalu, progRoku, STATUSY_KWARTALU, zestawienieRoku,
 } from '../podatek.js';
-import { filtry, pobierzPlik, pustyStan } from '../ui.js';
+import { filtry, pustyStan } from '../ui.js';
 import {
   esc, dzisiaj, etykietaMiesiaca, formatData, formatRachunek, formatZl, kwotaDoPola, MIESIACE_KROTKO, porownajKody,
 } from '../utils.js';
 import { limityVat, przychodKasowy, przychodMiesiecznie, PROGI_VAT, wiekowanie, zakresOkresu } from '../statystyki.js';
 import { walidujWplateRyczaltu } from '../walidacja.js';
-import { opisProgu, rozliczeniaKlientow, ustawienia, wyborMiesiaca, pokazWybranyMiesiac } from './wspolne.js';
+import { opisProgu, pobierzEksport, rozliczeniaKlientow, ustawienia, wyborMiesiaca, pokazWybranyMiesiac } from './wspolne.js';
 
 const MIN_PELNYCH_MIESIECY = 2;   // 9 i 12.3
 
@@ -94,7 +93,8 @@ function kartaDluznikow(s) {
       <tbody>${w.map((x) => `<tr><td>${x.tekst}</td><td class="kwota">${formatZl(x.gr)}</td></tr>`).join('')}</tbody></table>
     <h3 class="maly">10 największych</h3>
     <ol class="ranking">${dluznicy.slice(0, 10).map(({ k, r }) => `<li><a href="#/klienci/${encodeURIComponent(k.id)}">${esc(k.name)}</a>
-      <span class="kwota">${formatZl(r.zalegloscGr)}</span> <span class="wyciszony maly">${r.dniPoTerminie} dni</span></li>`).join('')}</ol>`;
+      <span class="kwota">${formatZl(r.zalegloscGr)}</span> <span class="wyciszony maly">${r.dniPoTerminie} dni</span></li>`).join('')}</ol>
+    <p><button type="button" class="przycisk drugi" data-akcja="eksport" data-rodzaj="dluznicy">Dłużnicy (CSV)</button></p>`;
 }
 
 function kartaOblozenia(s) {
@@ -173,7 +173,7 @@ function kartaRyczaltu(s, rok) {
     <details class="historia-stawek"><summary>Przychód miesięcznie</summary>
       <table class="tabela"><tbody>${z.miesiace.map((m) => `<tr><td>${esc(etykietaMiesiaca(m.klucz))}</td>
         <td class="kwota">${formatZl(m.przychodGr)}</td></tr>`).join('')}</tbody></table></details>
-    <p><button type="button" class="przycisk drugi" data-akcja="csv-ryczaltu" data-rok="${rok}">Zestawienie do PIT-28 (CSV)</button></p>
+    <p><button type="button" class="przycisk drugi" data-akcja="eksport" data-rodzaj="ryczalt" data-rok="${rok}">Zestawienie do PIT-28 (CSV)</button></p>
     <p class="podpowiedz">Przychód kasowy: czynsz i inne przychody (przelewy, gotówka, zatrzymane kaucje), bez kaucji i wpłat pominiętych.
       Przychód kwartału i ryczałt zaokrąglone do pełnych złotych. Kwoty orientacyjne – nie zastępują księgowej.${
   u.tax_period === 'miesiac' ? ' W Ustawieniach wybrano wpłaty miesięczne – aplikacja liczy na razie kwartalnie.' : ''}</p>`;
@@ -248,10 +248,8 @@ export default {
   },
 
   akcje: {
-    'csv-ryczaltu'(el, ctx) {
-      const rok = Number(el.dataset.rok);
-      const z = zestawienieRoku(ctx.state.dane, { rok, dzis: dzisiaj(), ustawienia: ustawienia(ctx.state) });
-      pobierzPlik(`ryczalt_${rok}.csv`, doCsv([...NAGLOWEK_CSV], wierszeCsv(z)));
+    eksport(el, ctx) {
+      pobierzEksport(ctx.state, el.dataset.rodzaj, { rok: el.dataset.rok ? Number(el.dataset.rok) : undefined });
     },
     async 'usun-ryczalt'(el, ctx) {
       const s = ctx.state;

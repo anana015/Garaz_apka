@@ -25,6 +25,7 @@ export const state = {
   uzytkownik: null,            // { id, email }
   ladowanie: false,
   blad: null,                  // komunikat błędu pobierania danych
+  zKopii: null,                // znacznik czasu kopii z IndexedDB, gdy dane pochodzą z urządzenia (tylko odczyt)
   dane: pusteDane(),
   indeksy: zbudujIndeksy(pusteDane()),   // przeliczane w ustawDane()
   ui: {

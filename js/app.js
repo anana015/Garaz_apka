@@ -36,6 +36,7 @@ const $ = (id) => document.getElementById(id);
 /** Dopisuje zapisane wiersze do stanu i przelicza indeksy (bez pobierania wszystkiego od nowa). */
 function scal(zmiany) {
   ustawDane(scalDane(state.dane, zmiany));
+  if (state.uzytkownik && !state.podglad) db.zapiszLokalnie(state.uzytkownik, state.dane);
 }
 
 /** Kontekst przekazywany do akcji widoków. */
@@ -128,7 +129,11 @@ function banery() {
     b.push(`<div class="baner ostrzezenie" role="note"><span><strong>Tryb podglądu.</strong>
       Brak konfiguracji Supabase w js/config.js – dane nie są pobierane ani zapisywane.</span></div>`);
   }
-  if (state.offline) {
+  if (state.zKopii) {
+    b.push(`<div class="baner ostrzezenie" role="status"><span>${state.offline ? 'Brak internetu.' : 'Brak połączenia z serwerem.'}
+      Widzisz dane zapisane na tym urządzeniu ${esc(znacznikCzasu(state.zKopii))} – tylko do odczytu.
+      <button type="button" class="link-btn" data-akcja="ponow">Spróbuj ponownie</button></span></div>`);
+  } else if (state.offline) {
     b.push('<div class="baner ostrzezenie" role="status">Brak internetu. Widzisz ostatnio pobrane dane; zmiany wymagają połączenia.</div>');
   }
   if (state.blad) {
@@ -291,6 +296,21 @@ function poWyslaniu(ev) {
 // Dane i sesja
 // ---------------------------------------------------------------------
 
+/** „11.11.2026, 08:15” – kiedy zapisano kopię lokalną. */
+function znacznikCzasu(iso) {
+  return new Date(iso).toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+/** Dane z kopii na urządzeniu (tryb offline, tylko odczyt). Zwraca true, gdy kopia należy do tego użytkownika. */
+async function zKopiiLokalnej(userId = null) {
+  const k = await db.wczytajLokalnie();
+  if (!k?.dane || (userId && k.userId !== userId)) return false;
+  ustawDane(k.dane);
+  state.zKopii = k.zapisano;
+  if (!state.uzytkownik) state.uzytkownik = { id: k.userId, email: k.email };
+  return true;
+}
+
 async function wczytajDane() {
   if (state.podglad || !state.uzytkownik) return;
   state.ladowanie = true;
@@ -299,8 +319,12 @@ async function wczytajDane() {
   try {
     await db.zapewnijUstawienia(state.uzytkownik.id);
     ustawDane(await db.pobierzWszystko());
+    state.zKopii = null;
+    db.zapiszLokalnie(state.uzytkownik, state.dane);
   } catch (e) {
-    state.blad = e.message;
+    // Brak połączenia: ostatnio pobrane dane z urządzenia. Inne błędy (np. sesja) – komunikat.
+    const siec = state.offline || /fetch|network|połączenia/i.test(e.message);
+    if (!siec || !await zKopiiLokalnej(state.uzytkownik.id)) state.blad = e.message;
   } finally {
     state.ladowanie = false;
     render();
@@ -312,7 +336,9 @@ async function poZmianieSesji(sesja) {
   if (user?.id === state.uzytkownik?.id && state.faza !== 'start') return;   // np. odświeżenie tokenu
   if (!user) {
     if (state.faza === 'logowanie') return;   // nie kasuj wpisywanego formularza
+    db.wyczyscLokalnie();                      // wylogowanie: dane klientów nie zostają na urządzeniu
     state.uzytkownik = null;
+    state.zKopii = null;
     ustawDane(pusteDane());
     state.faza = 'logowanie';
     render();
@@ -335,7 +361,11 @@ async function start() {
   document.addEventListener('change', poZmianie);
   document.addEventListener('submit', poWyslaniu);
   window.addEventListener('hashchange', poZmianieAdresu);
-  window.addEventListener('online', () => { state.offline = false; render(); });
+  window.addEventListener('online', () => {
+    state.offline = false;
+    if (state.zKopii) wczytajDane();   // wróciło połączenie – pobierz aktualne dane
+    else render();
+  });
   window.addEventListener('offline', () => { state.offline = true; render(); });
 
   Object.assign(state.ui, czytajAdres(), { adres: location.hash });
@@ -351,6 +381,12 @@ async function start() {
     await poZmianieSesji(await db.pobierzSesje());
     await db.nasluchujSesji(poZmianieSesji);
   } catch (e) {
+    // Start bez internetu (np. nie da się odświeżyć sesji): pokaż dane z urządzenia, jeśli są.
+    if (await zKopiiLokalnej()) {
+      state.faza = 'aplikacja';
+      render();
+      return;
+    }
     state.faza = 'logowanie';
     state.blad = e.message;
     render();

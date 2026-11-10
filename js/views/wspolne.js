@@ -1,7 +1,11 @@
 // Fragmenty używane przez kilka widoków.
 
 import { DOMYSLNE_USTAWIENIA } from '../config.js';
+import { doCsv } from '../csv.js';
+import { eksportDluznikow, eksportJednostek, eksportKlientow, eksportWplat } from '../eksport.js';
+import { NAGLOWEK_CSV, wierszeCsv, zestawienieRoku } from '../podatek.js';
 import { rozliczenia } from '../rozliczenia.js';
+import { pobierzPlik } from '../ui.js';
 import {
   esc, dzisiaj, kluczMiesiaca, zakresMiesiecy, etykietaMiesiaca, formatData, formatProcentBp, formatZl, MIESIACE_KROTKO,
 } from '../utils.js';
@@ -64,4 +68,33 @@ export function opisProgu(p, u) {
   formatProcentBp(u.tax_rate_high_bp)})<br>
       <span class="kwota">${formatZl(p.sumaGr)}</span> od początku roku (${Math.round(p.udzial * 100)}%)</p>
     ${pasekPostepu(p.udzial, klasa)}<p class="maly">${opis}</p></div>`;
+}
+
+/** Eksporty CSV (rozdz. 10) – wspólne dla Ustawień i Raportów. rodzaj: klienci | jednostki | wplaty | dluznicy | ryczalt. */
+export const EKSPORTY = Object.freeze({
+  klienci: 'Klienci',
+  jednostki: 'Jednostki',
+  wplaty: 'Wpłaty',
+  dluznicy: 'Dłużnicy',
+  ryczalt: 'Ryczałt (PIT-28)',
+});
+
+export function pobierzEksport(s, rodzaj, { rok } = {}) {
+  const dzis = dzisiaj();
+  const u = ustawienia(s);
+  const o = { dzis, ustawienia: u };
+  let wynik;
+  let nazwa;
+  if (rodzaj === 'klienci') [wynik, nazwa] = [eksportKlientow(s.dane, o), 'klienci'];
+  else if (rodzaj === 'jednostki') [wynik, nazwa] = [eksportJednostek(s.dane, o), 'jednostki'];
+  else if (rodzaj === 'wplaty') {
+    wynik = eksportWplat(s.dane, rok ? { od: `${rok}-01-01`, do: `${rok}-12-31` } : {});
+    nazwa = rok ? `wplaty_${rok}` : 'wplaty';
+  } else if (rodzaj === 'dluznicy') [wynik, nazwa] = [eksportDluznikow(s.dane, o), 'dluznicy'];
+  else if (rodzaj === 'ryczalt') {
+    const r = rok ?? Number(dzis.slice(0, 4));
+    wynik = { naglowek: [...NAGLOWEK_CSV], wiersze: wierszeCsv(zestawienieRoku(s.dane, { rok: r, dzis, ustawienia: u })) };
+    nazwa = `ryczalt_${r}`;
+  } else return;
+  pobierzPlik(`${nazwa}_${dzis}.csv`, doCsv(wynik.naglowek, wynik.wiersze));
 }

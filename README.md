@@ -2,7 +2,7 @@
 
 Aplikacja PWA do śledzenia czynszów za jednostki magazynowe: kto zapłacił, kto zalega, ile wpłynęło i ile ryczałtu zapłacić. Specyfikacja: „Najem magazynów – specyfikacja” v0.1 (projekt „Magazyny – apka, obsługa”).
 
-**Stan (0.6.0):** kroki 1a–1c gotowe; krok 1d w toku – Raporty (przychód, limity VAT, dłużnicy, jednostki, obłożenie) oraz ryczałt kwartalny (`js/podatek.js`): kwartały z terminami, wpłaty ryczałtu, próg 100 000 zł, karta i pasek na pulpicie, zestawienie do PIT-28 w CSV. Zostały eksporty CSV, kopia zapasowa i tryb offline. Szczegóły: dokument „stan-kodu” w projekcie.
+**Stan (0.7.0):** kroki 1a–1d zaimplementowane – Raporty, ryczałt kwartalny (`js/podatek.js`), eksporty CSV (`js/eksport.js`), kopia zapasowa JSON (`js/kopia.js` + funkcja `wczytaj_kopie`, migracja 004) i tryb offline (kopia ostatnio pobranych danych w IndexedDB, tylko odczyt). Do zrobienia z 1b: profile PKO BP i Alior. Szczegóły: dokument „stan-kodu” w projekcie.
 
 ## Uruchomienie lokalne
 
@@ -22,6 +22,9 @@ Otwórz <http://localhost:8080>. Bez konfiguracji Supabase aplikacja działa w *
    | Migracja | Zawartość | Potrzebna od |
    | --- | --- | --- |
    | `001_zapisz_pakiet.sql` | 4 typy jednostek (decyzja 3), funkcja `zapisz_pakiet` (zapis kilku tabel w jednej transakcji), ograniczenia z formularzy 8.6, indeksy kluczy obcych i `user_id` | 0.2.0 – bez niej nowy najem, koniec najmu i dane startowe pokażą komunikat o brakującej funkcji |
+   | `002_miejsce_platnosci.sql` | gdzie klient płaci przy najmie (przelew na konto, gotówka, FV), bank Millennium | 0.2.x |
+   | `003_zadania.sql` | notatki z terminem jako zadania (`task_owner`, `done_at`) | 0.4.0 |
+   | `004_wczytaj_kopie.sql` | funkcja `wczytaj_kopie` – wczytanie kopii zapasowej JSON w jednej transakcji | 0.7.0 – bez niej „Wczytaj kopię” pokaże komunikat o brakującej funkcji |
 3. W **Authentication**:
    - wyłącz zakładanie nowych kont (sign-ups) – aplikacja ma jednego użytkownika,
    - dodaj użytkownika (e-mail i hasło) w zakładce **Users**,

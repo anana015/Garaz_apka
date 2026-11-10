@@ -1,5 +1,5 @@
 // Odczyt i zapis danych w Supabase. Jedyny moduł, który rozmawia z bazą.
-// Kopia w IndexedDB (tryb offline) – krok 1d.
+// Kopia ostatnio pobranych danych w IndexedDB (tryb offline, rozdz. 3): bez internetu tylko podgląd.
 
 import { CONFIG, TABELE } from './config.js';
 
@@ -145,7 +145,9 @@ export function komunikatZapisu(error) {
       : 'Wskazany wpis nie istnieje. Odśwież dane i spróbuj ponownie.';
     case '23514': return `Baza odrzuciła nieprawidłową wartość (${/"([^"]+)"/.exec(m)?.[1] ?? 'ograniczenie'}).`;
     case '42501': return 'Brak uprawnień do zapisu. Zaloguj się ponownie.';
-    case 'PGRST202': return 'W bazie brakuje funkcji zapisz_pakiet. Uruchom w Supabase plik supabase/migracje/001_zapisz_pakiet.sql.';
+    case 'PGRST202': return /wczytaj_kopie/.test(m)
+      ? 'W bazie brakuje funkcji wczytaj_kopie. Uruchom w Supabase plik supabase/migracje/004_wczytaj_kopie.sql.'
+      : 'W bazie brakuje funkcji zapisz_pakiet. Uruchom w Supabase plik supabase/migracje/001_zapisz_pakiet.sql.';
     case 'PGRST116': return 'Nie znaleziono wpisu – mógł zostać zmieniony na innym urządzeniu. Odśwież dane.';
     default: break;
   }
@@ -225,4 +227,56 @@ export async function usun(tabela, id) {
 export async function zmienWiele(tabela, ids, zmiany) {
   if (!ids.length) return [];
   return sprawdz(await (await polacz()).from(tabela).update(zmiany).in('id', ids).select());
+}
+
+/**
+ * Wczytanie kopii zapasowej (rozdz. 10): funkcja wczytaj_kopie z migracji 004 zastępuje wszystkie dane
+ * w jednej transakcji. tabele = pole tables z pliku kopii. Zwraca liczby wierszy: { units: 64, … }.
+ */
+export async function wczytajKopie(tabele) {
+  return sprawdz(await (await polacz()).rpc('wczytaj_kopie', { p: tabele }));
+}
+
+// ---------------------------------------------------------------------
+// Kopia lokalna w IndexedDB (tryb offline). Jeden wpis: ostatnio pobrane dane zalogowanego użytkownika.
+// Każdy błąd IndexedDB (np. tryb prywatny Safari) jest cichy – aplikacja działa wtedy tylko online.
+// ---------------------------------------------------------------------
+
+const IDB_NAZWA = 'najem-offline';
+const IDB_MAGAZYN = 'dane';
+const IDB_KLUCZ = 'ostatnie';
+
+function idb(tryb, dzialanie) {
+  return new Promise((ok, blad) => {
+    if (typeof indexedDB === 'undefined') {
+      blad(new Error('Brak IndexedDB'));
+      return;
+    }
+    const otwarcie = indexedDB.open(IDB_NAZWA, 1);
+    otwarcie.onupgradeneeded = () => otwarcie.result.createObjectStore(IDB_MAGAZYN);
+    otwarcie.onerror = () => blad(otwarcie.error);
+    otwarcie.onsuccess = () => {
+      const baza = otwarcie.result;
+      const tx = baza.transaction(IDB_MAGAZYN, tryb);
+      const zadanie = dzialanie(tx.objectStore(IDB_MAGAZYN));
+      tx.oncomplete = () => { baza.close(); ok(zadanie.result); };
+      tx.onerror = () => { baza.close(); blad(tx.error); };
+    };
+  });
+}
+
+/** Zapamiętuje dane po pobraniu i po każdym zapisie. { userId, email, dane, zapisano }. */
+export function zapiszLokalnie(uzytkownik, dane) {
+  return idb('readwrite', (m) => m.put({ userId: uzytkownik.id, email: uzytkownik.email, dane,
+    zapisano: new Date().toISOString() }, IDB_KLUCZ)).catch(() => null);
+}
+
+/** Ostatnia kopia lokalna albo null. */
+export function wczytajLokalnie() {
+  return idb('readonly', (m) => m.get(IDB_KLUCZ)).then((w) => w ?? null, () => null);
+}
+
+/** Usuwa kopię lokalną (wylogowanie – dane osobowe klientów nie zostają na urządzeniu). */
+export function wyczyscLokalnie() {
+  return idb('readwrite', (m) => m.delete(IDB_KLUCZ)).catch(() => null);
 }

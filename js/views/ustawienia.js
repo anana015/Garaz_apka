@@ -1,18 +1,20 @@
 // Ustawienia (8.8): konta bankowe, rozliczenia, podatek, dane i konto.
 // Adresy: #/ustawienia, #/ustawienia/edycja, #/ustawienia/konto/nowe, #/ustawienia/konto/<id>,
-//         #/ustawienia/dane-startowe (import z szablonów CSV, 7.5 – views/startowe.js)
+//         #/ustawienia/dane-startowe (import z szablonów CSV, 7.5 – views/startowe.js),
+//         #/ustawienia/kopia (wczytanie kopii zapasowej JSON, rozdz. 10)
 
 import { WERSJA, DNI_PRZYPOMNIENIA_KOPII } from '../config.js';
 import {
   formularz, maBledy, opcje, pole, przelacznik, sekcja, stanFormularza, wartosciFormularza, wybor, zapisz,
 } from '../formularz.js';
-import { przycisk, pustyStan, wPlanie } from '../ui.js';
+import { nazwaPlikuKopii, sprawdzKopie, zbudujKopie } from '../kopia.js';
+import { pobierzPlik, przycisk, pustyStan } from '../ui.js';
 import {
   esc, dzisiaj, dataZeZnacznika, formatData, formatZl, formatProcentBp, formatRachunek, kwotaDoPola, roznicaDni,
 } from '../utils.js';
 import { BANKI, walidujKonto, walidujUstawienia } from '../walidacja.js';
 import startowe from './startowe.js';
-import { ustawienia } from './wspolne.js';
+import { EKSPORTY, pobierzEksport, ustawienia } from './wspolne.js';
 
 function sekcjaKarty(id, tytul, tresc, edycja) {
   return `<section class="karta" aria-labelledby="u-${id}">
@@ -63,15 +65,23 @@ function przeglad(s) {
       ]), '#/ustawienia/edycja')}
       ${sekcjaKarty('dane', 'Dane', `${przypomnienieKopii(u)}${pola([['Data startu danych', formatData(u.data_start)]])}
         <div class="pasek-akcji">
+          ${przycisk({ tekst: 'Zapisz kopię', akcja: 'kopia' })}
+          ${przycisk({ tekst: 'Wczytaj kopię', href: '#/ustawienia/kopia', drugi: true })}
           ${przycisk({ tekst: 'Wczytaj dane startowe', href: '#/ustawienia/dane-startowe', drugi: true })}
-          ${przycisk({ tekst: 'Zapisz kopię', akcja: 'kopia', drugi: true })}
-        </div>`, '#/ustawienia/edycja')}
+        </div>
+        <p class="podpowiedz">Kopia to plik JSON ze wszystkimi danymi (bez plików PDF umów).
+          Plik zawiera dane osobowe klientów – przechowuj go w bezpiecznym miejscu.</p>`, '#/ustawienia/edycja')}
+      ${sekcjaKarty('eksporty', 'Eksporty CSV', `<p class="podpowiedz">Pliki dla Excela i księgowej: średnik, polskie znaki, kwoty z przecinkiem.</p>
+        <div class="pasek-akcji">${Object.entries(EKSPORTY).map(([rodzaj, tekst]) =>
+    `<button type="button" class="przycisk drugi" data-akcja="eksport" data-rodzaj="${rodzaj}">${esc(tekst)}</button>`).join('')}
+        </div>
+        <p class="podpowiedz">Wpłaty – wszystkie zapisane, z klientem, kontem i formą. Ryczałt – bieżący rok;
+          inne lata w Raportach (okres „Rok”).</p>`)}
       ${sekcjaKarty('konto', 'Konto', s.podglad
         ? '<p class="wyciszony">Tryb podglądu – brak logowania.</p>'
         : `${pola([['Zalogowano jako', esc(s.uzytkownik?.email ?? '—')]])}
            <div class="pasek-akcji">${przycisk({ tekst: 'Wyloguj', akcja: 'wyloguj', drugi: true, ikona: 'wyloguj' })}</div>`)}
     </div>
-    ${wPlanie('Kopia zapasowa i eksporty – krok 1d.')}
     <p class="wyciszony maly">Wersja ${esc(WERSJA)}</p>`;
 }
 
@@ -139,6 +149,63 @@ async function zapiszUstawienia(form, ctx) {
   });
 }
 
+
+// ---------------------------------------------------------------------
+// Kopia zapasowa (rozdz. 10)
+// ---------------------------------------------------------------------
+
+/** Pobiera plik kopii bieżących danych i zapisuje datę ostatniej kopii w ustawieniach. */
+async function zapiszKopie(ctx, { cicho = false } = {}) {
+  const s = ctx.state;
+  const teraz = new Date().toISOString();
+  pobierzPlik(nazwaPlikuKopii(teraz), JSON.stringify(zbudujKopie(s.dane, { wersjaAplikacji: WERSJA, teraz }), null, 1),
+    'application/json');
+  if (!s.podglad && !s.offline && !s.zKopii && s.uzytkownik) {
+    try {
+      ctx.scal({ settings: await ctx.db.zapiszUstawienia(s.uzytkownik.id, { last_backup_at: teraz }) });
+    } catch {
+      // Plik i tak został pobrany; data ostatniej kopii zapisze się następnym razem.
+    }
+  }
+  if (!cicho) ctx.toast('Kopia zapasowa zapisana. Plik zawiera dane osobowe klientów.');
+}
+
+const NAZWY_TABEL = {
+  units: 'jednostki', clients: 'klienci', contracts: 'umowy', rentals: 'najmy', rental_rates: 'stawki',
+  charge_adjustments: 'korekty', bank_accounts: 'konta', imports: 'importy', payments: 'wpłaty', payers: 'płatnicy',
+  deposits: 'ruchy kaucji', client_notes: 'notatki', tax_payments: 'wpłaty ryczałtu', settings: 'ustawienia',
+};
+
+function ekranKopii(s) {
+  const f = stanFormularza(s, 'ustawienia/kopia', () => ({ potwierdzam: '' }));
+  const p = f.podglad;
+  let podsumowanie = '';
+  if (p?.blad) podsumowanie = `<p class="blad-tekst" role="alert">${esc(p.blad)}</p>`;
+  else if (p?.kopia) {
+    const teraz = Object.fromEntries(Object.keys(NAZWY_TABEL).map((t) => [t, t === 'settings' ? (s.dane.settings ? 1 : 0) : s.dane[t].length]));
+    podsumowanie = `<p>Plik <strong>${esc(p.nazwa)}</strong> · zapisany ${esc(new Date(p.kopia.exported_at).toLocaleString('pl-PL'))}${
+      p.kopia.app_version ? ` · wersja ${esc(p.kopia.app_version)}` : ''}</p>
+      <div class="tabela-przewijana"><table class="tabela"><thead><tr><th scope="col">Dane</th>
+        <th scope="col" class="kwota">W kopii</th><th scope="col" class="kwota">Teraz</th></tr></thead>
+        <tbody>${Object.entries(NAZWY_TABEL).filter(([t]) => p.liczby[t] || teraz[t]).map(([t, nazwa]) => `<tr><td>${esc(nazwa)}</td>
+          <td class="kwota">${p.liczby[t]}</td><td class="kwota">${teraz[t]}</td></tr>`).join('')}</tbody></table></div>`;
+  }
+  return `<section class="karta">
+      <p class="baner ostrzezenie">Wczytanie kopii <strong>zastępuje wszystkie obecne dane</strong> danymi z pliku.
+        Najpierw pobiorę kopię obecnych danych, żeby można było wrócić.</p>
+      <div class="pole"><label for="plik-kopii">Plik kopii (.json)</label>
+        <input id="plik-kopii" type="file" accept=".json,application/json" data-zmiana="plik-kopii"></div>
+      ${podsumowanie}
+    </section>
+    ${p?.kopia ? formularz(f, {
+    nazwa: 'kopia',
+    uwaga: '',
+    przycisk: 'Wczytaj kopię',
+    anuluj: '#/ustawienia',
+    tresc: przelacznik(f, { nazwa: 'potwierdzam', etykieta: 'Rozumiem, że obecne dane zostaną zastąpione danymi z kopii' }),
+  }) : ''}`;
+}
+
 // ---------------------------------------------------------------------
 // Konto bankowe
 // ---------------------------------------------------------------------
@@ -184,6 +251,7 @@ export default {
     if (parametr === 'edycja') return 'Edycja ustawień';
     if (parametr === 'konto') return akcja === 'nowe' ? 'Nowe konto' : 'Konto bankowe';
     if (parametr === 'dane-startowe') return startowe.tytul(s);
+    if (parametr === 'kopia') return 'Wczytaj kopię';
     return 'Ustawienia';
   },
 
@@ -193,6 +261,7 @@ export default {
     const { parametr, akcja } = s.ui;
     if (parametr === 'edycja') return formularzUstawien(s);
     if (parametr === 'dane-startowe') return startowe.render(s);
+    if (parametr === 'kopia') return ekranKopii(s);
     if (parametr === 'konto') {
       const konto = akcja === 'nowe' ? null : s.indeksy.konta.get(akcja);
       if (akcja !== 'nowe' && !konto) return pustyStan('Nie znaleziono konta.', [{ tekst: 'Ustawienia', href: '#/ustawienia' }]);
@@ -202,7 +271,8 @@ export default {
   },
 
   akcje: {
-    kopia: (_el, ctx) => ctx.toast('Kopia zapasowa – krok 1d.'),
+    kopia: (_el, ctx) => zapiszKopie(ctx),
+    eksport: (el, ctx) => pobierzEksport(ctx.state, el.dataset.rodzaj),
     async wyloguj(el, ctx) {
       el.setAttribute('aria-disabled', 'true');
       try {
@@ -215,11 +285,39 @@ export default {
     ...startowe.akcje,
   },
 
-  zmiany: { ...startowe.zmiany },
+  zmiany: {
+    ...startowe.zmiany,
+    /** Wybór pliku kopii: odczyt i sprawdzenie przed zapisem (nic jeszcze nie zmienia w bazie). */
+    async 'plik-kopii'(el, ctx) {
+      const plik = el.files?.[0];
+      const f = stanFormularza(ctx.state, 'ustawienia/kopia', () => ({ potwierdzam: '' }));
+      if (!plik) return;
+      const wynik = sprawdzKopie(await plik.text());
+      f.podglad = { nazwa: plik.name, ...wynik };
+      f.wartosci = { potwierdzam: '' };
+      f.bledy = {};
+      ctx.render();
+    },
+  },
 
   formularze: {
     ustawienia: zapiszUstawienia,
     konto: zapiszKonto,
+    /** Wczytanie kopii: najpierw plik z obecnymi danymi, potem zastąpienie wszystkiego w jednej transakcji. */
+    async kopia(form, ctx) {
+      const f = ctx.state.ui.form;
+      const kopia = f?.podglad?.kopia;
+      if (!kopia) return;
+      const w = wartosciFormularza(form);
+      if (maBledy(ctx, w, w.potwierdzam === 'on' ? {} : { potwierdzam: 'Zaznacz, że rozumiesz skutki wczytania kopii.' })) return;
+      await zapisz(ctx, async () => {
+        await zapiszKopie(ctx, { cicho: true });
+        const liczby = await ctx.db.wczytajKopie(kopia.tables);
+        await ctx.odswiez();
+        ctx.toast(`Wczytano kopię: ${liczby.clients ?? 0} klientów, ${liczby.payments ?? 0} wpłat`);
+        ctx.nawiguj('pulpit');
+      });
+    },
     ...startowe.formularze,
   },
 };
