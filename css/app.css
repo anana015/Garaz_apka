@@ -536,3 +536,13 @@ fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 /* Saldo na karcie klienta (krok 1c) */
 .kwota.duza { font-size: 1.5rem; margin-right: 8px; }
 .kafelek.zalega .wartosc { color: var(--st-late-text); }
+
+/* Terminowość: 12 kwadratów (8.5) – kolor + opis w title i dla czytnika ekranu */
+.terminowosc { display: flex; gap: 4px; list-style: none; margin: 0 0 8px; padding: 0; flex-wrap: wrap; }
+.kwadrat { width: 22px; height: 22px; border-radius: 4px; background: var(--line); }
+.kwadrat.ok { background: var(--st-ok); }
+.kwadrat.spoznienie { background: var(--st-partial); }
+.kwadrat.brak-zaplaty { background: var(--st-late); }
+.kwadrat.czeka { background: transparent; box-shadow: inset 0 0 0 2px var(--line); }
+.karta.szeroka { grid-column: 1 / -1; }
+.tabela .kwota { text-align: right; white-space: nowrap; }

@@ -7,11 +7,14 @@ import {
 } from '../formularz.js';
 import { filtry, poleSzukaj, przycisk, pustyStan, wPlanie } from '../ui.js';
 import {
-  esc, dzisiaj, formatData, formatDataKrotka, formatRachunek, formatZl, kwotaDoPola, normalizujTekst, porownajKody,
+  esc, dzisiaj, etykietaMiesiaca, formatData, formatDataKrotka, formatRachunek, formatZl, kwotaDoPola, normalizujTekst, porownajKody,
 } from '../utils.js';
 import { saldoKaucji, walidujKlienta, walidujPdf } from '../walidacja.js';
 import { koniecUmowy } from './jednostki.js';
 import { rozliczeniaKlientow, ustawienia } from './wspolne.js';
+import { PROGI_TERMINOWOSCI } from '../config.js';
+import { doCsv } from '../csv.js';
+import { kartoteka, terminowosc } from '../rozliczenia.js';
 
 /** Klient aktywny: niezarchiwizowany i bez najmów albo z najmem, który się nie skończył. */
 function czyAktywny(klient, najmy, dzien) {
@@ -203,10 +206,69 @@ function saldo(s, klient, r, najmy, dzien) {
     const data = r.oplaconeDo.get(n.id);
     return `<dt class="mono">${esc(kod)}</dt><dd>${data ? `opłacone do ${formatData(data)}` : '<span class="wyciszony">nic nieopłacone</span>'}</dd>`;
   }).join('');
+  const t = wynikTerminowosci(s, r);
   return `${glowna}
+    <p class="maly">Terminowość: <strong>${esc(t.etykieta)}</strong></p>
     ${oplacone ? `<dl class="opis-pol">${oplacone}</dl>` : ''}
     <p class="podpowiedz">Ostatnia wpłata: ${r.ostatniaWplata ? formatData(r.ostatniaWplata) : 'brak'} ·
       <a href="#/wplaty/gotowka?klient=${encodeURIComponent(klient.id)}">dodaj gotówkę</a></p>`;
+}
+
+// ---------------------------------------------------------------------
+// Kartoteka rozrachunków i terminowość (8.5)
+// ---------------------------------------------------------------------
+
+function wierszeKartoteki(s, klient, r) {
+  const u = ustawienia(s);
+  const wplaty = s.dane.payments.filter((w) => w.client_id === klient.id && w.kind === 'czynsz');
+  return kartoteka({ pozycje: r.pozycje, wplaty, saldoOtwarcia: klient.opening_balance_gr ?? 0,
+    dataStart: u.data_start, dzis: dzisiaj() });
+}
+
+const kwotaLubNic = (gr) => (gr ? formatZl(gr) : '');
+
+function sekcjaKartoteki(s, klient, r) {
+  const wszystkie = wierszeKartoteki(s, klient, r);
+  if (!wszystkie.length) return '<p class="wyciszony">Brak należności i wpłat.</p>';
+  const lata = [...new Set(wszystkie.map((w) => w.data.slice(0, 4)))].sort();
+  const rok = lata.includes(s.ui.kartotekaRok) ? s.ui.kartotekaRok : lata.at(-1);
+  const wRoku = wszystkie.filter((w) => w.data.startsWith(rok));
+  const przed = wszystkie.filter((w) => w.data < `${rok}-01-01`).at(-1)?.saldoGr;
+  const przyciski = lata.length > 1 ? `<div class="filtry" role="group" aria-label="Rok">${lata.map((y) =>
+    `<button type="button" data-akcja="rok-kartoteki" data-wartosc="${y}" aria-pressed="${y === rok}">${y}</button>`).join('')}</div>` : '';
+  const saldoTekst = (gr) => `<span class="${gr < 0 ? 'status zalega' : ''}">${gr > 0 ? '+' : ''}${formatZl(gr)}</span>`;
+  return `${przyciski}
+    <div class="tabela-przewijana"><table class="tabela">
+      <thead><tr><th scope="col">Data</th><th scope="col">Opis</th><th scope="col" class="kwota">Winien</th>
+        <th scope="col" class="kwota">Ma</th><th scope="col" class="kwota">Saldo</th></tr></thead>
+      <tbody>
+        ${przed != null ? `<tr><td></td><td class="wyciszony">Saldo na początek ${rok}</td><td></td><td></td><td class="kwota">${saldoTekst(przed)}</td></tr>` : ''}
+        ${wRoku.map((w) => `<tr><td class="mono">${formatData(w.data)}</td><td>${esc(w.opis)}</td>
+          <td class="kwota">${kwotaLubNic(w.winienGr)}</td><td class="kwota">${kwotaLubNic(w.maGr)}</td>
+          <td class="kwota">${saldoTekst(w.saldoGr)}</td></tr>`).join('')}
+      </tbody></table></div>
+    <button type="button" class="link-btn" data-akcja="csv-kartoteki" data-rok="${rok}">Pobierz CSV (${rok})</button>`;
+}
+
+const STANY_MIESIECY = {
+  ok: 'terminowo', spoznienie: 'spóźnienie', 'brak-zaplaty': 'brak zapłaty', brak: 'brak należności', czeka: 'termin jeszcze nie minął',
+};
+
+function wynikTerminowosci(s, r) {
+  const u = ustawienia(s);
+  return terminowosc(r.pozycje, { dzis: dzisiaj(), tolerancja: u.tolerance_days,
+    miesiecy: u.punctuality_months ?? 12, progi: PROGI_TERMINOWOSCI });
+}
+
+function sekcjaTerminowosci(t) {
+  const kwadraty = t.miesiace.map((m) => {
+    const opisM = `${etykietaMiesiaca(m.klucz)}: ${STANY_MIESIECY[m.stan]}${m.dni && m.stan !== 'ok' ? ` (${m.dni} dni)` : ''}`;
+    return `<li class="kwadrat ${m.stan}" title="${esc(opisM)}"><span class="sr-only">${esc(opisM)}</span></li>`;
+  }).join('');
+  return `<ul class="terminowosc" aria-label="Terminowość w ostatnich miesiącach">${kwadraty}</ul>
+    <p><strong>${esc(t.etykieta)}</strong>${t.procent != null ? ` · ${Math.round(t.procent * 100)}% terminowo z ${t.liczba}` : ''}${
+  t.srednieOpoznienie ? ` · średnie opóźnienie ${t.srednieOpoznienie} dni` : ''}</p>
+    <p class="podpowiedz">Zielony – terminowo, bursztynowy – spóźnienie, czerwony – brak zapłaty, szary – brak należności.</p>`;
 }
 
 function karta(s, klient) {
@@ -235,6 +297,8 @@ function karta(s, klient) {
     </div>
     <div class="siatka">
       <section class="karta" aria-labelledby="k-saldo"><h2 id="k-saldo">Saldo</h2>${saldo(s, klient, r, najmy, dzien)}</section>
+      ${r ? `<section class="karta" aria-labelledby="k-terminowosc"><h2 id="k-terminowosc">Terminowość</h2>
+        ${sekcjaTerminowosci(wynikTerminowosci(s, r))}</section>` : ''}
       <section class="karta" aria-labelledby="k-kontakt"><h2 id="k-kontakt">Kontakt</h2>
         ${kontakt ? `<dl class="opis-pol">${kontakt}</dl>` : '<p class="wyciszony">Brak danych kontaktowych.</p>'}
         ${klient.note ? `<p class="notatka">${esc(klient.note)}</p>` : ''}</section>
@@ -243,9 +307,11 @@ function karta(s, klient) {
           : '<p class="wyciszony">Brak najmów.</p>'}</section>
       <section class="karta" aria-labelledby="k-kaucja"><h2 id="k-kaucja">Kaucja</h2>${kaucje(s, umowy)}</section>
       <section class="karta" aria-labelledby="k-dokumenty"><h2 id="k-dokumenty">Dokumenty</h2>${dokumenty(umowy)}</section>
+      ${r ? `<section class="karta szeroka" aria-labelledby="k-kartoteka"><h2 id="k-kartoteka">Kartoteka rozrachunków</h2>
+        ${sekcjaKartoteki(s, klient, r)}</section>` : ''}
       <section class="karta" aria-labelledby="k-platnicy"><h2 id="k-platnicy">Płatnicy</h2>${platnicy(s, klient)}</section>
     </div>
-    ${wPlanie('Kartoteka rozrachunków, terminowość i notatki – kolejne porcje kroku 1c.')}`;
+    ${wPlanie('Notatki i obietnice zapłaty – kolejna porcja kroku 1c.')}`;
 }
 
 // ---------------------------------------------------------------------
@@ -330,6 +396,28 @@ export default {
   },
 
   akcje: {
+    'rok-kartoteki'(el, ctx) {
+      ctx.state.ui.kartotekaRok = el.dataset.wartosc;
+      ctx.render();
+    },
+    'csv-kartoteki'(el, ctx) {
+      const s = ctx.state;
+      const klient = s.indeksy.klienci.get(s.ui.parametr);
+      const r = klient && rozliczeniaKlientow(s).get(klient.id);
+      if (!r) return;
+      const rok = el.dataset.rok;
+      const zl = (gr) => (gr ? (gr / 100).toFixed(2).replace('.', ',') : '');
+      const wiersze = wierszeKartoteki(s, klient, r).filter((w) => w.data.startsWith(rok))
+        .map((w) => [w.data, w.opis, zl(w.winienGr), zl(w.maGr), (w.saldoGr / 100).toFixed(2).replace('.', ',')]);
+      const url = URL.createObjectURL(new Blob([doCsv(['data', 'opis', 'winien', 'ma', 'saldo'], wiersze)],
+        { type: 'text/csv;charset=utf-8' }));
+      const nazwa = `kartoteka_${klient.name.replace(/[^\p{L}\p{N}]+/gu, '_')}_${rok}.csv`;
+      const a = Object.assign(document.createElement('a'), { href: url, download: nazwa });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
     pdf(el, ctx) {
       otworzPdf(ctx, el.dataset.sciezka);
     },

@@ -125,3 +125,99 @@ export function rozliczenia(dane, { dataStart, dzis, tolerancja = 0 }) {
   pamiec.set(dane, { klucz, wynik });
   return wynik;
 }
+
+// ---------------------------------------------------------------------
+// Kartoteka rozrachunków (8.5)
+// ---------------------------------------------------------------------
+
+const OPIS_WPLATY = { przelew: 'Wpłata przelewem', gotowka: 'Wpłata gotówką', kaucja: 'Pokrycie z kaucji' };
+
+/**
+ * Pozycje kartoteki od najstarszej: należności z terminem do dziś (Winien) i wpłaty czynszowe (Ma),
+ * z saldem narastająco. Przy tej samej dacie najpierw należność, potem wpłata.
+ * @returns {Array<{data, opis, winienGr, maGr, saldoGr}>}
+ */
+export function kartoteka({ pozycje, wplaty, saldoOtwarcia = 0, dataStart, dzis }) {
+  const wiersze = [];
+  if (saldoOtwarcia) {
+    wiersze.push({ data: dataStart, kolej: 0, opis: 'Saldo otwarcia',
+      winienGr: saldoOtwarcia < 0 ? -saldoOtwarcia : 0, maGr: saldoOtwarcia > 0 ? saldoOtwarcia : 0 });
+  }
+  for (const p of pozycje) {
+    if (p.otwarcie || p.termin > dzis) continue;
+    const okres = `${p.poczatek.slice(8, 10)}.${p.poczatek.slice(5, 7)}–${p.koniec.slice(8, 10)}.${p.koniec.slice(5, 7)}`;
+    wiersze.push({ data: p.termin, kolej: 1, opis: `Należność ${p.kod} za ${okres}`, winienGr: p.kwotaGr, maGr: 0 });
+  }
+  for (const w of wplaty) {
+    if (w.booked_on > dzis) continue;
+    const opis = w.amount_gr < 0 ? 'Zwrot nadpłaty' : OPIS_WPLATY[w.method] ?? 'Wpłata';
+    wiersze.push({ data: w.booked_on, kolej: 2, opis: w.title ? `${opis} · ${w.title}` : opis,
+      winienGr: w.amount_gr < 0 ? -w.amount_gr : 0, maGr: w.amount_gr > 0 ? w.amount_gr : 0 });
+  }
+  wiersze.sort((a, b) => a.data.localeCompare(b.data) || a.kolej - b.kolej);
+  let saldo = 0;
+  return wiersze.map(({ kolej, ...w }) => {
+    saldo += w.maGr - w.winienGr;
+    return { ...w, saldoGr: saldo };
+  });
+}
+
+// ---------------------------------------------------------------------
+// Terminowość (5.5)
+// ---------------------------------------------------------------------
+
+/**
+ * @param {Array} pozycje wynik rozliczKlienta().pozycje
+ * @param {{dzis, tolerancja, miesiecy, progi}} o progi = PROGI_TERMINOWOSCI z config.js
+ * @returns {{ miesiace: [{klucz, stan:'brak'|'ok'|'spoznienie'|'brak-zaplaty'|'czeka', dni}], procent, srednieOpoznienie,
+ *   liczba, etykieta }}
+ */
+export function terminowosc(pozycje, { dzis, tolerancja = 0, miesiecy = 12, progi }) {
+  const [y, m] = dzis.split('-').map(Number);
+  const klucze = [];
+  for (let i = miesiecy - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(y, m - 1 - i, 1));
+    klucze.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+  }
+  const od = `${klucze[0]}-01`;
+  const oceny = [];
+  for (const p of pozycje) {
+    if (p.otwarcie || p.termin < od || p.termin > dzis || !p.kwotaGr) continue;
+    const granica = roznicaDni(p.termin, dzis);
+    const zaplacona = p.zaplaconoGr >= p.kwotaGr && p.zaplaconoDnia;
+    if (!zaplacona && granica <= tolerancja) { oceny.push({ p, stan: 'czeka' }); continue; }
+    const opoznienie = zaplacona ? Math.max(0, roznicaDni(p.termin, p.zaplaconoDnia)) : granica;
+    if (zaplacona && opoznienie <= tolerancja) oceny.push({ p, stan: 'ok', dni: 0 });
+    else oceny.push({ p, stan: zaplacona ? 'spoznienie' : 'brak-zaplaty', dni: opoznienie });
+  }
+
+  const miesiace = klucze.map((klucz) => {
+    const w = oceny.filter((o) => o.p.termin.startsWith(klucz));
+    const dni = Math.max(0, ...w.map((o) => o.dni ?? 0));
+    let stan = 'brak';
+    if (w.some((o) => o.stan === 'brak-zaplaty')) stan = 'brak-zaplaty';
+    else if (w.some((o) => o.stan === 'spoznienie')) stan = 'spoznienie';
+    else if (w.some((o) => o.stan === 'ok')) stan = 'ok';
+    else if (w.length) stan = 'czeka';
+    return { klucz, stan, dni };
+  });
+
+  const ocenione = oceny.filter((o) => o.stan !== 'czeka');
+  const terminowe = ocenione.filter((o) => o.stan === 'ok').length;
+  const spoznione = ocenione.filter((o) => o.stan !== 'ok');
+  const procent = ocenione.length ? terminowe / ocenione.length : null;
+  let etykieta = 'Za mało danych';
+  if (ocenione.length >= progi.minNaleznosci) {
+    if (procent === 1 && ocenione.length >= progi.wzorowyMinNaleznosci) etykieta = 'Wzorowy';
+    else if (procent >= progi.terminowy) etykieta = 'Terminowy';
+    else if (procent >= progi.zdarzaSie) etykieta = 'Zdarza się spóźnić';
+    else etykieta = 'Spóźnia się';
+  }
+  return {
+    miesiace,
+    procent,
+    liczba: ocenione.length,
+    srednieOpoznienie: spoznione.length ? Math.round(spoznione.reduce((x, o) => x + o.dni, 0) / spoznione.length) : 0,
+    etykieta,
+  };
+}
