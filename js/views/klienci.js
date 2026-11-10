@@ -71,9 +71,18 @@ function lista(s) {
     .map(({ k, najmy, r }) => ({ k, r, kody: kodyJednostek(najmy, s, dzien) }))
     .filter(({ k, kody }) => !szukane || normalizujTekst(
       `${k.name} ${k.phone ?? ''} ${k.nip ?? ''} ${kody.join(' ')}`).includes(szukane))
-    .sort(filtr === 'dluznicy'
-      ? (a, b) => b.r.zalegloscGr - a.r.zalegloscGr
-      : (a, b) => a.k.name.localeCompare(b.k.name, 'pl'));
+    .map((w) => ({ ...w, t: w.r ? wynikTerminowosci(s, w.r) : null }));
+  const sort = s.ui.sortKlienci ?? (filtr === 'dluznicy' ? 'zaleglosc' : 'nazwa');
+  const poNazwie = (a, b) => a.k.name.localeCompare(b.k.name, 'pl');
+  wiersze.sort({
+    nazwa: poNazwie,
+    zaleglosc: (a, b) => (b.r?.zalegloscGr ?? 0) - (a.r?.zalegloscGr ?? 0) || poNazwie(a, b),
+    // Najpierw najsłabsza terminowość; „za mało danych” na końcu.
+    terminowosc: (a, b) => (a.t?.procent ?? 2) - (b.t?.procent ?? 2) || poNazwie(a, b),
+  }[sort] ?? poNazwie);
+  const sortowanie = `<div class="filtry sortowanie" role="group" aria-label="Sortowanie">
+    <span class="wyciszony maly">Sortuj:</span>${Object.entries({ nazwa: 'nazwa', zaleglosc: 'zaległość', terminowosc: 'terminowość' })
+    .map(([id, tekst]) => `<button type="button" data-akcja="sort-klienci" data-wartosc="${id}" aria-pressed="${id === sort}">${tekst}</button>`).join('')}</div>`;
   const liczbaDluznikow = s.dane.clients.filter((k) => !k.archived && rozl.get(k.id)?.dluznik).length;
 
   let tresc;
@@ -81,17 +90,19 @@ function lista(s) {
     tresc = pustyStan(szukane ? 'Nic nie pasuje do wyszukiwania.'
       : filtr === 'dluznicy' ? 'Nikt nie zalega.' : 'Brak klientów w tym widoku.');
   } else {
-    tresc = `<ul class="lista">${wiersze.map(({ k, r, kody }) => `<li>
+    tresc = `<ul class="lista">${wiersze.map(({ k, r, t: term, kody }) => `<li>
       <a class="wiersz" href="#/klienci/${encodeURIComponent(k.id)}">
         <div class="glowna"><strong>${esc(k.name)}</strong>
           <span>${kody.length ? kody.map((c) => `<span class="chip">${esc(c)}</span>`).join('') : 'brak aktywnych najmów'}</span></div>
-        <div class="prawa">${stanSalda(r, s, k)}</div>
+        <div class="prawa">${stanSalda(r, s, k)}${term && term.etykieta !== 'Za mało danych'
+    ? `<div class="maly wyciszony">${esc(term.etykieta)}</div>` : ''}</div>
       </a></li>`).join('')}</ul>`;
   }
 
   return `${akcje}
     ${filtry(Object.entries(FILTRY).map(([id, f]) => ({ id, tekst: f.tekst,
     liczba: id === 'dluznicy' ? liczbaDluznikow : undefined })), filtr, 'Grupa klientów')}
+    ${sortowanie}
     ${poleSzukaj('klienci', s.ui.szukaj.klienci, 'Szukaj po nazwie, telefonie, NIP, jednostce')}
     <section class="karta">${tresc}</section>`;
 }
@@ -332,6 +343,18 @@ function formularzNotatki(s, klient) {
   });
 }
 
+/** Archiwizacja (8.5): tylko bez trwających najmów i przy saldzie 0. Przywrócenie zawsze możliwe. */
+function przyciskArchiwizacji(klient, najmy, r, dzien) {
+  if (klient.archived) {
+    return `<div class="pasek-akcji">${przycisk({ tekst: 'Przywróć klienta', akcja: 'archiwizuj', drugi: true })}</div>`;
+  }
+  const trwa = najmy.some((n) => !najemZakonczony(n, dzien));
+  const powod = trwa ? 'ma trwający najem' : r && r.saldoGr !== 0 ? `saldo nie wynosi 0 (${formatZl(r.saldoGr)})` : null;
+  return `<div class="pasek-akcji">${powod
+    ? `<p class="podpowiedz">Archiwizacja niedostępna – klient ${esc(powod)}.</p>`
+    : przycisk({ tekst: 'Archiwizuj klienta', akcja: 'archiwizuj', drugi: true })}</div>`;
+}
+
 function karta(s, klient) {
   const dzien = dzisiaj();
   const r = rozliczeniaKlientow(s).get(klient.id);
@@ -356,6 +379,7 @@ function karta(s, klient) {
       ${przycisk({ tekst: 'Wpłata gotówką', href: `#/wplaty/gotowka?klient=${id}`, drugi: true })}
       ${przycisk({ tekst: 'Edytuj dane', href: `#/klienci/${id}/edycja`, drugi: true })}
     </div>
+    ${klient.archived ? '<p class="baner">Klient jest zarchiwizowany.</p>' : ''}
     <div class="siatka">
       <section class="karta" aria-labelledby="k-saldo"><h2 id="k-saldo">Saldo</h2>${saldo(s, klient, r, najmy, dzien)}</section>
       ${r ? `<section class="karta" aria-labelledby="k-terminowosc"><h2 id="k-terminowosc">Terminowość</h2>
@@ -373,7 +397,8 @@ function karta(s, klient) {
       <section class="karta" aria-labelledby="k-platnicy"><h2 id="k-platnicy">Płatnicy</h2>${platnicy(s, klient)}</section>
     </div>
     <section class="karta" aria-labelledby="k-notatki"><h2 id="k-notatki">Notatki i historia kontaktu</h2>
-      ${sekcjaNotatek(s, klient)}</section>`;
+      ${sekcjaNotatek(s, klient)}</section>
+    ${przyciskArchiwizacji(klient, najmy, r, dzien)}`;
 }
 
 // ---------------------------------------------------------------------
@@ -460,6 +485,22 @@ export default {
   },
 
   akcje: {
+    'sort-klienci'(el, ctx) {
+      ctx.state.ui.sortKlienci = el.dataset.wartosc;
+      ctx.render();
+    },
+    async archiwizuj(_el, ctx) {
+      const klient = ctx.state.indeksy.klienci.get(ctx.state.ui.parametr);
+      if (!klient) return;
+      try {
+        const k = await ctx.db.zmien('clients', klient.id, { archived: !klient.archived });
+        ctx.scal({ clients: [k] });
+        ctx.toast(k.archived ? `Zarchiwizowano: ${k.name}` : `Przywrócono: ${k.name}`);
+        ctx.render();
+      } catch (e) {
+        ctx.toast(e.message);
+      }
+    },
     async 'usun-notatke'(el, ctx) {
       const id = el.dataset.id;
       try {

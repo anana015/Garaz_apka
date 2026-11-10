@@ -1,14 +1,15 @@
 // Pulpit (8.1): „Jak wygląda wybrany miesiąc i kto zalega?”
 // Liczby z rozliczenia klientów (rozliczenia.js): należne, wpłynęło, brakuje (5.6), zaległości (5.4), obłożenie.
 
-import { TYPY_JEDNOSTEK } from '../config.js';
-import { doPrzypisania, najemTrwa } from '../dane.js';
+import { DNI_BEZ_IMPORTU, TYPY_JEDNOSTEK } from '../config.js';
+import { koniecUmowy } from './jednostki.js';
+import { biezacyNajem, doPrzypisania, najemTrwa } from '../dane.js';
 import { pilneZadania } from '../zadania.js';
 import { pustyStan, wPlanie } from '../ui.js';
 import {
   esc, dzisiaj, formatZl, formatData, kluczMiesiaca, MIESIACE_W, odmiana, porownajKody, roznicaDni,
 } from '../utils.js';
-import { rozliczeniaKlientow, wyborMiesiaca, pokazWybranyMiesiac } from './wspolne.js';
+import { rozliczeniaKlientow, ustawienia, wyborMiesiaca, pokazWybranyMiesiac } from './wspolne.js';
 
 const LICZBA_DLUZNIKOW = 5;
 
@@ -29,7 +30,27 @@ function paskiOstrzezen(s) {
     paski.push(`<button type="button" class="baner ostrzezenie pelny-wiersz" data-akcja="idz"
       data-ekran="zadania" data-filtr="do-zrobienia">${odmiana(z, ['zadanie', 'zadania', 'zadań'])} na dziś i po terminie ›</button>`);
   }
-  // Kolejne paski (kończące się umowy, ryczałt, brak importu, limit VAT) – kolejne porcje.
+  // Umowy na czas określony kończące się w ciągu settings.expiring_days dni albo już wygasłe (Z10).
+  const dzis = dzisiaj();
+  const konczace = s.dane.units.filter((j) => !j.archived).filter((j) => {
+    const najem = biezacyNajem(s.indeksy.najmyJednostki.get(j.id), dzis);
+    return najem && koniecUmowy(s.indeksy.umowy.get(najem.contract_id), najem, s, dzis);
+  }).length;
+  if (konczace) {
+    paski.push(`<button type="button" class="baner ostrzezenie pelny-wiersz" data-akcja="idz"
+      data-ekran="jednostki" data-filtr="konczace">Umowy kończące się w ciągu ${ustawienia(s).expiring_days} dni lub wygasłe: ${konczace} ›</button>`);
+  }
+  // Konta bez importu od DNI_BEZ_IMPORTU dni (albo jeszcze bez żadnego wyciągu).
+  for (const konto of s.dane.bank_accounts.filter((k) => !k.archived)) {
+    const ostatni = s.dane.imports.filter((i) => i.bank_account_id === konto.id)
+      .reduce((m, i) => (i.imported_at > m ? i.imported_at : m), '');
+    const dni = ostatni ? roznicaDni(ostatni.slice(0, 10), dzis) : null;
+    if (dni == null || dni >= DNI_BEZ_IMPORTU) {
+      paski.push(`<a class="baner pelny-wiersz" href="#/import">${dni == null
+        ? `Nie wczytano jeszcze wyciągu z konta ${esc(konto.name)}` : `Brak importu z konta ${esc(konto.name)} od ${dni} dni`} ›</a>`);
+    }
+  }
+  // Kolejne paski (ryczałt, limit VAT) – krok 1d.
   return paski.join('');
 }
 

@@ -10,13 +10,14 @@ import {
   porownajKody, roznicaDni,
 } from '../utils.js';
 import { walidujJednostke } from '../walidacja.js';
-import { ustawienia } from './wspolne.js';
+import { rozliczeniaKlientow, ustawienia } from './wspolne.js';
 
-// Kolor i tekst statusu (8.7). „Zajęta” jest neutralna, dopóki nie liczymy sald:
-// zielona „opłacona” i czerwona „zalega” dojdą w kroku 1c.
+// Kolor i tekst statusu (8.7): zajęta jednostka jest „opłacona” (zielona) albo „zalega” (czerwona).
 const STATUS = {
   wolna: { tekst: 'Wolna', klasa: 'wolna' },
   zajeta: { tekst: 'Zajęta', klasa: 'zajeta' },
+  oplacona: { tekst: 'Opłacona', klasa: 'ok' },
+  zalega: { tekst: 'Zalega', klasa: 'zalega' },
   wylaczona: { tekst: 'Wyłączona', klasa: 'wylaczona' },
 };
 
@@ -25,9 +26,20 @@ function opisJednostki(s, j, dzien) {
   const najem = biezacyNajem(s.indeksy.najmyJednostki.get(j.id), dzien);
   const umowa = najem && s.indeksy.umowy.get(najem.contract_id);
   const klient = umowa && s.indeksy.klienci.get(umowa.client_id);
-  const status = j.out_of_service ? 'wylaczona' : najem ? 'zajeta' : 'wolna';
   const stawka = najem ? stawkaNaDzien(s.indeksy.stawkiNajmu.get(najem.id), dzien) : null;
-  return { j, najem, umowa, klient, status, stawka };
+  // Zaległość najmu: niezapłacone należności tej jednostki z terminem przed dziś (rozliczenie klienta, 5.3).
+  let zalegloscGr = 0;
+  let oplaconeDo = null;
+  if (najem && klient) {
+    const r = rozliczeniaKlientow(s).get(klient.id);
+    zalegloscGr = (r?.pozycje ?? []).filter((p) => p.najemId === najem.id && p.termin < dzien)
+      .reduce((x, p) => x + p.kwotaGr - p.zaplaconoGr, 0);
+    oplaconeDo = r?.oplaconeDo.get(najem.id) ?? null;
+  }
+  let status = 'wolna';
+  if (j.out_of_service) status = 'wylaczona';
+  else if (najem) status = zalegloscGr > 0 ? 'zalega' : 'oplacona';
+  return { j, najem, umowa, klient, status, stawka, zalegloscGr, oplaconeDo };
 }
 
 /**
@@ -45,9 +57,10 @@ export function koniecUmowy(umowa, najem, s, dzien = dzisiaj()) {
 const FILTRY = {
   wszystkie: { tekst: 'Wszystkie', warunek: () => true },
   wolne: { tekst: 'Wolne', warunek: (o) => o.status === 'wolna' },
-  zajete: { tekst: 'Zajęte', warunek: (o) => o.status === 'zajeta' },
-  zalegle: { tekst: 'Z zaległością', warunek: () => false },     // krok 1c
+  zajete: { tekst: 'Zajęte', warunek: (o) => Boolean(o.najem) && !o.j.out_of_service },
+  zalegle: { tekst: 'Z zaległością', warunek: (o) => o.status === 'zalega' },
   wylaczone: { tekst: 'Wyłączone', warunek: (o) => o.status === 'wylaczona' },
+  konczace: { tekst: 'Kończące się umowy', warunek: (o, s) => Boolean(koniecUmowy(o.umowa, o.najem, s)) },
 };
 
 function kafelek(o, s) {
@@ -55,7 +68,8 @@ function kafelek(o, s) {
   const umowa = koniecUmowy(o.umowa, o.najem, s);
   return `<a class="jednostka ${st.klasa}" href="#/jednostki/${encodeURIComponent(o.j.id)}">
     <strong>${esc(o.j.code)}</strong>
-    <span class="status ${st.klasa}">${st.tekst}</span>
+    <span class="status ${st.klasa}">${o.status === 'zalega' ? `zalega ${formatZl(o.zalegloscGr, { grosze: false })}`
+    : o.status === 'oplacona' && o.oplaconeDo ? `opłacona do ${formatDataKrotka(o.oplaconeDo)}` : st.tekst}</span>
     <span>${[formatM2(o.j.area_m2), o.stawka != null ? formatZl(o.stawka, { grosze: false }) : ''].filter(Boolean).join(' · ')}</span>
     ${o.klient ? `<span>${esc(o.klient.name)}</span>` : ''}
     ${umowa ? `<span class="znacznik${umowa.wygasla ? ' pilne' : ''}">${esc(umowa.tekst)}</span>` : ''}
@@ -77,27 +91,36 @@ function lista(s) {
   const szukane = normalizujTekst(s.ui.szukaj.jednostki);
   const opisy = aktywne.map((j) => opisJednostki(s, j, dzien));
   const widoczne = opisy
-    .filter((o) => FILTRY[filtr].warunek(o))
+    .filter((o) => FILTRY[filtr].warunek(o, s))
     .filter((o) => !szukane || normalizujTekst(`${o.j.code} ${o.klient?.name ?? ''}`).includes(szukane));
 
+  // Grupy typów są zwijane; przy wyszukiwaniu albo filtrze innym niż „Wszystkie” – rozwinięte.
+  const rozwiniete = s.ui.grupyJednostek ?? (s.ui.grupyJednostek = new Set());
+  const wszystkieOtwarte = Boolean(szukane) || filtr !== 'wszystkie';
   let tresc;
-  if (filtr === 'zalegle') tresc = wPlanie('Filtr „Z zaległością” powstanie razem z rozliczeniami – krok 1c.');
-  else if (!widoczne.length) {
+  if (!widoczne.length) {
     tresc = pustyStan(szukane ? 'Nic nie pasuje do wyszukiwania.'
       : filtr === 'wolne' ? 'Wszystkie jednostki są wynajęte.' : 'Brak jednostek w tym widoku.');
   } else {
     tresc = Object.entries(TYPY_JEDNOSTEK).map(([typ, nazwy]) => {
       const grupa = widoczne.filter((o) => o.j.type === typ)
         .sort((a, b) => a.j.sort_order - b.j.sort_order || porownajKody(a.j.code, b.j.code));
-      return grupa.length ? `<section class="grupa" aria-labelledby="g-${typ}">
-        <h2 id="g-${typ}">${nazwy.mnoga} <span class="wyciszony maly">${grupa.length}</span></h2>
-        <div class="jednostki">${grupa.map((o) => kafelek(o, s)).join('')}</div></section>` : '';
+      if (!grupa.length) return '';
+      const wolne = grupa.filter((o) => o.status === 'wolna').length;
+      const zalega = grupa.filter((o) => o.status === 'zalega').length;
+      const otwarta = wszystkieOtwarte || rozwiniete.has(typ);
+      return `<details class="grupa" data-typ="${typ}"${otwarta ? ' open' : ''}>
+        <summary><h2>${nazwy.mnoga}</h2><span class="wyciszony maly">${grupa.length}</span>
+          ${wolne ? `<span class="status wolna maly">${wolne} wolne</span>` : ''}
+          ${zalega ? `<span class="status zalega maly">${zalega} zalega</span>` : ''}</summary>
+        <div class="jednostki">${grupa.map((o) => kafelek(o, s)).join('')}</div></details>`;
     }).join('');
   }
 
   const liczbaWolnych = opisy.filter((o) => o.status === 'wolna').length;
+  const liczbaZaleglych = opisy.filter((o) => o.status === 'zalega').length;
   const opcje = Object.entries(FILTRY).map(([id, f]) => ({
-    id, tekst: f.tekst, liczba: id === 'wolne' ? liczbaWolnych : undefined }));
+    id, tekst: f.tekst, liczba: id === 'wolne' ? liczbaWolnych : id === 'zalegle' ? liczbaZaleglych : undefined }));
 
   return `${akcje}
     ${filtry(opcje, filtr, 'Status jednostek')}
@@ -202,6 +225,18 @@ function formularzJednostki(s, j) {
 }
 
 export default {
+  /** Zapamiętuje rozwinięte grupy typów (lista jest renderowana od nowa przy każdej zmianie). */
+  poRenderze(root, s) {
+    if (s.ui.parametr) return;
+    for (const d of root.querySelectorAll('details.grupa')) {
+      d.addEventListener('toggle', () => {
+        if (s.ui.szukaj.jednostki || (s.ui.filtry.jednostki ?? 'wszystkie') !== 'wszystkie') return;
+        const zbior = s.ui.grupyJednostek ?? (s.ui.grupyJednostek = new Set());
+        if (d.open) zbior.add(d.dataset.typ); else zbior.delete(d.dataset.typ);
+      });
+    }
+  },
+
   tytul(s) {
     const { parametr, akcja } = s.ui;
     if (!parametr) return 'Jednostki';

@@ -553,3 +553,18 @@ fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 .zadanie .glowna { color: inherit; text-decoration: none; }
 .zadanie.zrobione .tekst-notatki { color: var(--muted); text-decoration: line-through; }
 @media (max-width: 380px) { .zakladki a { font-size: .68rem; } }
+
+/* Jednostki: zwijane grupy typów */
+details.grupa { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 0 12px; }
+details.grupa + details.grupa { margin-top: 10px; }
+details.grupa > summary {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 48px;
+  cursor: pointer; list-style: none;
+}
+details.grupa > summary::-webkit-details-marker { display: none; }
+details.grupa > summary::after { content: "›"; margin-left: auto; color: var(--muted); font-size: 1.3rem; transition: transform .15s; }
+details.grupa[open] > summary::after { transform: rotate(90deg); }
+details.grupa > summary h2 { margin: 0; }
+details.grupa > .jednostki { padding-bottom: 12px; }
+.jednostka.ok { border-left-color: var(--st-ok); }
+.jednostka.zalega { border-left-color: var(--st-late); }
