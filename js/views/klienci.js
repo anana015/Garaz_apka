@@ -173,6 +173,7 @@ function karta(s, klient) {
   return `
     <div class="pasek-akcji">
       ${przycisk({ tekst: 'Nowy najem', href: `#/najmy/nowy?klient=${id}`, ikona: 'plus' })}
+      ${przycisk({ tekst: 'Wpłata gotówką', href: `#/wplaty/gotowka?klient=${id}`, drugi: true })}
       ${przycisk({ tekst: 'Edytuj dane', href: `#/klienci/${id}/edycja`, drugi: true })}
     </div>
     <div class="siatka">

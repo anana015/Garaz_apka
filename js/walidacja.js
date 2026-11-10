@@ -495,3 +495,36 @@ export function walidujKonto(w, { konta = [], id = null } = {}) {
   }
   return { bledy, wiersz: { name, bank: w.bank, iban, archived: zaznaczone(w.archived) } };
 }
+
+// ---------------------------------------------------------------------
+// Wpłata gotówką (krok 1b)
+// ---------------------------------------------------------------------
+
+export const RODZAJE_GOTOWKI = Object.freeze({ czynsz: 'Czynsz', przychod_inny: 'Inny przychód' });
+
+/**
+ * @param {object} w pola: booked_on, client_id, amount_gr, kind, note
+ * @param {{ klienci?: Map, dataStart?: string, dzis: string }} kontekst
+ */
+export function walidujGotowke(w, { klienci = new Map(), dataStart = null, dzis }) {
+  const bledy = {};
+  const booked_on = data(w, 'booked_on', bledy, { wymagana: true, etykieta: 'datę wpłaty' });
+  if (booked_on && booked_on > dzis) bledy.booked_on = 'Data wpłaty nie może być w przyszłości.';
+  else if (booked_on && dataStart && booked_on < dataStart) {
+    bledy.booked_on = `Data przed startem danych (${formatData(dataStart)}) – takie wpłaty są w saldzie otwarcia.`;
+  }
+  const client_id = tekst(w.client_id);
+  if (!client_id) bledy.client_id = 'Wybierz klienta.';
+  else if (!klienci.has(client_id)) bledy.client_id = 'Nie ma takiego klienta.';
+  const amount_gr = kwota(w, 'amount_gr', bledy, { wymagana: true, dodatnia: true });
+  const kind = w.kind in RODZAJE_GOTOWKI ? w.kind : 'czynsz';
+  const note = lubNull(w.note);
+  if (note && note.length > 500) bledy.note = 'Najwyżej 500 znaków.';
+  return {
+    bledy,
+    wiersz: {
+      booked_on, client_id: client_id || null, amount_gr, kind, note,
+      method: 'gotowka', bank_account_id: null, match_method: 'reczne', match_confirmed: true,
+    },
+  };
+}
