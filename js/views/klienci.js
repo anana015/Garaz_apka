@@ -7,7 +7,7 @@ import {
 } from '../formularz.js';
 import { filtry, poleSzukaj, przycisk, pustyStan, wPlanie } from '../ui.js';
 import {
-  esc, dzisiaj, formatData, formatZl, kwotaDoPola, normalizujTekst, porownajKody,
+  esc, dzisiaj, formatData, formatRachunek, formatZl, kwotaDoPola, normalizujTekst, porownajKody,
 } from '../utils.js';
 import { saldoKaucji, walidujKlienta, walidujPdf } from '../walidacja.js';
 import { koniecUmowy } from './jednostki.js';
@@ -153,6 +153,20 @@ function dokumenty(umowy) {
     </div></div></li>`).join('')}</ul>`;
 }
 
+/** Zapamiętani płatnicy klienta (5.2) – rachunki i nazwy, po których wpłaty przypisują się same. */
+function platnicy(s, klient) {
+  const lista = s.dane.payers.filter((p) => p.client_id === klient.id);
+  if (!lista.length) {
+    return '<p class="wyciszony">Brak. Płatnik zapamiętuje się przy ręcznym przypisaniu wpłaty.</p>';
+  }
+  return `<ul class="lista">${lista.map((p) => `<li><div class="wiersz">
+    <div class="glowna"><strong class="${p.account ? 'mono' : ''}">${esc(p.account ? formatRachunek(p.account) : p.name_key)}</strong>
+      <span>${p.account ? 'rachunek' : 'nazwa nadawcy'}${p.label ? ` · ${esc(p.label)}` : ''}</span></div>
+    <div class="prawa"><button type="button" class="link-btn" data-akcja="usun-platnika" data-id="${esc(p.id)}"
+      aria-label="Usuń płatnika ${esc(p.account ? `rachunek …${p.account.slice(-4)}` : p.name_key)}">Usuń</button></div>
+  </div></li>`).join('')}</ul>`;
+}
+
 function karta(s, klient) {
   const dzien = dzisiaj();
   const najmy = [...(s.indeksy.najmyKlienta.get(klient.id) ?? [])]
@@ -185,8 +199,9 @@ function karta(s, klient) {
           : '<p class="wyciszony">Brak najmów.</p>'}</section>
       <section class="karta" aria-labelledby="k-kaucja"><h2 id="k-kaucja">Kaucja</h2>${kaucje(s, umowy)}</section>
       <section class="karta" aria-labelledby="k-dokumenty"><h2 id="k-dokumenty">Dokumenty</h2>${dokumenty(umowy)}</section>
+      <section class="karta" aria-labelledby="k-platnicy"><h2 id="k-platnicy">Płatnicy</h2>${platnicy(s, klient)}</section>
     </div>
-    ${wPlanie('Saldo, kartoteka rozrachunków i terminowość – krok 1c. Płatnicy i notatki – kroki 1b–1c.')}`;
+    ${wPlanie('Saldo, kartoteka rozrachunków i terminowość – krok 1c. Notatki – krok 1c.')}`;
 }
 
 // ---------------------------------------------------------------------
@@ -273,6 +288,22 @@ export default {
   akcje: {
     pdf(el, ctx) {
       otworzPdf(ctx, el.dataset.sciezka);
+    },
+    /** Usunięcie płatnika: kolejne wpłaty z tego rachunku/nazwy nie przypiszą się same. Przypisane wpłaty zostają. */
+    async 'usun-platnika'(el, ctx) {
+      const id = el.dataset.id;
+      if (ctx.state.podglad || ctx.state.offline) {
+        ctx.toast('Usuwanie wymaga połączenia z bazą.');
+        return;
+      }
+      try {
+        await ctx.db.usun('payers', id);
+        ctx.state.dane = { ...ctx.state.dane, payers: ctx.state.dane.payers.filter((p) => p.id !== id) };
+        ctx.toast('Usunięto płatnika. Wcześniej przypisane wpłaty zostają bez zmian.');
+        ctx.render();
+      } catch (e) {
+        ctx.toast(e.message);
+      }
     },
   },
 

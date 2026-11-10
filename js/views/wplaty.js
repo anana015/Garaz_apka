@@ -31,7 +31,7 @@ const PUSTE = {
   pominiete: () => 'Brak pominiętych wpłat.',
 };
 
-const RODZAJE_PRZELEWU = { czynsz: 'Czynsz', przychod_inny: 'Inny przychód', pominieta: 'Pomiń (nie dotyczy najmu)' };
+const RODZAJE_PRZELEWU = { czynsz: 'Czynsz', kaucja: 'Kaucja', przychod_inny: 'Inny przychód', pominieta: 'Pomiń (nie dotyczy najmu)' };
 
 function wiersz(w, s) {
   const klient = w.client_id ? s.indeksy.klienci.get(w.client_id) : null;
@@ -40,6 +40,7 @@ function wiersz(w, s) {
   let kogo;
   if (gotowka) kogo = `gotówka${w.kind === 'przychod_inny' ? ' · inny przychód' : ''}`;
   else if (w.kind === 'pominieta') kogo = '<span class="status wylaczona">pominięta</span>';
+  else if (w.kind === 'kaucja') kogo = `${klient ? `${esc(klient.name)} · ` : ''}kaucja`;
   else if (klient) {
     kogo = `${esc(klient.name)}${w.match_confirmed ? '' : ' <span class="status czesciowo">sprawdź</span>'}${
       w.kind === 'przychod_inny' ? ' · inny przychód' : ''}`;
@@ -142,14 +143,27 @@ function formularzGotowki(s, wplata) {
 // Przypisanie przelewu do klienta (5.2: „Zapamiętaj płatnika”)
 // ---------------------------------------------------------------------
 
+/** Umowy klienta do wyboru przy kaucji: numer albo „bez numeru” + jednostki. */
+function opcjeUmow(s, klientId) {
+  const najmy = s.indeksy.najmyKlienta.get(klientId) ?? [];
+  return [...s.indeksy.umowy.values()].filter((u) => u.client_id === klientId && !u.archived).map((u) => {
+    const kody = najmy.filter((n) => n.contract_id === u.id).map((n) => s.indeksy.jednostki.get(n.unit_id)?.code)
+      .filter(Boolean).sort(porownajKody);
+    return { wartosc: u.id, tekst: `${u.number ? `Umowa ${u.number}` : 'Umowa bez numeru'}${kody.length ? ` (${kody.join(', ')})` : ''}` };
+  });
+}
+
 function formularzPrzypisania(s, w) {
   const f = stanFormularza(s, `wplaty/${w.id}/przypisz`, () => ({
-    client_id: w.client_id ?? '', kind: w.kind === 'kaucja' ? 'czynsz' : w.kind, zapamietaj: 'on', label: '', note: w.note ?? '',
+    client_id: w.client_id ?? '', kind: w.kind, contract_id: w.contract_id ?? '', zapamietaj: 'on', label: '', note: w.note ?? '',
   }));
+  const kaucja = f.wartosci.kind === 'kaucja';
+  const umowy = f.wartosci.client_id ? opcjeUmow(s, f.wartosci.client_id) : [];
+  if (kaucja && umowy.length === 1 && !f.wartosci.contract_id) f.wartosci.contract_id = umowy[0].wartosc;
   const plan = f.wartosci.client_id ? planZapamietania(w, f.wartosci.client_id, s.dane.payers) : null;
   const czego = w.payer_account ? `rachunek …${w.payer_account.slice(-4)}` : `nazwę „${w.counterparty ?? ''}”`;
   let zapamietanie = '';
-  if (f.wartosci.kind === 'czynsz' && f.wartosci.client_id) {
+  if (['czynsz', 'kaucja'].includes(f.wartosci.kind) && f.wartosci.client_id) {
     if (plan?.konflikt) {
       const inny = s.indeksy.klienci.get(plan.konflikt.client_id)?.name ?? 'inny klient';
       zapamietanie = `<p class="baner">Ten ${w.payer_account ? 'rachunek' : 'nadawca'} należy do: <strong>${esc(inny)}</strong>.
@@ -181,7 +195,10 @@ function formularzPrzypisania(s, w) {
       ${opcje(f, { nazwa: 'kind', legenda: 'Co to za wpłata', odswiez: true,
         opcje: Object.entries(RODZAJE_PRZELEWU).map(([wartosc, tekst]) => ({ wartosc, tekst })) })}
       ${f.wartosci.kind !== 'pominieta' ? wybor(f, { nazwa: 'client_id', etykieta: 'Klient', pusta: '— do przypisania —',
-        opcje: opcjeKlientow(s), odswiez: true }) : ''}
+        opcje: opcjeKlientow(s), odswiez: true, wymagane: kaucja }) : ''}
+      ${kaucja && f.wartosci.client_id ? (umowy.length ? wybor(f, { nazwa: 'contract_id', etykieta: 'Umowa, do której jest kaucja',
+        wymagane: true, pusta: umowy.length > 1 ? 'Wybierz umowę…' : null, opcje: umowy })
+        : '<p class="baner">Ten klient nie ma umowy – najpierw dodaj najem.</p>') : ''}
       ${zapamietanie}
       ${obszar(f, { nazwa: 'note', etykieta: 'Notatka', wiersze: 2, maks: 500 })}`,
   })}`;
@@ -218,6 +235,7 @@ export default {
     /** Po zmianie klienta albo rodzaju „Zapamiętaj płatnika” wraca do domyślnego „włączone”. */
     przypisz(nazwa, f) {
       if (nazwa === 'client_id' || nazwa === 'kind') f.wartosci.zapamietaj = 'on';
+      if (nazwa === 'client_id') f.wartosci.contract_id = '';
     },
   },
 
@@ -231,16 +249,31 @@ export default {
       const kind = w.kind in RODZAJE_PRZELEWU ? w.kind : 'czynsz';
       const klientId = kind === 'pominieta' ? null : (w.client_id || null);
       const note = String(w.note ?? '').trim() || null;
-      if (maBledy(ctx, w, {})) return;
-      const plan = klientId && kind === 'czynsz' ? planZapamietania(wplata, klientId, s.dane.payers) : null;
+      const umowaId = kind === 'kaucja' ? (w.contract_id || null) : null;
+      const bledy = {};
+      if (kind === 'kaucja' && !klientId) bledy.client_id = 'Wybierz klienta, który wpłacił kaucję.';
+      else if (kind === 'kaucja' && !umowaId) bledy.contract_id = 'Wybierz umowę.';
+      if (wplata.amount_gr <= 0 && kind === 'kaucja') bledy.kind = 'Kaucja musi być wpływem.';
+      if (maBledy(ctx, w, bledy)) return;
+      const plan = klientId && ['czynsz', 'kaucja'].includes(kind) ? planZapamietania(wplata, klientId, s.dane.payers) : null;
+      const staraKaucja = s.dane.deposits.find((d) => d.payment_id === wplata.id && d.kind === 'przyjecie');
       const zapamietaj = Boolean(plan?.wpis) && w.zapamietaj === 'on';
 
       await zapisz(ctx, async () => {
         const zmiany = { payments: [] };
         zmiany.payments.push(await ctx.db.zmien('payments', wplata.id, {
-          kind, client_id: klientId, note,
+          kind, client_id: klientId, contract_id: umowaId, note,
           match_method: klientId ? 'reczne' : null, match_confirmed: Boolean(klientId),
         }));
+        // Kaucja przelewem = przyjęcie kaucji w umowie (deposits), powiązane z wpłatą.
+        if (kind === 'kaucja') {
+          const ruch = { contract_id: umowaId, kind: 'przyjecie', amount_gr: wplata.amount_gr, method: 'przelew',
+            on_date: wplata.booked_on, payment_id: wplata.id };
+          zmiany.deposits = [staraKaucja ? await ctx.db.zmien('deposits', staraKaucja.id, ruch) : await ctx.db.wstaw('deposits', ruch)];
+        } else if (staraKaucja) {
+          await ctx.db.usun('deposits', staraKaucja.id);
+          s.dane = { ...s.dane, deposits: s.dane.deposits.filter((d) => d.id !== staraKaucja.id) };
+        }
         let dodatkowe = 0;
         if (zapamietaj) {
           const platnik = await ctx.db.wstaw('payers', {
@@ -261,7 +294,7 @@ export default {
         ctx.toast(zapamietaj
           ? `Zapamiętano: ${plan.wpis.account ? `rachunek …${plan.wpis.account.slice(-4)}` : 'nazwa'} → ${kto}${
             dodatkowe ? ` (+${odmiana(dodatkowe, ['wpłata', 'wpłaty', 'wpłat'])})` : ''}`
-          : kind === 'pominieta' ? 'Wpłata pominięta' : klientId ? `Przypisano do: ${kto}` : 'Zapisano');
+          : kind === 'pominieta' ? 'Wpłata pominięta' : kind === 'kaucja' ? `Zapisano kaucję – ${kto}` : klientId ? `Przypisano do: ${kto}` : 'Zapisano');
         ctx.nawiguj('wplaty');
       });
     },
