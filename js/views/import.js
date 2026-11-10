@@ -54,7 +54,7 @@ export default {
     const konta = s.dane.bank_accounts.filter((k) => !k.archived);
     if (!konta.length) {
       return pustyStan('Najpierw dodaj konto bankowe, z którego pochodzi wyciąg.', [
-        { tekst: 'Przejdź do Ustawień', href: '#/ustawienia' }]);
+        { tekst: 'Dodaj konto', href: '#/ustawienia/konto/nowe' }]);
     }
     return `<div class="siatka">${wyborPliku(konta)}<div class="stos">${ostatnieImporty(s)}</div></div>`;
   },

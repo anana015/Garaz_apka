@@ -120,6 +120,26 @@ export function parseData(tekst) {
   return { y, m: mo, d };
 }
 
+/**
+ * Data wpisana albo zapisana przez Excel → RRRR-MM-DD; null, gdy to nie data.
+ * Obsługuje: "2026-03-15", "15.03.2026", "5.3.2026", "15-03-2026", "15/03/2026".
+ */
+export function czytajDate(tekst) {
+  const s = String(tekst ?? '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return parseData(s) ? s : null;
+  const m = /^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})$/.exec(s);
+  if (!m) return null;
+  const wynik = iso(Number(m[3]), Number(m[2]), Number(m[1]));
+  return parseData(wynik) ? wynik : null;
+}
+
+/** Kwota w groszach do pola formularza: 33000 → "330,00", -1250 → "-12,50", null → "". */
+export function kwotaDoPola(gr) {
+  if (gr == null || !Number.isFinite(gr)) return '';
+  const abs = Math.abs(gr);
+  return `${gr < 0 ? '-' : ''}${Math.floor(abs / 100)},${String(abs % 100).padStart(2, '0')}`;
+}
+
 /** Dzisiejsza data w Polsce, niezależnie od strefy urządzenia. */
 export function dzisiaj(teraz = new Date()) {
   const czesci = new Intl.DateTimeFormat('en-CA', {
@@ -221,10 +241,42 @@ export function normalizujTekst(tekst) {
     .trim();
 }
 
+/**
+ * Losowy UUID v4 dla wierszy zapisywanych pakietem (zapisz_pakiet). crypto.randomUUID działa tylko
+ * w bezpiecznym kontekście (https, localhost) – przy testach z telefonu po http w sieci lokalnej
+ * zostaje crypto.getRandomValues.
+ */
+export function noweId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  const b = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;   // wersja 4
+  b[8] = (b[8] & 0x3f) | 0x80;   // wariant RFC 4122
+  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 /** Ucieczka znaków HTML dla tekstu wstawianego do szablonów. */
 export function esc(tekst) {
   return String(tekst ?? '').replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/**
+ * Liczba z rzeczownikiem w dobrej formie: odmiana(1, ['najem', 'najmy', 'najmów']) → "1 najem",
+ * 3 → "3 najmy", 5 → "5 najmów", 22 → "22 najmy", 12 → "12 najmów".
+ */
+export function odmiana(n, [jeden, kilka, wiele]) {
+  if (n === 1) return `${n} ${jeden}`;
+  const j = n % 10;
+  const nascie = n % 100 >= 12 && n % 100 <= 14;
+  return `${n} ${j >= 2 && j <= 4 && !nascie ? kilka : wiele}`;
+}
+
+/** Kolejny numer jednostki do podpowiedzi: "G-03" → "G-04", "B9" → "B10", "BOX" → "". */
+export function nastepnyNumer(kod) {
+  const m = /^(.*?)(\d+)$/.exec(String(kod ?? ''));
+  if (!m) return '';
+  return m[1] + String(Number(m[2]) + 1).padStart(m[2].length, '0');
 }
 
 /** Porównanie numerów jednostek „naturalnie”: G-2 < G-10. */

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   zbudujIndeksy, najemTrwa, najemZakonczony, biezacyNajem, stawkaNaDzien, doPrzypisania,
-  pelneMiesiaceWplat, ostatniaWplataNaKoncie,
+  pelneMiesiaceWplat, ostatniaWplataNaKoncie, scalDane,
 } from '../js/dane.js';
 
 const dane = {
@@ -73,4 +73,19 @@ test('ostatniaWplataNaKoncie: najnowsza data na każdym koncie, gotówka pomini�
     { bank_account_id: null, booked_on: '2026-11-08' },
   ]);
   assert.deepEqual([...m.entries()].sort(), [['nest', '2026-11-02'], ['pko', '2026-09-15']]);
+});
+
+test('scalDane: podmienia po id, dopisuje nowe, nie zmienia starych tablic, settings jako obiekt', () => {
+  const przed = { units: [{ id: 'u1', code: 'G-03' }, { id: 'u2', code: 'B-12' }], rentals: [], settings: null };
+  const po = scalDane(przed, {
+    units: [{ id: 'u2', code: 'B-13' }, { id: 'u3', code: 'K-01' }],
+    rentals: [],
+    settings: { tolerance_days: 5 },
+    nieznana: [{ id: 'x' }],
+  });
+  assert.deepEqual(po.units.map((u) => u.code), ['G-03', 'B-13', 'K-01']);
+  assert.equal(przed.units[1].code, 'B-12', 'dane wejściowe bez zmian');
+  assert.equal(po.rentals, przed.rentals, 'pusta lista zmian – ta sama tablica');
+  assert.equal(po.settings.tolerance_days, 5);
+  assert.equal(po.nieznana, undefined);
 });

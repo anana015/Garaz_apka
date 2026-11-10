@@ -3,7 +3,7 @@
 
 import { doPrzypisania } from '../dane.js';
 import { pustyStan, wPlanie } from '../ui.js';
-import { MIESIACE_W } from '../utils.js';
+import { MIESIACE_W, odmiana } from '../utils.js';
 import { wyborMiesiaca, pokazWybranyMiesiac } from './wspolne.js';
 
 function kafelek(etykieta, wartosc, opis) {
@@ -11,19 +11,12 @@ function kafelek(etykieta, wartosc, opis) {
     <span class="wartosc">${wartosc}</span><span class="opis">${opis}</span></div>`;
 }
 
-function liczbaWplat(n) {
-  if (n === 1) return '1 wpłata czeka';
-  const k = n % 10;
-  const nascie = n % 100 >= 12 && n % 100 <= 14;
-  return `${n} ${k >= 2 && k <= 4 && !nascie ? 'wpłaty czekają' : 'wpłat czeka'}`;
-}
-
 function paskiOstrzezen(s) {
   const paski = [];
   const n = doPrzypisania(s.dane.payments).length;
   if (n) {
     paski.push(`<button type="button" class="baner ostrzezenie pelny-wiersz" data-akcja="idz"
-      data-ekran="wplaty" data-filtr="do-przypisania">${liczbaWplat(n)} na przypisanie ›</button>`);
+      data-ekran="wplaty" data-filtr="do-przypisania">${odmiana(n, ['wpłata czeka', 'wpłaty czekają', 'wpłat czeka'])} na przypisanie ›</button>`);
   }
   // Kolejne paski (kończące się umowy, ryczałt, brak importu, limit VAT) – kroki 1c i 1d.
   return paski.join('');
@@ -36,8 +29,8 @@ export default {
     const d = s.dane;
     if (!d.units.length && !d.clients.length) {
       return pustyStan('Zacznij od dodania jednostek i klientów albo wczytaj dane startowe.', [
-        { tekst: 'Dodaj jednostkę', href: '#/jednostki' },
-        { tekst: 'Wczytaj dane startowe', href: '#/ustawienia', drugi: true },
+        { tekst: 'Dodaj jednostkę', href: '#/jednostki/nowa' },
+        { tekst: 'Wczytaj dane startowe', href: '#/ustawienia/dane-startowe', drugi: true },
       ]);
     }
     const miesiacW = MIESIACE_W[Number(s.ui.miesiac.slice(5, 7)) - 1];

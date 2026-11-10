@@ -63,6 +63,9 @@ export default {
       const pierwszyBlad = Object.keys(f.bledy)[0];
       if (pierwszyBlad) {
         ctx.render();
+        // Hasło nie trafia do stanu ani do HTML, więc po przerysowaniu wpisujemy je z powrotem w pole.
+        const pole = document.getElementById('log-haslo');
+        if (pole) pole.value = haslo;
         document.getElementById(`log-${pierwszyBlad}`)?.focus();   // czytnik odczyta pole z błędem
         return;
       }

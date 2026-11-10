@@ -113,3 +113,105 @@ export async function zapewnijUstawienia(userId) {
     .upsert({ user_id: userId }, { onConflict: 'user_id', ignoreDuplicates: true });
   if (error) throw new Error(`Nie udało się utworzyć ustawień: ${error.message}`);
 }
+
+// ---------------------------------------------------------------------
+// Zapis. Każda funkcja zwraca zapisane wiersze – app.js dopisuje je do stanu (dane.scalDane),
+// bez pobierania wszystkich tabel od nowa.
+// ---------------------------------------------------------------------
+
+/** Ograniczenia bazy → komunikat dla użytkownika (nazwy z supabase/schema.sql i migracji). */
+const OGRANICZENIA = {
+  units_user_id_code_key: 'Jednostka o tym numerze już istnieje.',
+  rentals_no_overlap: 'Ta jednostka ma już najem w tym czasie (test 16). Sprawdź daty.',
+  payments_dedup: 'Ta wpłata jest już zapisana.',
+  payers_user_id_account_key: 'Ten rachunek jest już przypisany innemu klientowi.',
+  payers_user_id_name_key_key: 'Ta nazwa płatnika jest już przypisana innemu klientowi.',
+  tax_payments_user_id_year_quarter_key: 'Wpłata ryczałtu za ten kwartał jest już zapisana.',
+};
+
+/**
+ * Błąd zapisu Supabase/PostgreSQL → komunikat po polsku. Czysta funkcja (tests/db.test.js).
+ * @param {{code?: string, message?: string, details?: string}} error
+ */
+export function komunikatZapisu(error) {
+  const m = `${error?.message ?? ''} ${error?.details ?? ''}`;
+  const ograniczenie = Object.keys(OGRANICZENIA).find((nazwa) => m.includes(nazwa));
+  if (ograniczenie) return OGRANICZENIA[ograniczenie];
+  switch (error?.code) {
+    case '23505': return 'Taki wpis już istnieje.';
+    case '23P01': return OGRANICZENIA.rentals_no_overlap;
+    case '23503': return /delete|update/i.test(m)
+      ? 'Tych danych nie można usunąć – są z nimi powiązane inne wpisy. Użyj archiwizacji.'
+      : 'Wskazany wpis nie istnieje. Odśwież dane i spróbuj ponownie.';
+    case '23514': return `Baza odrzuciła nieprawidłową wartość (${/"([^"]+)"/.exec(m)?.[1] ?? 'ograniczenie'}).`;
+    case '42501': return 'Brak uprawnień do zapisu. Zaloguj się ponownie.';
+    case 'PGRST202': return 'W bazie brakuje funkcji zapisz_pakiet. Uruchom w Supabase plik supabase/migracje/001_zapisz_pakiet.sql.';
+    case 'PGRST116': return 'Nie znaleziono wpisu – mógł zostać zmieniony na innym urządzeniu. Odśwież dane.';
+    default: break;
+  }
+  if (/JWT|session/i.test(m)) return 'Sesja wygasła. Zaloguj się ponownie.';
+  if (/Failed to fetch|NetworkError|network/i.test(m)) return 'Brak połączenia z serwerem. Zmiany nie zostały zapisane.';
+  return `Nie udało się zapisać: ${error?.message ?? 'nieznany błąd'}`;
+}
+
+function sprawdz({ data, error }) {
+  if (error) throw new Error(komunikatZapisu(error));
+  return data;
+}
+
+/** Dodaje wiersz. Zwraca zapisany wiersz z wartościami domyślnymi z bazy (id, user_id, created_at). */
+export async function wstaw(tabela, wiersz) {
+  return sprawdz(await (await polacz()).from(tabela).insert(wiersz).select().single());
+}
+
+/** Zmienia wiersz o danym id. Zwraca zapisany wiersz. */
+export async function zmien(tabela, id, zmiany) {
+  return sprawdz(await (await polacz()).from(tabela).update(zmiany).eq('id', id).select().single());
+}
+
+/** Dodaje albo nadpisuje wiele wierszy (np. stawki: onConflict 'rental_id,valid_from'). */
+export async function zapiszWiele(tabela, wiersze, onConflict) {
+  if (!wiersze.length) return [];
+  return sprawdz(await (await polacz()).from(tabela).upsert(wiersze, { onConflict }).select());
+}
+
+/** Zmienia ustawienia (jeden wiersz na użytkownika). */
+export async function zapiszUstawienia(userId, zmiany) {
+  return sprawdz(await (await polacz()).from('settings')
+    .update({ ...zmiany, updated_at: new Date().toISOString() }).eq('user_id', userId).select().single());
+}
+
+/**
+ * Zapis kilku tabel w jednej transakcji (funkcja zapisz_pakiet z migracji 001):
+ * nowy najem, zakończenie najmu z kaucją, dane startowe – wszystko albo nic.
+ * Zwraca { units: [...], rentals: [...], … } – zapisane wiersze.
+ */
+export async function zapiszPakiet(pakiet) {
+  return sprawdz(await (await polacz()).rpc('zapisz_pakiet', { p: pakiet }));
+}
+
+// ---------------------------------------------------------------------
+// Pliki umów (rozdz. 11): prywatny bucket „umowy”, folder {user_id}/, podpisany link na 60 s
+// ---------------------------------------------------------------------
+
+const BUCKET = 'umowy';
+const WAZNOSC_LINKU_S = 60;
+
+/** Wgrywa PDF umowy jako {userId}/{umowaId}.pdf (nadpisuje poprzedni). Zwraca ścieżkę. */
+export async function wgrajUmowe(userId, umowaId, plik) {
+  const sciezka = `${userId}/${umowaId}.pdf`;
+  const { error } = await (await polacz()).storage.from(BUCKET)
+    .upload(sciezka, plik, { upsert: true, contentType: 'application/pdf' });
+  if (error) {
+    throw new Error(/size|too large|413/i.test(error.message)
+      ? 'PDF jest za duży (limit 10 MB).' : `Nie udało się wgrać PDF: ${error.message}`);
+  }
+  return sciezka;
+}
+
+/** Podpisany link do PDF umowy, ważny 60 s. */
+export async function linkDoUmowy(sciezka) {
+  const { data, error } = await (await polacz()).storage.from(BUCKET).createSignedUrl(sciezka, WAZNOSC_LINKU_S);
+  if (error) throw new Error(`Nie udało się otworzyć PDF: ${error.message}`);
+  return data.signedUrl;
+}

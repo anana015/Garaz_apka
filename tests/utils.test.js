@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   formatZl, parseKwota, dzisiaj, parseData, dodajDni, roznicaDni, dodajMiesiace,
   formatData, formatDataKrotka, etykietaMiesiaca, zakresMiesiecy, normalizujTekst, esc,
-  porownajKody, walidujNip, walidujTelefon, walidujEmail, oczyscRachunek,
+  porownajKody, walidujNip, walidujTelefon, walidujEmail, oczyscRachunek, czytajDate, kwotaDoPola, nastepnyNumer, odmiana, noweId,
 } from '../js/utils.js';
 
 const S = ' '; // twarda spacja
@@ -127,4 +127,51 @@ test('dataZeZnacznika: znacznik UTC z bazy jako data w Polsce', async () => {
   const { dataZeZnacznika } = await import('../js/utils.js');
   assert.equal(dataZeZnacznika('2026-03-28T23:30:00+00:00'), '2026-03-29');
   assert.equal(dataZeZnacznika('2026-07-31T21:30:00.123456+00:00'), '2026-07-31');
+});
+
+test('czytajDate: formaty z formularza i z Excela', () => {
+  assert.equal(czytajDate('2026-03-15'), '2026-03-15');
+  assert.equal(czytajDate('15.03.2026'), '2026-03-15');
+  assert.equal(czytajDate(' 5.3.2026 '), '2026-03-05');
+  assert.equal(czytajDate('15/03/2026'), '2026-03-15');
+  assert.equal(czytajDate('31.02.2026'), null);
+  assert.equal(czytajDate('2026-02-30'), null);
+  assert.equal(czytajDate('03/15/2026'), null, 'format amerykański odrzucony');
+  assert.equal(czytajDate(''), null);
+});
+
+test('kwotaDoPola: grosze do pola formularza i z powrotem', () => {
+  assert.equal(kwotaDoPola(33000), '330,00');
+  assert.equal(kwotaDoPola(-1250), '-12,50');
+  assert.equal(kwotaDoPola(5), '0,05');
+  assert.equal(kwotaDoPola(null), '');
+  for (const gr of [0, 5, 33000, -1250, 123456789]) assert.equal(parseKwota(kwotaDoPola(gr)), gr);
+});
+
+test('nastepnyNumer: podpowiedź numeru przy dodawaniu kolejnych jednostek', () => {
+  assert.equal(nastepnyNumer('G-03'), 'G-04');
+  assert.equal(nastepnyNumer('G-09'), 'G-10');
+  assert.equal(nastepnyNumer('B9'), 'B10');
+  assert.equal(nastepnyNumer('K-099'), 'K-100');
+  assert.equal(nastepnyNumer('BOX'), '');
+});
+
+test('odmiana: 1 najem, 2–4 najmy, 5+ najmów, 12–14 najmów, 22 najmy', () => {
+  const f = ['najem', 'najmy', 'najmów'];
+  assert.deepEqual([1, 2, 4, 5, 12, 14, 21, 22, 25, 102].map((n) => odmiana(n, f)),
+    ['1 najem', '2 najmy', '4 najmy', '5 najmów', '12 najmów', '14 najmów', '21 najmów', '22 najmy', '25 najmów', '102 najmy']);
+});
+
+test('noweId: UUID v4, także bez crypto.randomUUID (http w sieci lokalnej)', () => {
+  const wzor = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  assert.match(noweId(), wzor);
+  const oryginal = crypto.randomUUID;
+  try {
+    crypto.randomUUID = undefined;
+    const ids = new Set(Array.from({ length: 50 }, () => noweId()));
+    assert.equal(ids.size, 50);
+    for (const id of ids) assert.match(id, wzor);
+  } finally {
+    crypto.randomUUID = oryginal;
+  }
 });

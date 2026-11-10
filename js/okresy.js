@@ -126,12 +126,27 @@ export function naleznosciNajmu(najem, { stawki = [], korekty = [], dataStart, d
       dni,
       dniOkresu,
       stawkaGr: stawka,
+      bazowaGr: kwota,                              // przed korektami (formularz korekty, 8.6)
       korektaGr: korekta,
       kwotaGr: Math.max(0, kwota + korekta),        // wynik nie może być ujemny (5.1)
       brakStawki: stawka == null,
     });
   }
   return wynik;
+}
+
+/**
+ * Początek pierwszego okresu najmu, który zaczyna się w dniu `data` lub później (Z13: od niego
+ * obowiązuje nowa stawka). null, gdy najem kończy się wcześniej.
+ * pierwszyOkresOd({ start_on: '2026-03-15', billing_day: 15, … }, '2026-07-01') → '2026-07-15'
+ */
+export function pierwszyOkresOd(najem, data) {
+  const dlugosc = sprawdzNajem(najem);
+  if (!parseData(data)) throw new RangeError(`Nieprawidłowa data: ${data}`);
+  const granica = dodajMiesiace(data < najem.start_on ? najem.start_on : data, dlugosc);
+  const okres = granice(najem, dlugosc, granica).find((o) => o.poczatek >= data);
+  if (!okres || (najem.end_on != null && okres.poczatek > najem.end_on)) return null;
+  return okres.poczatek;
 }
 
 /**

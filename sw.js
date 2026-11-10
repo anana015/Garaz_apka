@@ -8,7 +8,7 @@
 // Po dodaniu pliku do aplikacji dopisz go do PLIKI (pilnuje tego tests/pwa.test.js)
 // i podnieś WERSJA, żeby stara pamięć podręczna została usunięta.
 
-const WERSJA = 'najem-0.1.1';
+const WERSJA = 'najem-0.2.0';
 const LIMIT_SIECI_MS = 4000;   // słaby zasięg: po 4 s pokaż kopię, jeśli jest
 
 const PLIKI = [
@@ -18,18 +18,24 @@ const PLIKI = [
   'css/app.css',
   'js/app.js',
   'js/config.js',
+  'js/csv.js',
   'js/dane.js',
   'js/db.js',
+  'js/formularz.js',
   'js/okresy.js',
+  'js/startowe.js',
   'js/state.js',
   'js/ui.js',
   'js/utils.js',
+  'js/walidacja.js',
   'js/views/import.js',
   'js/views/jednostki.js',
   'js/views/klienci.js',
   'js/views/logowanie.js',
+  'js/views/najmy.js',
   'js/views/pulpit.js',
   'js/views/raporty.js',
+  'js/views/startowe.js',
   'js/views/ustawienia.js',
   'js/views/wplaty.js',
   'js/views/wspolne.js',

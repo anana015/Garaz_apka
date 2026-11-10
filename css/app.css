@@ -76,6 +76,8 @@
   --fg: #172030;
   --muted: #566070;
   --line: #DCE1E8;
+  /* Ramki pól formularzy: WCAG 1.4.11 wymaga 3:1 względem tła (--line ma 1,3:1). #7A8494 na białym: 3,78:1 */
+  --line-strong: #7A8494;
 
   --accent: #24508F;
   --accent-fg: #FFFFFF;
@@ -122,6 +124,7 @@
     --fg: #E6EBF2;
     --muted: #9AA5B4;
     --line: #2A323D;
+    --line-strong: #6B7584;   /* 3,59:1 na --surface */
 
     --accent: #8DB4F0;
     --accent-fg: #0E1A2B;
@@ -315,11 +318,12 @@ svg { flex: none; }
 
 .szukaj {
   width: 100%; min-height: 44px; margin-bottom: var(--gap); padding: 0 14px;
-  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface);
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface);
 }
 
 /* ---------- Karty i kafelki ---------- */
-.siatka { display: grid; gap: var(--gap); grid-template-columns: 1fr; }
+/* minmax(0, …): długi tekst bez zawijania (nowrap) nie rozpycha kolumny ponad szerokość ekranu */
+.siatka { display: grid; gap: var(--gap); grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 900px) { .siatka { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .karta {
@@ -352,6 +356,7 @@ a.wiersz:hover { background: var(--surface-2); }
 .wiersz .glowna > strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .wiersz .glowna > span { display: block; color: var(--muted); font-size: .875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wiersz .prawa { text-align: right; }
+.wiersz .glowna > .zawijaj { white-space: normal; }   /* szczegóły, których nie wolno uciąć (umowa, daty) */
 
 .chip {
   display: inline-block; padding: 1px 8px; border-radius: 6px; margin: 2px 4px 0 0;
@@ -428,16 +433,92 @@ button.baner:hover { background: var(--surface-2); }
 .opis-pol dt { color: var(--muted); }
 .opis-pol dd { margin: 0; text-align: right; }
 
-/* ---------- Formularze ---------- */
-.pole { display: block; margin-bottom: 14px; }
-.pole label { display: block; margin-bottom: 4px; font-weight: 600; font-size: .925rem; }
-.pole input, .pole select, .pole textarea {
+/* ---------- Formularze (8.6, 12.5) ---------- */
+.formularz { max-width: 720px; }
+.formularz > .podpowiedz:first-child { margin: 0 0 12px; }
+.pole { display: block; margin: 0 0 14px; min-width: 0; }
+.pole > label, .pole > legend { display: block; margin-bottom: 4px; font-weight: 600; font-size: .925rem; }
+.pole input:not([type="checkbox"], [type="radio"], [type="file"]), .pole select, .pole textarea {
   width: 100%; min-height: 44px; padding: 8px 12px;
-  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface);
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface);
 }
-.pole input[aria-invalid="true"] { border-color: var(--st-late); }
-.pole .blad, .blad-tekst { margin: 4px 0 12px; color: var(--st-late-text); font-size: .875rem; font-weight: 600; }
+.pole textarea { resize: vertical; }
+.pole [aria-invalid="true"] { border-color: var(--st-late) !important; box-shadow: 0 0 0 1px var(--st-late); }
+p.blad, span.blad, .blad-tekst { margin: 4px 0 12px; color: var(--st-late-text); font-size: .875rem; font-weight: 600; }
+p.blad::before, span.blad::before, .blad-tekst::before { content: "⚠ "; }   /* błąd nie tylko kolorem (12.5) */
 .pole input[disabled] { opacity: .6; cursor: not-allowed; }
+.podpowiedz { margin: 4px 0 0; color: var(--muted); font-size: .85rem; }
+.wymagane { color: var(--st-late-text); }
+.pod-polem { margin: -8px 0 14px; font-size: .9rem; }
+.pola-w-rzedzie { display: grid; gap: 0 12px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 560px) { .pola-w-rzedzie { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.pole-wyboru { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 10px; }
+.pole-wyboru > label { margin: 0; font-weight: 600; }
+.pole-wyboru > .podpowiedz, .pole-wyboru > .blad { grid-column: 2; margin-top: 0; }
+.pole-wyboru input, .opcja input, .wiersz-wyboru input { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
+
+fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.opcje-lista { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.opcja { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; cursor: pointer; }
+
+.sekcja-formularza { margin: 0 0 8px; padding-top: 14px; border-top: 1px solid var(--line); }
+.sekcja-formularza:first-of-type { border-top: 0; padding-top: 4px; }
+.sekcja-formularza > legend { float: left; width: 100%; margin-bottom: 10px; font: 650 1.02rem/1.2 var(--font-head); }
+.sekcja-formularza > legend + * { clear: both; }
+
+.pasek-formularza { align-items: center; margin: 16px 0 0; }
+.link-anuluj { padding: 10px 8px; font-weight: 600; }
+.wybrany-plik { margin: 6px 0 0; font-size: .9rem; }
+
+.podglad {
+  display: flex; flex-direction: column; gap: 2px; margin: 4px 0 14px; padding: 10px 14px;
+  border-radius: var(--r-sm); background: var(--accent-soft); border-left: 4px solid var(--accent);
+}
+.podglad strong { font-family: var(--font-mono); font-weight: 500; }
+.podglad span { color: var(--muted); font-size: .9rem; }
+
+.naglowek-najmu { margin-bottom: var(--gap); max-width: 720px; }
+.naglowek-karty { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.naglowek-karty h2 { margin: 0; }
+
+/* Lista pól wyboru (zmiana stawek wielu najmów) */
+.lista-wyboru { max-height: 60dvh; overflow-y: auto; margin: 0 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); }
+.wiersz-wyboru { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 12px; cursor: pointer; }
+.wiersz-wyboru:hover { background: var(--surface-2); }
+.wiersz-wyboru .glowna { flex: 1; min-width: 0; }
+.wiersz-wyboru .glowna > span { color: var(--muted); font-size: .875rem; }
+.wiersz-wyboru .prawa { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.wiersz-wyboru .blad { margin: 0; }
+
+/* Karta klienta: akcje najmu, historia stawek, pliki */
+.najem .wiersz { padding-bottom: 4px; }
+.akcje-wiersza { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 0 2px 10px; font-size: .9rem; font-weight: 600; }
+.historia-stawek { padding: 0 2px 8px; font-size: .9rem; }
+.historia-stawek summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.historia-stawek ul { list-style: none; margin: 6px 0 0; padding: 0; }
+.historia-stawek li { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; color: var(--muted); }
+.akcje-pliku { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.plik-btn { position: relative; display: inline-block; }
+.plik-btn:focus-within { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.notatka { margin-top: 10px; padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface-2); white-space: pre-line; }
+
+/* Znacznik „umowa kończy się” (8.7, Z10) – zawsze z tekstem */
+.znacznik {
+  display: inline-block; margin-top: 4px; padding: 0 6px; border-radius: 4px;
+  border: 1px solid var(--st-partial); color: var(--st-partial-text); font-size: .78rem; font-weight: 600;
+}
+.znacznik.pilne { border-color: var(--st-late); color: var(--st-late-text); }
+.jednostka .znacznik, .wiersz .glowna > .znacznik { display: inline-block; width: fit-content; max-width: 100%; white-space: normal; }
+
+/* Dane startowe */
+.kroki { margin: 8px 0; padding-left: 1.4em; }
+.kroki li { margin: 2px 0; }
+.plik-startowy .podpowiedz { margin-bottom: 10px; overflow-wrap: anywhere; }
+.tabela-przewijana { overflow-x: auto; margin-bottom: 8px; }
+.tabela { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.tabela th, .tabela td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.tabela th { color: var(--muted); font-weight: 600; }
 
 /* ---------- Ekran logowania ---------- */
 .logowanie { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }

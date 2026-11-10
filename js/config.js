@@ -3,11 +3,11 @@
 // Klucza service_role NIGDY tu nie wpisuj.
 
 export const CONFIG = Object.freeze({
-  supabaseUrl: '',   // np. 'https://abcdefghijkl.supabase.co'
-  supabaseKey: '',   // klucz publiczny: 'eyJ…' (anon) albo 'sb_publishable_…'
+  supabaseUrl: 'https://sdxgdeyvlfgnnzwgkbce.supabase.co',
+  supabaseKey: 'sb_publishable_aFlZhbycefQPMj6imB3jFQ_KSLQmZ28',   // klucz publiczny (publishable)
 });
 
-export const WERSJA = '0.1.1';
+export const WERSJA = '0.2.0';
 
 /** Tabele z rozdziału 4 – kolejność nie ma znaczenia, służy do pobierania i kopii zapasowej. */
 export const TABELE = Object.freeze([
@@ -24,10 +24,15 @@ export const PROGI_TERMINOWOSCI = Object.freeze({
   zdarzaSie: 0.7,              // 70–89%
 });
 
+/**
+ * Typy jednostek (Z1 + decyzja 3 z 10.11.2026: box rozdzielony na duży i mały).
+ * Kolejność = kolejność grup na ekranie Jednostki. Klucze muszą zgadzać się z units_type_check w bazie.
+ */
 export const TYPY_JEDNOSTEK = Object.freeze({
-  kontener: { nazwa: 'Kontener', mnoga: 'Kontenery' },
   garaz: { nazwa: 'Garaż', mnoga: 'Garaże' },
-  box: { nazwa: 'Box', mnoga: 'Boxy' },
+  kontener: { nazwa: 'Kontener', mnoga: 'Kontenery' },
+  box_duzy: { nazwa: 'Duży box', mnoga: 'Duże boxy' },
+  box_maly: { nazwa: 'Mały box', mnoga: 'Małe boxy' },
 });
 
 /** Wartości domyślne ustawień – takie same jak w supabase/schema.sql (tabela settings). */

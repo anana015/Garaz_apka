@@ -3,7 +3,8 @@
 
 import { state, pusteDane, ustawDane } from './state.js';
 import * as db from './db.js';
-import { doPrzypisania } from './dane.js';
+import { doPrzypisania, scalDane } from './dane.js';
+import { wartosciFormularza } from './formularz.js';
 import { ikona, toast } from './ui.js';
 import { esc } from './utils.js';
 
@@ -14,9 +15,11 @@ import jednostki from './views/jednostki.js';
 import raporty from './views/raporty.js';
 import importWidok from './views/import.js';
 import ustawienia from './views/ustawienia.js';
+import najmy from './views/najmy.js';
 import logowanie from './views/logowanie.js';
 
-const EKRANY = { pulpit, wplaty, klienci, jednostki, raporty, import: importWidok, ustawienia };
+// najmy: formularze najmu (nowy, stawka, koniec, korekta, podwyżka) – bez własnej zakładki.
+const EKRANY = { pulpit, wplaty, klienci, jednostki, raporty, import: importWidok, ustawienia, najmy };
 const ZAKLADKI = [
   { id: 'pulpit', tekst: 'Pulpit' },
   { id: 'wplaty', tekst: 'Wpłaty' },
@@ -27,30 +30,39 @@ const ZAKLADKI = [
 
 const $ = (id) => document.getElementById(id);
 
+/** Dopisuje zapisane wiersze do stanu i przelicza indeksy (bez pobierania wszystkiego od nowa). */
+function scal(zmiany) {
+  ustawDane(scalDane(state.dane, zmiany));
+}
+
 /** Kontekst przekazywany do akcji widoków. */
-const ctx = { state, render, toast, db, odswiez: wczytajDane, nawiguj };
+const ctx = { state, render, toast, db, odswiez: wczytajDane, nawiguj, scal };
 
 // ---------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------
 
+/** #/ekran/parametr/akcja?klucz=wartosc → { ekran, parametr, akcja, zapytanie }. */
 function czytajAdres() {
-  const [ekran = 'pulpit', parametr = null] = location.hash.replace(/^#\/?/, '').split('/')
+  const [sciezka, zapytanie = ''] = location.hash.replace(/^#\/?/, '').split('?');
+  const [ekran = 'pulpit', parametr = null, akcja = null] = sciezka.split('/')
     .filter(Boolean).map(decodeURIComponent);
-  return EKRANY[ekran] ? { ekran, parametr } : { ekran: 'pulpit', parametr: null };
+  if (!EKRANY[ekran]) return { ekran: 'pulpit', parametr: null, akcja: null, zapytanie: {} };
+  return { ekran, parametr, akcja, zapytanie: Object.fromEntries(new URLSearchParams(zapytanie)) };
 }
 
 function nawiguj(sciezka) {
   const cel = `#/${sciezka}`;
-  if (location.hash === cel) render();
-  else location.hash = cel;
+  if (location.hash === cel) {
+    state.ui.form = null;   // ten sam adres nie wywoła hashchange – formularz zaczyna od nowa ręcznie
+    render();
+  } else location.hash = cel;
 }
 
 function poZmianieAdresu() {
-  const { ekran, parametr } = czytajAdres();
-  const zmiana = ekran !== state.ui.ekran || parametr !== state.ui.parametr;
-  state.ui.ekran = ekran;
-  state.ui.parametr = parametr;
+  const zmiana = location.hash !== state.ui.adres;
+  Object.assign(state.ui, czytajAdres(), { adres: location.hash });
+  if (zmiana) state.ui.form = null;   // formularz zaczyna od nowa po każdym wejściu
   render();
   if (zmiana) {
     window.scrollTo(0, 0);
@@ -82,19 +94,21 @@ function liczniki() {
 
 function renderPowloka(widok) {
   const naZakladce = ZAKLADKI.some((z) => z.id === state.ui.ekran);
+  // Ekran bez własnej zakładki wskazuje nadrzędną, np. formularz najmu otwarty z karty klienta → „Klienci”.
+  const zakladka = (typeof widok.zakladka === 'function' ? widok.zakladka(state) : widok.zakladka) ?? state.ui.ekran;
   const l = liczniki();
   for (const a of $('zakladki').querySelectorAll('a')) {
     const id = a.dataset.zakladka;
     // „page” na samej zakładce, „true” na szczegółach w jej obrębie (np. karta klienta) – podświetlenie zostaje.
-    if (id !== state.ui.ekran) a.removeAttribute('aria-current');
-    else a.setAttribute('aria-current', state.ui.parametr ? 'true' : 'page');
+    if (id !== zakladka) a.removeAttribute('aria-current');
+    else a.setAttribute('aria-current', state.ui.parametr || id !== state.ui.ekran ? 'true' : 'page');
     const licznik = a.querySelector('.licznik');
     const n = l[id]?.n ?? 0;
     licznik.hidden = n === 0;
     licznik.innerHTML = n ? `${n}<span class="sr-only"> ${l[id].opis}</span>` : '';
   }
   // Ekrany Import i Ustawienia oraz szczegóły mają „‹ [ekran nadrzędny]” (12.1)
-  const wstecz = widok.wstecz?.(state) ?? (naZakladce ? null : { href: '#/pulpit', tekst: 'Pulpit' });
+  const wstecz = widok.wstecz?.(state) ?? (naZakladce || widok.zakladka ? null : { href: '#/pulpit', tekst: 'Pulpit' });
   $('wstecz').hidden = !wstecz;
   if (wstecz) {
     $('wstecz').href = wstecz.href;
@@ -183,6 +197,17 @@ const AKCJE_WSPOLNE = {
   ponow() {
     wczytajDane();
   },
+  /** „Usuń” przy wybranym pliku w formularzu (formularz.plik). */
+  'usun-plik'(el) {
+    const f = state.ui.form;
+    const form = el.closest('form');
+    if (!f || !form) return;
+    f.wartosci = wartosciFormularza(form);
+    delete f.pliki[el.dataset.pole];
+    delete f.bledy[el.dataset.pole];
+    render();
+    document.getElementById(`f-${el.dataset.pole}`)?.focus();
+  },
 };
 
 function poKliknieciu(ev) {
@@ -215,6 +240,38 @@ function poWpisaniu(ev) {
     state.ui.szukaj[state.ui.ekran] = el.value;
     render();
   }
+}
+
+/**
+ * Zmiana pola:
+ *  - data-zmiana="akcja" → widok.zmiany[akcja] (np. wybór pliku z danymi startowymi);
+ *  - <input type="file"> w formularzu → plik zapamiętany w state.ui.form.pliki (przerysowanie czyści pole);
+ *  - pole z data-odswiez → wartości zapamiętane, widok.przyZmianie[formularz] może podpowiedzieć inne pola,
+ *    ekran przerysowany (np. stawka z cennika po wyborze jednostki).
+ */
+function poZmianie(ev) {
+  const el = ev.target;
+  const widok = aktywnyWidok();
+  if (el.dataset?.zmiana) {
+    widok.zmiany?.[el.dataset.zmiana]?.(el, ctx, ev);
+    return;
+  }
+  const form = el.closest?.('form[data-formularz]');
+  const f = state.ui.form;
+  if (!form || !f) return;
+  if (el.type === 'file') {
+    f.wartosci = wartosciFormularza(form);
+    f.pliki[el.name] = el.files?.[0] ?? null;
+    if (!f.pliki[el.name]) delete f.pliki[el.name];
+    widok.przyZmianie?.[form.dataset.formularz]?.(el.name, f, state);
+    render();
+    return;
+  }
+  if (el.dataset?.odswiez === undefined) return;
+  const poprzednie = f.wartosci;
+  f.wartosci = wartosciFormularza(form);
+  widok.przyZmianie?.[form.dataset.formularz]?.(el.name, f, state, poprzednie);
+  render();
 }
 
 function poWyslaniu(ev) {
@@ -271,13 +328,13 @@ async function start() {
   zbudujPowloke();
   document.addEventListener('click', poKliknieciu);
   document.addEventListener('input', poWpisaniu);
+  document.addEventListener('change', poZmianie);
   document.addEventListener('submit', poWyslaniu);
   window.addEventListener('hashchange', poZmianieAdresu);
   window.addEventListener('online', () => { state.offline = false; render(); });
   window.addEventListener('offline', () => { state.offline = true; render(); });
 
-  const { ekran, parametr } = czytajAdres();
-  Object.assign(state.ui, { ekran, parametr });
+  Object.assign(state.ui, czytajAdres(), { adres: location.hash });
   rejestrujServiceWorker();
 
   if (!db.skonfigurowano()) {

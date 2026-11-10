@@ -30,6 +30,10 @@ export const state = {
   ui: {
     ekran: 'pulpit',
     parametr: null,            // np. id klienta w #/klienci/<id>
+    akcja: null,               // np. 'edycja' w #/klienci/<id>/edycja
+    zapytanie: {},             // np. { jednostka: '<id>' } z #/najmy/nowy?jednostka=<id>
+    adres: '',                 // ostatni location.hash – wykrywa przejście na inny ekran
+    form: null,                // stan otwartego formularza (js/formularz.js)
     miesiac: kluczMiesiaca(dzisiaj()),
     filtry: {},                // { [ekran]: 'nazwa-filtra' }
     szukaj: {},                // { [ekran]: 'tekst' }

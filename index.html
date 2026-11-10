@@ -29,8 +29,9 @@
   <!-- Ekran startowy do czasu odczytania sesji -->
   <div id="start" class="ladowanie" role="status">Uruchamianie…</div>
 
-  <!-- Logowanie (rozdz. 11) – treść wstawia js/views/logowanie.js -->
-  <div id="ekran-logowania" hidden></div>
+  <!-- Logowanie (rozdz. 11) – treść wstawia js/views/logowanie.js. role="main", bo <main id="widok">
+       jest w ukrytej aplikacji, a dokument może mieć tylko jeden element <main> bez atrybutu hidden. -->
+  <div id="ekran-logowania" role="main" hidden></div>
 
   <div id="app" class="aplikacja" hidden>
     <header class="naglowek">

@@ -37,6 +37,28 @@ export function zbudujIndeksy(dane) {
   };
 }
 
+/**
+ * Dopisuje albo podmienia (po id) zapisane wiersze, zamiast pobierać wszystkie tabele od nowa.
+ * zmiany: { units: [...], rentals: [...] } – układ wyniku zapisz_pakiet(); settings jako obiekt.
+ * Zwraca nowy obiekt danych (stare tablice zostają nietknięte).
+ */
+export function scalDane(dane, zmiany) {
+  const wynik = { ...dane };
+  for (const [tabela, wiersze] of Object.entries(zmiany)) {
+    if (tabela === 'settings') {
+      wynik.settings = wiersze;
+      continue;
+    }
+    if (!Array.isArray(dane[tabela]) || !wiersze?.length) continue;
+    const nowe = new Map(wiersze.map((w) => [w.id, w]));
+    const lista = dane[tabela].map((w) => nowe.get(w.id) ?? w);
+    const byly = new Set(dane[tabela].map((w) => w.id));
+    for (const w of wiersze) if (!byly.has(w.id)) lista.push(w);
+    wynik[tabela] = lista;
+  }
+  return wynik;
+}
+
 /** Najem trwa w dniu D: start ≤ D i brak końca albo koniec ≥ D (5.8). */
 export const najemTrwa = (najem, dzien) =>
   najem.start_on <= dzien && (najem.end_on == null || najem.end_on >= dzien);
