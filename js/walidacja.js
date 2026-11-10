@@ -12,7 +12,7 @@ import {
 } from './utils.js';
 
 export const LIMIT_PDF = 10 * 1024 * 1024;   // 8.6: PDF do 10 MB
-export const BANKI = Object.freeze({ nest: 'Nest Bank', pekao: 'Pekao', pko: 'PKO BP', alior: 'Alior', inny: 'Inny bank' });
+export const BANKI = Object.freeze({ nest: 'Nest Bank', pekao: 'Pekao', pko: 'PKO BP', alior: 'Alior', millennium: 'Millennium', inny: 'Inny bank' });
 export const OKRESY_ROZLICZENIOWE = Object.freeze([1, 3, 6, 12]);
 export const TRYBY_STAWKI = Object.freeze({ kwota: 'Nowa kwota', procent: '+ procent', zl: '+ kwota' });
 export const POWODY_ZATRZYMANIA = Object.freeze({
