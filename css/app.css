@@ -568,3 +568,17 @@ details.grupa > summary h2 { margin: 0; }
 details.grupa > .jednostki { padding-bottom: 12px; }
 .jednostka.ok { border-left-color: var(--st-ok); }
 .jednostka.zalega { border-left-color: var(--st-late); }
+
+/* Raporty: paski postępu, słupki, rankingi */
+.pasek-postepu { height: 10px; border-radius: 5px; background: var(--surface-2); overflow: hidden; border: 1px solid var(--line); }
+.pasek-postepu > span { display: block; height: 100%; background: var(--st-ok); }
+.pasek-postepu.czesciowo > span { background: var(--st-partial); }
+.pasek-postepu.zalega > span { background: var(--st-late); }
+.limit + .limit { margin-top: 14px; }
+.limit p { margin: 4px 0; }
+.slupki { display: flex; align-items: flex-end; gap: 4px; height: 120px; list-style: none; padding: 0; margin: 12px 0 0; }
+.slupki li { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 0; }
+.slupki .slupek { width: 100%; max-width: 28px; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 2px; }
+.ranking { padding-left: 1.4em; margin: 6px 0; }
+.ranking li { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
+.ranking li > a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

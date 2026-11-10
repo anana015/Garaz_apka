@@ -5,6 +5,7 @@ import { DNI_BEZ_IMPORTU, TYPY_JEDNOSTEK } from '../config.js';
 import { koniecUmowy } from './jednostki.js';
 import { biezacyNajem, doPrzypisania, najemTrwa } from '../dane.js';
 import { pilneZadania } from '../zadania.js';
+import { limityVat, PROGI_VAT } from '../statystyki.js';
 import { pustyStan, wPlanie } from '../ui.js';
 import {
   esc, dzisiaj, formatZl, formatData, kluczMiesiaca, MIESIACE_W, odmiana, porownajKody, roznicaDni,
@@ -50,7 +51,15 @@ function paskiOstrzezen(s) {
         ? `Nie wczytano jeszcze wyciągu z konta ${esc(konto.name)}` : `Brak importu z konta ${esc(konto.name)} od ${dni} dni`} ›</a>`);
     }
   }
-  // Kolejne paski (ryczałt, limit VAT) – krok 1d.
+  // Limity VAT (6.4): ostrzeżenie od 80%, pilne od 95% i po przekroczeniu.
+  for (const l of limityVat(s.dane, { rok: Number(dzis.slice(0, 4)), dzis, limitGr: ustawienia(s).vat_limit_gr })) {
+    if (l.udzial < PROGI_VAT[0] && !l.przekroczono) continue;
+    const tekst = l.przekroczono ? `Limit VAT przekroczony (${l.nazwa}) ${formatData(l.dataPrzekroczenia)}`
+      : `Limit VAT – ${l.nazwa}: ${Math.round(l.udzial * 100)}% z ${formatZl(l.limitGr, { grosze: false })}`;
+    paski.push(`<button type="button" class="baner ${l.przekroczono || l.udzial >= PROGI_VAT[1] ? 'blad' : 'ostrzezenie'} pelny-wiersz"
+      data-akcja="idz" data-ekran="raporty">${esc(tekst)} ›</button>`);
+  }
+  // Kolejny pasek (ryczałt do zapłaty) – następna porcja kroku 1d.
   return paski.join('');
 }
 
