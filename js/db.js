@@ -215,3 +215,8 @@ export async function linkDoUmowy(sciezka) {
   if (error) throw new Error(`Nie udało się otworzyć PDF: ${error.message}`);
   return data.signedUrl;
 }
+
+/** Usuwa wiersz o danym id (np. wiersz importu, gdy zapis wpłat się nie udał). */
+export async function usun(tabela, id) {
+  sprawdz(await (await polacz()).from(tabela).delete().eq('id', id));
+}
