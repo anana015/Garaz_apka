@@ -145,6 +145,7 @@ function wierszNajmu(s, n, dzien) {
         <span class="kwota">${formatZl(st.amount_gr)}</span></li>`).join('')}</ul></details>` : ''}
     <div class="akcje-wiersza">
       <a href="#/najmy/${id}/stawka">Zmień stawkę</a>
+      <a href="#/najmy/${id}/promocja">Promocja</a>
       <a href="#/najmy/${id}/korekta">Korekta należności</a>
       ${trwa ? `<a href="#/najmy/${id}/koniec">Zakończ najem</a>` : ''}
     </div>

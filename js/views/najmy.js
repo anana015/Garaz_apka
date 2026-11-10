@@ -4,6 +4,7 @@
 //   #/najmy/<id>/koniec                          zakończenie najmu z rozliczeniem kaucji
 //   #/najmy/<id>/korekta                         korekta należności (rabat, umorzenie, dopłata)
 //   #/najmy/podwyzka                             zmiana stawek wielu najmów naraz
+//   #/najmy/<id>/promocja                        promocja: rabat % na N pierwszych okresów
 
 import { TYPY_JEDNOSTEK } from '../config.js';
 import { biezacyNajem, najemTrwa, stawkaNaDzien } from '../dane.js';
@@ -11,10 +12,10 @@ import {
   formularz, kwotaPodgladu, maBledy, opcje, plik, pole, przelacznik, sekcja, stanFormularza, wartosciFormularza,
   wybor, zapisz,
 } from '../formularz.js';
-import { naleznosciNajmu } from '../okresy.js';
+import { naleznosciNajmu, pierwszyOkresOd } from '../okresy.js';
 import { pustyStan } from '../ui.js';
 import {
-  esc, dodajMiesiace, dzisiaj, formatData, formatZl, iso, kwotaDoPola, porownajKody,
+  esc, dodajMiesiace, dzisiaj, formatData, formatZl, iso, kwotaDoPola, parseKwota, porownajKody,
 } from '../utils.js';
 import {
   OKRESY_ROZLICZENIOWE, POWODY_ZATRZYMANIA, TRYBY_STAWKI, saldoKaucji, walidujKoniec, walidujKorekte,
@@ -472,10 +473,94 @@ async function zapiszKorekte(form, ctx) {
 // Ekran
 // ---------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------
+// Promocja: rabat % na N okresów od wybranego okresu (np. -50% na 2 pierwsze miesiące).
+// Zapis: dwie stawki w historii – obniżona od pierwszego okresu promocji i normalna od pierwszego
+// okresu po promocji. Stawki wpisane w trakcie promocji są usuwane, późniejsze zostają.
+// ---------------------------------------------------------------------
+
+/** Wylicza promocję albo zwraca { bledy }. */
+function policzPromocje(w, k) {
+  const bledy = {};
+  const normalna = parseKwota(w.normalna);
+  if (normalna == null || normalna <= 0) bledy.normalna = 'Podaj normalną stawkę.';
+  const rabat = Number(String(w.rabat ?? '').replace(',', '.'));
+  if (!(rabat > 0 && rabat < 100)) bledy.rabat = 'Rabat od 1 do 99%.';
+  const okresy = Number(w.okresy);
+  if (!Number.isInteger(okresy) || okresy < 1 || okresy > 24) bledy.okresy = 'Od 1 do 24 okresów.';
+  const od = /^\d{4}-\d{2}-\d{2}$/.test(w.od ?? '') ? w.od : null;
+  if (!od) bledy.od = 'Podaj datę.';
+  else if (od < k.najem.start_on) bledy.od = `Najem zaczyna się ${formatData(k.najem.start_on)}.`;
+  if (Object.keys(bledy).length) return { bledy };
+
+  const poczatek = pierwszyOkresOd(k.najem, od);
+  if (!poczatek) return { bledy: { od: 'Najem kończy się przed tą datą.' } };
+  const dlugosc = k.najem.period_months ?? 1;
+  const koniecPromocji = pierwszyOkresOd(k.najem, dodajMiesiace(poczatek, okresy * dlugosc, k.najem.billing_day));
+  const promocyjna = Math.round((normalna * (100 - rabat)) / 100 / 100) * 100;   // do pełnych złotych
+  return { bledy, normalna, rabat, okresy, poczatek, koniecPromocji, promocyjna };
+}
+
+function formularzPromocji(s, k) {
+  const dzien = dzisiaj();
+  const obecna = stawkaNaDzien(k.stawki, najemTrwa(k.najem, dzien) ? dzien : k.najem.start_on);
+  const cennik = k.jednostka?.list_price_gr ?? null;
+  const f = stanFormularza(s, `najmy/${k.najem.id}/promocja`, () => ({
+    normalna: kwotaDoPola(Math.max(cennik ?? 0, obecna ?? 0) || null), rabat: '50', okresy: '2', od: k.najem.start_on,
+  }));
+  const p = policzPromocje(f.wartosci, k);
+  const podglad = p.promocyjna != null ? `<div class="podglad" role="status">
+      <strong>${formatZl(p.promocyjna)} przez ${p.okresy} ${p.okresy === 1 ? 'okres' : p.okresy < 5 ? 'okresy' : 'okresów'} od ${formatData(p.poczatek)}</strong>
+      <span>${p.koniecPromocji ? `potem ${formatZl(p.normalna)} od ${formatData(p.koniecPromocji)}` : 'najem kończy się w trakcie promocji'}</span></div>` : '';
+  return `${naglowekNajmu(s, k)}
+    ${formularz(f, {
+    nazwa: 'promocja', przycisk: 'Zapisz promocję',
+    anuluj: k.klient ? `#/klienci/${encodeURIComponent(k.klient.id)}` : '#/klienci',
+    uwaga: 'Promocja zapisze się jako stawki w historii najmu. Stawki wpisane na czas promocji zostaną zastąpione.',
+    tresc: `
+      <div class="pola-w-rzedzie">
+        ${pole(f, { nazwa: 'normalna', etykieta: 'Normalna stawka (zł)', typ: 'kwota', wymagane: true, odswiez: true,
+    podpowiedz: cennik ? `Cena z cennika: ${formatZl(cennik)}` : null })}
+        ${pole(f, { nazwa: 'rabat', etykieta: 'Rabat (%)', wymagane: true, odswiez: true, atrybuty: 'inputmode="decimal"' })}
+      </div>
+      <div class="pola-w-rzedzie">
+        ${pole(f, { nazwa: 'okresy', etykieta: 'Ile okresów', wymagane: true, odswiez: true, atrybuty: 'inputmode="numeric"' })}
+        ${pole(f, { nazwa: 'od', etykieta: 'Od dnia', typ: 'date', wymagane: true, odswiez: true,
+    podpowiedz: 'Promocja zaczyna się od pierwszego okresu od tego dnia.' })}
+      </div>${podglad}`,
+  })}`;
+}
+
+async function zapiszPromocje(form, ctx) {
+  const s = ctx.state;
+  const k = kontekstNajmu(s, s.ui.parametr);
+  const w = wartosciFormularza(form);
+  const p = policzPromocje(w, k);
+  if (maBledy(ctx, w, p.bledy)) return;
+  await zapisz(ctx, async () => {
+    // Stawki wpisane w trakcie promocji (po jej początku, przed końcem) – usuwamy, żeby nie nadpisały rabatu.
+    const wSrodku = k.stawki.filter((st) => st.valid_from > p.poczatek && (!p.koniecPromocji || st.valid_from < p.koniecPromocji));
+    for (const st of wSrodku) await ctx.db.usun('rental_rates', st.id);
+    const powod = `promocja −${p.rabat}% (${p.okresy} ${p.okresy === 1 ? 'okres' : 'okr.'})`;
+    const wiersze = [{ rental_id: k.najem.id, valid_from: p.poczatek, amount_gr: p.promocyjna, reason: powod }];
+    if (p.koniecPromocji) {
+      wiersze.push({ rental_id: k.najem.id, valid_from: p.koniecPromocji, amount_gr: p.normalna, reason: 'koniec promocji' });
+    }
+    const zapisane = await ctx.db.zapiszWiele('rental_rates', wiersze, 'rental_id,valid_from');
+    const usuniete = new Set(wSrodku.map((st) => st.id));
+    s.dane = { ...s.dane, rental_rates: s.dane.rental_rates.filter((st) => !usuniete.has(st.id)) };
+    ctx.scal({ rental_rates: zapisane });
+    ctx.toast(`Promocja ${k.jednostka?.code ?? ''}: ${formatZl(p.promocyjna)} od ${formatData(p.poczatek)}`);
+    ctx.nawiguj(k.klient ? `klienci/${encodeURIComponent(k.klient.id)}` : 'klienci');
+  });
+}
+
 const FORMULARZE = {
   stawka: { tytul: 'Zmiana stawki', render: formularzStawki },
   koniec: { tytul: 'Koniec najmu', render: formularzKonca },
   korekta: { tytul: 'Korekta należności', render: formularzKorekty },
+  promocja: { tytul: 'Promocja', render: formularzPromocji },
 };
 
 /** Ekran nadrzędny dla „‹ wstecz” i podświetlonej zakładki. */
@@ -548,6 +633,7 @@ export default {
     podwyzka: zapiszPodwyzke,
     koniec: zapiszKoniec,
     korekta: zapiszKorekte,
+    promocja: zapiszPromocje,
   },
 };
 
