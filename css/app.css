@@ -535,3 +535,4 @@ fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 
 /* Saldo na karcie klienta (krok 1c) */
 .kwota.duza { font-size: 1.5rem; margin-right: 8px; }
+.kafelek.zalega .wartosc { color: var(--st-late-text); }
