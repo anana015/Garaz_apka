@@ -83,3 +83,13 @@ export function poleSzukaj(ekran, wartosc, podpowiedz) {
 export function wPlanie(tekst) {
   return `<p class="plan">${esc(tekst)}</p>`;
 }
+
+/** Pobranie pliku tekstowego (CSV) bez serwera: link z adresem blob i kliknięcie. */
+export function pobierzPlik(nazwa, tresc, typ = 'text/csv;charset=utf-8') {
+  const url = URL.createObjectURL(new Blob([tresc], { type: typ }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: nazwa });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

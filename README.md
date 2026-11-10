@@ -2,7 +2,7 @@
 
 Aplikacja PWA do śledzenia czynszów za jednostki magazynowe: kto zapłacił, kto zalega, ile wpłynęło i ile ryczałtu zapłacić. Specyfikacja: „Najem magazynów – specyfikacja” v0.1 (projekt „Magazyny – apka, obsługa”).
 
-**Stan (0.2.0):** krok 1a – powłoka aplikacji, logowanie, 5 zakładek, schemat bazy z RLS, PWA, wyliczanie okresów i należności (`js/okresy.js`) oraz formularze z zapisem do Supabase: jednostka, klient, nowy najem (umowa, stawka, kaucja, PDF), zmiana stawki (jednego najmu i wielu naraz), zakończenie najmu z rozliczeniem kaucji, korekta należności, ustawienia, konto bankowe i import danych startowych z szablonów CSV (7.5). Wpłaty i import wyciągów – krok 1b, salda i pulpit – 1c, raporty i podatek – 1d (rozdział 15 specyfikacji).
+**Stan (0.6.0):** kroki 1a–1c gotowe; krok 1d w toku – Raporty (przychód, limity VAT, dłużnicy, jednostki, obłożenie) oraz ryczałt kwartalny (`js/podatek.js`): kwartały z terminami, wpłaty ryczałtu, próg 100 000 zł, karta i pasek na pulpicie, zestawienie do PIT-28 w CSV. Zostały eksporty CSV, kopia zapasowa i tryb offline. Szczegóły: dokument „stan-kodu” w projekcie.
 
 ## Uruchomienie lokalne
 
@@ -82,7 +82,7 @@ tests/                 node --test
 
 Adresy ekranów: `#/ekran/parametr/akcja?zapytanie`, np. `#/jednostki/nowa`, `#/klienci/<id>/edycja`, `#/najmy/nowy?jednostka=<id>`, `#/najmy/<id>/stawka`, `#/ustawienia/dane-startowe`.
 
-Moduły z rozdziału 3, które dojdą w kolejnych krokach: `banki.js`, `rozliczenia.js` (1b), `statystyki.js` (1c), `podatek.js`, `wykresy.js` (1d).
+Moduły z rozdziału 3, które jeszcze nie powstały: `wykresy.js` (słupki są na razie w CSS).
 
 ## Decyzje doprecyzowujące specyfikację (9.11.2026)
 

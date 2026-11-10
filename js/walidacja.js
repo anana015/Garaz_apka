@@ -503,6 +503,19 @@ export function walidujKonto(w, { konta = [], id = null } = {}) {
 export const RODZAJE_GOTOWKI = Object.freeze({ czynsz: 'Czynsz', przychod_inny: 'Inny przychód' });
 
 /**
+ * Wpłata ryczałtu za kwartał (6.5, tabela tax_payments).
+ * @param {object} w pola: paid_on, amount_gr
+ * @param {{ rok: number, q: number, dzis: string }} kontekst
+ */
+export function walidujWplateRyczaltu(w, { rok, q, dzis }) {
+  const bledy = {};
+  const paid_on = data(w, 'paid_on', bledy, { wymagana: true, etykieta: 'datę wpłaty' });
+  if (paid_on && paid_on > dzis) bledy.paid_on = 'Data wpłaty nie może być w przyszłości.';
+  const amount_gr = kwota(w, 'amount_gr', bledy, { wymagana: true, nieujemna: true });
+  return { bledy, wiersz: { year: rok, quarter: q, paid_on, amount_gr } };
+}
+
+/**
  * @param {object} w pola: booked_on, client_id, amount_gr, kind, note
  * @param {{ klienci?: Map, dataStart?: string, dzis: string }} kontekst
  */
