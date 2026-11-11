@@ -2,7 +2,7 @@
 
 Aplikacja PWA do śledzenia czynszów za jednostki magazynowe: kto zapłacił, kto zalega, ile wpłynęło i ile ryczałtu zapłacić. Specyfikacja: „Najem magazynów – specyfikacja” v0.1 (projekt „Magazyny – apka, obsługa”).
 
-**Stan (0.11.0):** kroki 1a–1d zaimplementowane – Raporty, ryczałt kwartalny (`js/podatek.js`), eksporty CSV (`js/eksport.js`), kopia zapasowa JSON (`js/kopia.js` + funkcja `wczytaj_kopie`, migracja 004) i tryb offline (kopia ostatnio pobranych danych w IndexedDB, tylko odczyt). „Gdzie płaci” przy najmie i usuwanie wpłaty gotówką (0.7.1); prostszy widok z trybem „Edytuj” i jednostkami w Ustawieniach (0.7.2). Profile wyciągów: Nest Bank, Millennium, PKO BP, Alior; inne banki – ręczne mapowanie kolumn (0.8.0). Ręczny przelew, dzień płatności 20., wypowiedzenie, wpłata za jednostkę, ręczna kwota okresu (0.9.0). Promocje: wybór w nowym najmie, lista w Ustawieniach → Promocje (0.10.0). Boxy bez kaucji, „Dodaj kaucję” na karcie klienta, tryb „Edytuj” klienta jako zwarte ustawienia (0.11.0). Szczegóły: dokument „stan-kodu” w projekcie.
+**Stan (0.11.0):** kroki 1a–1d zaimplementowane – Raporty, ryczałt kwartalny (`js/podatek.js`), eksporty CSV (`js/eksport.js`), kopia zapasowa JSON (`js/kopia.js` + funkcja `wczytaj_kopie`, migracja 004) i tryb offline (kopia ostatnio pobranych danych w IndexedDB, tylko odczyt). „Gdzie płaci” przy najmie i usuwanie wpłaty gotówką (0.7.1); prostszy widok z trybem „Edytuj” i jednostkami w Ustawieniach (0.7.2). Profile wyciągów: Nest Bank, Millennium, PKO BP, Alior; inne banki – ręczne mapowanie kolumn (0.8.0). Ręczny przelew, dzień płatności 20., wypowiedzenie, wpłata za jednostkę, ręczna kwota okresu (0.9.0). Promocje: wybór w nowym najmie, lista w Ustawieniach → Promocje (0.10.0). Boxy bez kaucji, „Dodaj kaucję” na karcie klienta, tryb „Edytuj” klienta jako zwarte ustawienia (0.11.0). Mapa placu na ekranie Jednostki – przełącznik „Lista / Mapa”, układ w `js/mapa.js` (0.16.0). Szczegóły: dokument „stan-kodu” w projekcie.
 
 ## Uruchomienie lokalne
 
@@ -52,6 +52,7 @@ npm test        # Node 22+
 | `tests/startowe.test.js` | import danych startowych (7.5): pełny import, błędy z numerem wiersza, nakładające się najmy, ponowny import |
 | `tests/db.test.js` | błędy bazy (unikalność, kolizja najmów, brak funkcji) jako komunikaty po polsku |
 | `tests/schema.test.js` | `supabase/schema.sql` + migracje na prawdziwym PostgreSQL (PGlite): RLS, brak dostępu dla `anon`, test akceptacyjny 16, ograniczenia, bucket, `zapisz_pakiet` (wszystko albo nic, RLS w funkcji), ponowne uruchomienie migracji |
+| `tests/mapa.test.js` | mapa placu: liczba miejsc (70 w rzędach, 15 dużych i 6 małych boxów), brak nakładania, kody G05R1 / K05R1 i boxy, jednostki poza mapą i duplikaty |
 | `tests/pwa.test.js` | każdy plik aplikacji jest w pamięci podręcznej `sw.js`, manifest, odwołania w `index.html`, importy modułów |
 
 ## Wdrożenie

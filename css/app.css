@@ -391,6 +391,46 @@ a.jednostka:hover { background: var(--surface-2); }
 .jednostka strong { font: 500 1rem var(--font-mono); }
 .jednostka span { display: block; color: var(--muted); font-size: .85rem; }
 
+/* ---------- Mapa placu (Jednostki → Mapa) ---------- */
+.przelacznik-widoku { display: inline-flex; margin-bottom: var(--gap); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
+.przelacznik-widoku button {
+  min-height: 36px; padding: 0 18px; border: 0; background: var(--surface); color: var(--fg);
+  font-weight: 600; font-size: .9rem; cursor: pointer;
+}
+.przelacznik-widoku button + button { border-left: 1px solid var(--line); }
+.przelacznik-widoku button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+.mapa { margin: 0; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+/* Na telefonie plan przewija się w poziomie, żeby numery dało się przeczytać i trafić palcem. */
+.mapa-przewijana { overflow-x: auto; }
+.mapa svg { display: block; width: 100%; min-width: 640px; height: auto; }
+.mapa text { font: 600 10px var(--font-body); text-anchor: middle; dominant-baseline: central; fill: var(--fg); pointer-events: none; }
+.mapa .m-alejka { font: 650 13px var(--font-head); fill: var(--muted); }
+.mapa .m-opis { font-weight: 400; fill: var(--muted); }
+.mapa .m-droga { fill: var(--surface-2); stroke: var(--line); }
+.m-miejsce rect { --kolor: var(--line-strong); fill: color-mix(in srgb, var(--kolor) 24%, var(--surface)); stroke: var(--kolor); stroke-width: 1.2; }
+.m-miejsce.wolna rect { --kolor: var(--st-free); }
+.m-miejsce.ok rect { --kolor: var(--st-ok); }
+.m-miejsce.zalega rect { --kolor: var(--st-late); fill: color-mix(in srgb, var(--kolor) 45%, var(--surface)); }
+.m-miejsce.wylaczona rect { --kolor: var(--st-off); }
+.m-miejsce.wypowiedziana rect { stroke-width: 2.4; stroke-dasharray: 4 2; }
+.m-miejsce.brak rect { fill: transparent; stroke: var(--line-strong); stroke-dasharray: 3 2; }
+.m-miejsce.brak text { fill: var(--muted); }
+.m-miejsce.przygaszone { opacity: .25; }
+a.m-miejsce:hover rect, a.m-miejsce:focus-visible rect { stroke-width: 3; }
+a.m-miejsce:focus-visible { outline: none; }
+.m-legenda { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0 4px; padding: 0; list-style: none; font-size: .85rem; }
+.m-legenda li { display: inline-flex; align-items: center; gap: 6px; }
+.m-probka { width: 16px; height: 12px; border-radius: 2px; border: 1.5px solid var(--kolor); background: color-mix(in srgb, var(--kolor) 24%, var(--surface)); --kolor: var(--line-strong); }
+.m-probka.wolna { --kolor: var(--st-free); }
+.m-probka.ok { --kolor: var(--st-ok); }
+.m-probka.zalega { --kolor: var(--st-late); }
+.m-probka.wylaczona { --kolor: var(--st-off); }
+.m-probka.brak { background: transparent; border-style: dashed; }
+.m-probka.wypowiedziana { border-width: 2.5px; border-style: dashed; }
+.m-poza { margin-top: var(--gap); }
+@media (min-width: 700px) { .m-przewin { display: none; } }
+.m-poza summary { cursor: pointer; font-weight: 600; }
+
 /* ---------- Puste stany i komunikaty ---------- */
 .pusty { text-align: center; padding: 32px 16px; color: var(--muted); }
 .pusty p { max-width: 36ch; margin: 0 auto 16px; }

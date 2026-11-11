@@ -1,4 +1,4 @@
-// Jednostki (8.7): kafelki pogrupowane według typu, szczegóły jednostki i formularz jednostki (8.6).
+// Jednostki (8.7): kafelki pogrupowane według typu albo mapa placu (js/mapa.js), szczegóły jednostki i formularz jednostki (8.6).
 // Adresy: #/jednostki, #/jednostki/nowa, #/jednostki/<id>, #/jednostki/<id>/edycja
 
 import { TYPY_JEDNOSTEK } from '../config.js';
@@ -6,6 +6,7 @@ import { biezacyNajem, opisPlatnosci, planowanyKoniec, stawkaNaDzien } from '../
 import { formularz, maBledy, obszar, pole, przelacznik, stanFormularza, wartosciFormularza, wybor, zapisz } from '../formularz.js';
 import { filtry, poleSzukaj, przycisk, pustyStan, przyciskEdycji } from '../ui.js';
 import { promocjaNajmu } from '../promocje.js';
+import { ALEJKI, GORA, LINIA_WJAZDU, MIEJSCA, SZEROKOSC, WYSOKOSC, miejsceJednostki, rozmiescJednostki } from '../mapa.js';
 import { grupa, grupaNajmu, kartaUstawien, menu, pozycja } from './edycja.js';
 import { akcjeAnulowania } from './edycja.js';
 import {
@@ -74,13 +75,19 @@ const FILTRY = {
   promocje: { tekst: 'W promocji', warunek: (o) => Boolean(o.promo) },
 };
 
+/** Tekst statusu jak na kafelku: „zalega 200 zł”, „opłacona do 20.11”, „Wolna”. */
+function tekstStatusu(o) {
+  if (o.status === 'zalega') return `zalega ${formatZl(o.zalegloscGr, { grosze: false })}`;
+  if (o.status === 'oplacona' && o.oplaconeDo) return `opłacona do ${formatDataKrotka(o.oplaconeDo)}`;
+  return STATUS[o.status].tekst;
+}
+
 function kafelek(o, s) {
   const st = STATUS[o.status];
   const umowa = koniecUmowy(o.umowa, o.najem, s);
   return `<a class="jednostka ${st.klasa}" href="#/jednostki/${encodeURIComponent(o.j.id)}">
     <strong>${esc(o.j.code)}</strong>
-    <span class="status ${st.klasa}">${o.status === 'zalega' ? `zalega ${formatZl(o.zalegloscGr, { grosze: false })}`
-    : o.status === 'oplacona' && o.oplaconeDo ? `opłacona do ${formatDataKrotka(o.oplaconeDo)}` : st.tekst}</span>
+    <span class="status ${st.klasa}">${tekstStatusu(o)}</span>
     <span>${[formatM2(o.j.area_m2), o.stawka != null ? formatZl(o.stawka, { grosze: false }) : ''].filter(Boolean).join(' · ')}</span>
     ${o.klient ? `<span>${esc(o.klient.name)}</span>` : ''}
     ${o.wypowiedzenie ? `<span class="znacznik${o.wypowiedzenie < dzisiaj() ? ' pilne' : ''}">${o.najem.notice_end_on ? 'wypowiedziana' : 'najem'} do ${formatDataKrotka(o.wypowiedzenie)}</span>` : ''}
@@ -88,6 +95,78 @@ function kafelek(o, s) {
     ${o.promo ? `<span class="znacznik promocja">${o.promo.do ? `promocja do ${formatDataKrotka(o.promo.do)}` : 'promocja'}</span>` : ''}
     ${umowa ? `<span class="znacznik${umowa.wygasla ? ' pilne' : ''}">${esc(umowa.tekst)}</span>` : ''}
   </a>`;
+}
+
+// ---------------------------------------------------------------------
+// Mapa placu (js/mapa.js): kolor miejsca = status jednostki, klik = szczegóły jednostki.
+// ---------------------------------------------------------------------
+
+const KLUCZ_WIDOKU = 'najem.widokJednostek';
+
+/** 'lista' albo 'mapa' – zapamiętane na urządzeniu (wygoda jednej osoby, bez bazy). */
+function widokJednostek(s) {
+  if (!s.ui.widokJednostek) {
+    try { s.ui.widokJednostek = localStorage.getItem(KLUCZ_WIDOKU) === 'mapa' ? 'mapa' : 'lista'; } catch { s.ui.widokJednostek = 'lista'; }
+  }
+  return s.ui.widokJednostek;
+}
+
+function przelacznikWidoku(widok) {
+  const b = (id, tekst) => `<button type="button" data-akcja="widok-jednostek" data-wartosc="${id}" aria-pressed="${widok === id}">${tekst}</button>`;
+  return `<div class="przelacznik-widoku" role="group" aria-label="Widok jednostek">${b('lista', 'Lista')}${b('mapa', 'Mapa')}</div>`;
+}
+
+/**
+ * Plan placu w SVG. Miejsca bez jednostki w aplikacji – przerywana ramka.
+ * Przy filtrze albo wyszukiwaniu miejsca spoza wyniku są przygaszone.
+ */
+function mapa(s, opisy, widoczne, zawezone) {
+  const { naMapie, pozaMapa, duplikaty } = rozmiescJednostki(s.dane.units);
+  const poId = new Map(opisy.map((o) => [o.j.id, o]));
+  const wynik = new Set(widoczne.map((o) => o.j.id));
+  let brakow = 0;
+
+  const komorki = MIEJSCA.map((m) => {
+    const napis = `<text x="${m.x + m.w / 2}" y="${m.y + m.h / 2}">${esc(m.etykieta)}</text>`;
+    const ksztalt = `<rect x="${m.x + 1}" y="${m.y + 1}" width="${m.w - 2}" height="${m.h - 2}" rx="2"/>`;
+    const j = naMapie.get(m.klucz);
+    const o = j && poId.get(j.id);
+    if (!o) {
+      brakow += 1;
+      return `<g class="m-miejsce brak${zawezone ? ' przygaszone' : ''}"><title>${esc(m.opis)} – nie ma takiej jednostki w aplikacji</title>${ksztalt}${napis}</g>`;
+    }
+    const opis = [o.j.code, tekstStatusu(o), o.klient?.name,
+      o.wypowiedzenie ? `${o.najem.notice_end_on ? 'wypowiedziana' : 'najem'} do ${formatDataKrotka(o.wypowiedzenie)}` : '']
+      .filter(Boolean).join(' · ');
+    const klasy = ['m-miejsce', STATUS[o.status].klasa, o.wypowiedzenie ? 'wypowiedziana' : '',
+      zawezone && !wynik.has(o.j.id) ? 'przygaszone' : ''].filter(Boolean).join(' ');
+    return `<a class="${klasy}" href="#/jednostki/${encodeURIComponent(o.j.id)}" aria-label="${esc(opis)}"><title>${esc(opis)}</title>${ksztalt}${napis}</a>`;
+  }).join('');
+
+  const alejki = ALEJKI.map((a) => `<text class="m-alejka" x="${a.x}" y="${LINIA_WJAZDU - 8}">R${a.rzad}</text>`).join('');
+  const droga = `<rect class="m-droga" x="10" y="${LINIA_WJAZDU + 10}" width="${SZEROKOSC - 20}" height="22" rx="4"/>
+    <text class="m-opis" x="${SZEROKOSC / 2}" y="${LINIA_WJAZDU + 21}">Droga dojazdowa · wjazd do alejek od południa</text>`;
+
+  const legenda = [['wolna', 'Wolna'], ['ok', 'Opłacona'], ['zalega', 'Zalega'], ['wylaczona', 'Wyłączona'], ['brak', 'Brak w aplikacji']]
+    .map(([k, t]) => `<li><span class="m-probka ${k}" aria-hidden="true"></span>${t}</li>`).join('')
+    + '<li><span class="m-probka ok wypowiedziana" aria-hidden="true"></span>Wypowiedziana</li>';
+
+  const nieumieszczone = [...pozaMapa, ...duplikaty].sort((a, b) => porownajKody(a.code, b.code));
+  const poza = nieumieszczone.length ? `<details class="m-poza"><summary>Poza mapą: ${nieumieszczone.length}</summary>
+      <p class="wyciszony maly">Kod garażu i kontenera powinien mieć postać G05R1 / K05R1 (numer i rząd), box – typ „Duży box” albo „Mały box” i numer w kodzie.
+      ${duplikaty.length ? 'Część jednostek wskazuje to samo miejsce co inna.' : ''}</p>
+      <p>${nieumieszczone.map((j) => `<a class="mono" href="#/jednostki/${encodeURIComponent(j.id)}">${esc(j.code)}</a>`).join(', ')}</p></details>` : '';
+
+  return `<figure class="mapa">
+      <div class="mapa-przewijana">
+        <svg viewBox="0 ${GORA} ${SZEROKOSC} ${WYSOKOSC - GORA}" role="group" aria-label="Plan placu: rzędy R1–R4 i boxy">${droga}${alejki}${komorki}</svg>
+      </div>
+      <figcaption>
+        <ul class="m-legenda">${legenda}</ul>
+        <p class="wyciszony maly">Numery rosną od wjazdu<span class="m-przewin"> · na telefonie przesuń plan w bok</span>. Boxy: liczba = duży box (4 m²), M = mały box (3 m²).
+          Na mapie ${naMapie.size} z ${naMapie.size + nieumieszczone.length} jednostek${brakow ? ` · ${brakow} miejsc bez jednostki w aplikacji` : ''}.</p>
+      </figcaption>
+    </figure>${poza}`;
 }
 
 function lista(s) {
@@ -110,8 +189,11 @@ function lista(s) {
   // Grupy typów są zwijane; przy wyszukiwaniu albo filtrze innym niż „Wszystkie” – rozwinięte.
   const rozwiniete = s.ui.grupyJednostek ?? (s.ui.grupyJednostek = new Set());
   const wszystkieOtwarte = Boolean(szukane) || filtr !== 'wszystkie';
+  const widok = widokJednostek(s);
   let tresc;
-  if (!widoczne.length) {
+  if (widok === 'mapa') {
+    tresc = mapa(s, opisy, widoczne, Boolean(szukane) || filtr !== 'wszystkie');
+  } else if (!widoczne.length) {
     tresc = pustyStan(szukane ? 'Nic nie pasuje do wyszukiwania.'
       : filtr === 'wolne' ? 'Wszystkie jednostki są wynajęte.' : 'Brak jednostek w tym widoku.');
   } else {
@@ -139,6 +221,7 @@ function lista(s) {
     .filter((o) => o.liczba !== 0 || o.id === filtr || !['wypowiedziane', 'promocje'].includes(o.id));
 
   return `
+    ${przelacznikWidoku(widok)}
     ${filtry(opcje, filtr, 'Status jednostek')}
     ${poleSzukaj('jednostki', s.ui.szukaj.jednostki, 'Szukaj po numerze albo kliencie')}
     ${tresc}`;
@@ -167,6 +250,7 @@ function szczegoly(s, j) {
       <section class="karta" aria-labelledby="j-dane"><h2 id="j-dane">Dane</h2>
         <dl class="opis-pol">
           <dt>Typ</dt><dd>${esc(TYPY_JEDNOSTEK[j.type]?.nazwa ?? j.type)}</dd>
+          <dt>Na mapie</dt><dd>${esc(MIEJSCA.find((m) => m.klucz === miejsceJednostki(j))?.opis ?? 'poza mapą (kod nie pasuje do układu)')}</dd>
           <dt>Status</dt><dd><span class="status ${STATUS[o.status].klasa}">${STATUS[o.status].tekst}</span></dd>
           ${formatM2(j.area_m2) ? `<dt>Powierzchnia</dt><dd>${formatM2(j.area_m2)}</dd>` : ''}
           <dt>Cennik</dt><dd class="kwota">${j.list_price_gr != null ? formatZl(j.list_price_gr) : '—'}</dd>
@@ -346,6 +430,14 @@ export default {
 
   akcje: {
     ...akcjeAnulowania,
+    /** Przełącznik „Lista / Mapa” na ekranie Jednostki. */
+    'widok-jednostek'(el, ctx) {
+      const widok = el.dataset.wartosc === 'mapa' ? 'mapa' : 'lista';
+      ctx.state.ui.widokJednostek = widok;
+      try { localStorage.setItem(KLUCZ_WIDOKU, widok); } catch { /* tryb prywatny – zostaje do odświeżenia */ }
+      ctx.render();
+      document.querySelector(`[data-akcja="widok-jednostek"][data-wartosc="${widok}"]`)?.focus();
+    },
     /** Cofnięcie wypowiedzenia z ustawień jednostki (jak na karcie klienta). */
     async 'cofnij-wypowiedzenie'(el, ctx) {
       if (ctx.state.podglad || ctx.state.offline || ctx.state.zKopii) {
