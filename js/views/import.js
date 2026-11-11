@@ -7,12 +7,13 @@ import {
   zbudujMapowanie, zgadnijMapowanie,
 } from '../banki.js';
 import { dekoduj } from '../csv.js';
-import { najemZakonczony, ostatniaWplataNaKoncie } from '../dane.js';
+import { najemZakonczony, ostatniaWplataNaKoncie, wplataReczna } from '../dane.js';
 import { formularz, plik, przelacznik, stanFormularza, wartosciFormularza, wybor, zapisz } from '../formularz.js';
 import { indeksPlatnikow, rozpoznaj } from '../rozpoznanie.js';
 import { przycisk, pustyStan } from '../ui.js';
 import {
   esc, dzisiaj, formatData, formatZl, formatRachunek, dataZeZnacznika, noweId, normalizujTekst, odmiana, porownajKody,
+  roznicaDni,
 } from '../utils.js';
 import { BANKI } from '../walidacja.js';
 
@@ -23,6 +24,9 @@ const ZNACZNIK = {
   brak: { klasa: 'wylaczona', tekst: 'brak dopasowania' },
 };
 
+/** Przelewy wpisane ręcznie łączymy z wierszem wyciągu: to samo konto i kwota, data do 5 dni różnicy. */
+const DNI_LACZENIA = 5;
+
 // ---------------------------------------------------------------------
 // Przygotowanie podglądu (bez DOM)
 // ---------------------------------------------------------------------
@@ -31,13 +35,25 @@ function przygotuj(s, odczyt, kontoId, nazwaPliku, zrodlo = null) {
   const istniejace = new Set(s.dane.payments.map((p) => p.dedup_key).filter(Boolean));
   const klucze = kluczeDuplikatow(kontoId, odczyt.wiersze);
   const indeks = indeksPlatnikow(s.dane);
-  const l = { razem: odczyt.wiersze.length, wyplywy: 0, duplikaty: 0, bledy: 0 };
+  const l = { razem: odczyt.wiersze.length, wyplywy: 0, duplikaty: 0, bledy: 0, polaczone: 0 };
   const nowe = [];
+  const reczne = s.dane.payments.filter((p) => p.method === 'przelew' && wplataReczna(p) && p.bank_account_id === kontoId);
+  const uzyte = new Set();
   const bledne = [];
   odczyt.wiersze.forEach((w, i) => {
     if (w.blad) { l.bledy += 1; bledne.push(w); return; }
     if (w.kwotaGr <= 0) { l.wyplywy += 1; return; }
     if (istniejace.has(klucze[i])) { l.duplikaty += 1; return; }
+    const reczna = reczne.find((p) => !uzyte.has(p.id) && p.amount_gr === w.kwotaGr
+      && Math.abs(roznicaDni(p.booked_on, w.data)) <= DNI_LACZENIA);
+    if (reczna) {
+      uzyte.add(reczna.id);
+      l.polaczone += 1;
+      const r = rozpoznaj(w, indeks);
+      nowe.push({ ...w, klucz: klucze[i], ...r, reczna, klientId: reczna.client_id ?? r.klientId,
+        metoda: reczna.client_id ? 'reczne' : r.metoda, potwierdzone: Boolean(reczna.client_id) || r.potwierdzone });
+      return;
+    }
     nowe.push({ ...w, klucz: klucze[i], ...rozpoznaj(w, indeks) });
   });
   // zrodlo: tekst pliku przy mapowaniu ręcznym – pozwala wrócić do wyboru kolumn („Zmień kolumny”).
@@ -168,7 +184,8 @@ function podglad(s, p) {
     `<option value="${esc(k.id)}"${k.id === wybrany ? ' selected' : ''}>${esc(k.tekst)}</option>`).join('')}`;
 
   const wiersze = p.nowe.map((w, i) => {
-    const z = ZNACZNIK[w.klientId ? w.metoda : 'brak'];
+    const z = w.reczna ? { klasa: 'ok', tekst: `wpisana ręcznie ${formatData(w.reczna.booked_on)} – połączę` }
+      : ZNACZNIK[w.klientId ? w.metoda : 'brak'];
     return `<li class="wiersz-importu"><div class="wiersz">
       <div class="glowna"><strong>${esc(w.kontrahent || '—')}</strong>
         <span>${formatData(w.data)}${w.tytul ? ` · ${esc(w.tytul)}` : ''}</span>
@@ -196,7 +213,8 @@ function podglad(s, p) {
       ${kafelek(p.nowe.length, 'nowe wpłaty')}
       ${kafelek(przypisane.length, 'przypisane automatycznie', `rachunek ${zRachunku} · nazwa ${przypisane.length - zRachunku}`)}
       ${kafelek(p.nowe.length - przypisane.length, 'do przypisania')}
-      ${kafelek(p.l.duplikaty + p.l.wyplywy, 'duplikaty i wypływy', `duplikaty ${p.l.duplikaty} · wypływy ${p.l.wyplywy}`)}
+      ${kafelek(p.l.duplikaty + p.l.wyplywy, 'duplikaty i wypływy', `duplikaty ${p.l.duplikaty} · wypływy ${p.l.wyplywy}${
+  p.l.polaczone ? ` · połączone z wpisanymi ręcznie ${p.l.polaczone}` : ''}`)}
     </div></section>`;
 
   if (!p.nowe.length) {
@@ -382,7 +400,7 @@ export default {
         const klient = String(fd.get(`klient-${i}`) ?? '') || null;
         const zmieniony = klient !== w.klientId;
         return {
-          id: noweId(), booked_on: w.data, amount_gr: w.kwotaGr, kind: pomin ? 'pominieta' : 'czynsz',
+          id: w.reczna?.id ?? noweId(), booked_on: w.data, amount_gr: w.kwotaGr, kind: pomin ? 'pominieta' : (w.reczna?.kind ?? 'czynsz'),
           method: 'przelew', bank_account_id: p.kontoId, counterparty: w.kontrahent || null, title: w.tytul || null,
           payer_account: w.rachunekNadawcy, client_id: klient,
           match_method: klient ? (zmieniony ? 'reczne' : w.metoda) : null,
@@ -396,9 +414,18 @@ export default {
           id: importId, bank_account_id: p.kontoId, file_name: p.nazwaPliku, rows_total: p.l.razem,
           rows_added: wplaty.length, rows_duplicate: p.l.duplikaty, rows_outflow: p.l.wyplywy, rows_error: p.l.bledy,
         });
+        // Przelewy wpisane wcześniej ręcznie: uzupełniamy istniejący wpis (data z banku, nadawca, tytuł, klucz duplikatu).
+        const doPolaczenia = new Set(p.nowe.filter((w) => w.reczna).map((w) => w.reczna.id));
         let zapisane;
         try {
-          zapisane = (await ctx.db.zapiszPakiet({ payments: wplaty })).payments;
+          const nowe = wplaty.filter((w) => !doPolaczenia.has(w.id));
+          zapisane = nowe.length ? (await ctx.db.zapiszPakiet({ payments: nowe })).payments : [];
+          for (const w of wplaty.filter((x) => doPolaczenia.has(x.id))) {
+            const { id, ...zmiany } = w;
+            const stara = s.dane.payments.find((x) => x.id === id);
+            // Notatka i przypisanie do jednostki zostają (update zmienia tylko podane pola).
+            zapisane.push(await ctx.db.zmien('payments', id, { ...zmiany, title: zmiany.title ?? stara?.title ?? null }));
+          }
         } catch (e) {
           await ctx.db.usun('imports', importId).catch(() => {});
           throw e;

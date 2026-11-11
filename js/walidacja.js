@@ -217,7 +217,7 @@ export function walidujNajem(w, { indeksy, ustawienia, plik = null, noweId = los
 
   const stawka = kwota(w, 'amount_gr', bledy, { wymagana: true, dodatnia: true, etykieta: 'stawkę' });
   // Dzień płatności: podpowiedź z daty startu (8.6), więc puste pole = dzień startu.
-  const dzien = tekst(w.billing_day) === '' && start ? Number(start.slice(8)) : liczbaCalkowita(w.billing_day);
+  const dzien = tekst(w.billing_day) === '' ? (ustawienia.default_billing_day ?? 20) : liczbaCalkowita(w.billing_day);
   if (dzien == null || dzien < 1 || dzien > 31) bledy.billing_day = 'Dzień płatności: liczba od 1 do 31.';
   const okres = Number(w.period_months || 1);
   if (!OKRESY_ROZLICZENIOWE.includes(okres)) bledy.period_months = 'Wybierz okres rozliczeniowy.';
@@ -441,9 +441,20 @@ export function walidujKorekte(w, { najem, naleznosci }) {
   const bledy = {};
   const okres = naleznosci.find((n) => n.poczatek === w.period_start);
   if (!okres) bledy.period_start = 'Wybierz okres.';
-  const kw = kwota(w, 'amount_gr', bledy, { wymagana: true, etykieta: 'kwotę korekty (+ albo −)' });
-  if (kw === 0) bledy.amount_gr = 'Korekta nie może wynosić 0 zł.';
-  const powod = tekst(w.reason);
+  let kw;
+  if (w.tryb === 'kwota') {
+    // Ręczna kwota należności (np. niepełny pierwszy miesiąc liczony inaczej niż proporcjonalnie):
+    // korekta = nowa kwota − obecna kwota okresu (z dotychczasowymi korektami).
+    const nowa = kwota(w, 'nowa_kwota', bledy, { wymagana: true, nieujemna: true, etykieta: 'kwotę należności' });
+    if (okres && nowa != null && !bledy.nowa_kwota) {
+      kw = nowa - (okres.bazowaGr + okres.korektaGr);
+      if (kw === 0) bledy.nowa_kwota = `Ten okres już ma kwotę ${formatZl(nowa)}.`;
+    }
+  } else {
+    kw = kwota(w, 'amount_gr', bledy, { wymagana: true, etykieta: 'kwotę korekty (+ albo −)' });
+    if (kw === 0) bledy.amount_gr = 'Korekta nie może wynosić 0 zł.';
+  }
+  const powod = tekst(w.reason) || (w.tryb === 'kwota' ? 'Ręczna kwota okresu' : '');
   if (!powod) bledy.reason = 'Podaj powód korekty.';
   else if (powod.length > 200) bledy.reason = 'Najwyżej 200 znaków.';
 
@@ -468,6 +479,7 @@ export function walidujUstawienia(w, { dzis }) {
     punctuality_months: calkowitaWZakresie(w, 'punctuality_months', bledy, 1, 36, 'Okno: od 1 do 36 miesięcy.'),
     expiring_days: calkowitaWZakresie(w, 'expiring_days', bledy, 0, 365, 'Od 0 do 365 dni.'),
     default_last_period: w.default_last_period === 'pelny' ? 'pelny' : 'proporcjonalnie',
+    default_billing_day: calkowitaWZakresie(w, 'default_billing_day', bledy, 1, 31, 'Dzień płatności: od 1 do 31.'),
     tax_period: w.tax_period === 'miesiac' ? 'miesiac' : 'kwartal',
     tax_rate_low_bp: procentBp(w, 'tax_rate_low_bp', bledy),
     tax_rate_high_bp: procentBp(w, 'tax_rate_high_bp', bledy),
@@ -523,6 +535,23 @@ export function walidujMiejscePlatnosci(w, { konta = new Map() } = {}) {
 }
 
 /**
+ * Wypowiedzenie najmu (prośba 11.11): wybrane trwające najmy klienta, data złożenia i data końca najmu.
+ * @param {object} w pola: given_on, end_on, najem_<id> = 'on'
+ * @param {{ najmy: Array, dzis: string }} kontekst najmy – trwające najmy klienta
+ * @returns {{ bledy, wybrane: Array, zmiany: { notice_given_on, notice_end_on } }}
+ */
+export function walidujWypowiedzenie(w, { najmy }) {
+  const bledy = {};
+  const given_on = data(w, 'given_on', bledy, { wymagana: true, etykieta: 'datę złożenia' });
+  const end_on = data(w, 'end_on', bledy, { wymagana: true, etykieta: 'datę końca najmu' });
+  if (given_on && end_on && end_on < given_on) bledy.end_on = 'Koniec najmu nie może być przed złożeniem wypowiedzenia.';
+  const wybrane = najmy.filter((n) => w[`najem_${n.id}`] === 'on');
+  if (!wybrane.length) bledy.najmy = 'Zaznacz co najmniej jedną jednostkę.';
+  for (const n of wybrane) if (end_on && end_on < n.start_on) bledy.end_on = 'Koniec najmu przed jego startem.';
+  return { bledy, wybrane, zmiany: { notice_given_on: given_on, notice_end_on: end_on } };
+}
+
+/**
  * Wpłata ryczałtu za kwartał (6.5, tabela tax_payments).
  * @param {object} w pola: paid_on, amount_gr
  * @param {{ rok: number, q: number, dzis: string }} kontekst
@@ -539,7 +568,7 @@ export function walidujWplateRyczaltu(w, { rok, q, dzis }) {
  * @param {object} w pola: booked_on, client_id, amount_gr, kind, note
  * @param {{ klienci?: Map, dataStart?: string, dzis: string }} kontekst
  */
-export function walidujGotowke(w, { klienci = new Map(), dataStart = null, dzis }) {
+export function walidujGotowke(w, { klienci = new Map(), konta = new Map(), najmyKlienta = new Map(), dataStart = null, dzis }) {
   const bledy = {};
   const booked_on = data(w, 'booked_on', bledy, { wymagana: true, etykieta: 'datę wpłaty' });
   if (booked_on && booked_on > dzis) bledy.booked_on = 'Data wpłaty nie może być w przyszłości.';
@@ -553,11 +582,29 @@ export function walidujGotowke(w, { klienci = new Map(), dataStart = null, dzis 
   const kind = w.kind in RODZAJE_GOTOWKI ? w.kind : 'czynsz';
   const note = lubNull(w.note);
   if (note && note.length > 500) bledy.note = 'Najwyżej 500 znaków.';
+  // Przelew wpisany ręcznie (np. po 20., zanim pobierze się wyciąg): konto wymagane – od niego zależą limity VAT.
+  const method = w.method === 'przelew' ? 'przelew' : 'gotowka';
+  let bank_account_id = null;
+  let title = null;
+  if (method === 'przelew') {
+    bank_account_id = tekst(w.bank_account_id) || null;
+    if (!bank_account_id) bledy.bank_account_id = 'Wybierz konto, na które wpłynął przelew.';
+    else if (!konta.has(bank_account_id)) bledy.bank_account_id = 'Nie ma takiego konta.';
+    title = lubNull(w.title);
+    if (title && title.length > 140) bledy.title = 'Najwyżej 140 znaków.';
+  }
+  // Za jednostkę (opcjonalnie): najem tego klienta; puste = automatycznie od najstarszej należności.
+  let rental_id = tekst(w.rental_id) || null;
+  if (rental_id && !(najmyKlienta.get(client_id) ?? []).some((n) => n.id === rental_id)) {
+    bledy.rental_id = 'Ta jednostka nie należy do wybranego klienta.';
+    rental_id = null;
+  }
+  if (kind !== 'czynsz') rental_id = null;
   return {
     bledy,
     wiersz: {
-      booked_on, client_id: client_id || null, amount_gr, kind, note,
-      method: 'gotowka', bank_account_id: null, match_method: 'reczne', match_confirmed: true,
+      booked_on, client_id: client_id || null, amount_gr, kind, note, title, rental_id,
+      method, bank_account_id, match_method: 'reczne', match_confirmed: true,
     },
   };
 }

@@ -163,7 +163,7 @@ export function przygotujImport(teksty, { dane, ustawienia, dzis, noweId = losow
 
     const stawka = parseKwota(w.stawka);
     if (stawka == null || stawka <= 0) blad('najmy', nr, `stawka: „${w.stawka}” – podaj kwotę większą od zera.`);
-    const dzien = w.dzien_platnosci ? Number(w.dzien_platnosci) : start ? Number(start.slice(8)) : null;
+    const dzien = w.dzien_platnosci ? Number(w.dzien_platnosci) : (ustawienia.default_billing_day ?? 20);
     if (!Number.isInteger(dzien) || dzien < 1 || dzien > 31) blad('najmy', nr, 'dzien_platnosci: liczba od 1 do 31.');
 
     const kaucja = w.kaucja ? parseKwota(w.kaucja) : null;

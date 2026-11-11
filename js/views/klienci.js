@@ -4,13 +4,13 @@
 
 import { najemTrwa, najemZakonczony, opisPlatnosci, stawkaNaDzien } from '../dane.js';
 import {
-  formularz, maBledy, obszar, opcje, pole, stanFormularza, wartosciFormularza, zapisz,
+  formularz, maBledy, obszar, opcje, pole, przelacznik, stanFormularza, wartosciFormularza, zapisz,
 } from '../formularz.js';
 import { filtry, poleSzukaj, przycisk, pustyStan, opcjeEdycji, przyciskEdycji } from '../ui.js';
 import {
-  dataZeZnacznika, esc, dzisiaj, etykietaMiesiaca, formatData, formatDataKrotka, formatRachunek, formatZl, kwotaDoPola, normalizujTekst, parseKwota, porownajKody,
+  dataZeZnacznika, dodajMiesiace, esc, dzisiaj, etykietaMiesiaca, formatData, formatDataKrotka, formatRachunek, formatZl, kwotaDoPola, normalizujTekst, parseKwota, porownajKody,
 } from '../utils.js';
-import { saldoKaucji, walidujKlienta, walidujPdf } from '../walidacja.js';
+import { saldoKaucji, walidujKlienta, walidujPdf, walidujWypowiedzenie } from '../walidacja.js';
 import { koniecUmowy } from './jednostki.js';
 import { rozliczeniaKlientow, ustawienia } from './wspolne.js';
 import { PROGI_TERMINOWOSCI } from '../config.js';
@@ -132,12 +132,16 @@ function wierszNajmu(s, n, dzien) {
   ].filter(Boolean).join(' · ');
   const platnosc = opisPlatnosci(n, s.indeksy.konta);
   const edycja = s.ui.edycja;
+  const wypowiedzenie = trwa && n.notice_end_on ? `<span class="zawijaj"><span class="status czesciowo">wypowiedziana</span>
+    ${n.notice_given_on ? `złożona ${formatData(n.notice_given_on)} · ` : ''}koniec najmu <strong>${formatData(n.notice_end_on)}</strong>${
+  edycja ? ` <button type="button" class="link-btn maly" data-akcja="cofnij-wypowiedzenie" data-id="${esc(n.id)}">cofnij</button>` : ''}</span>` : '';
 
   return `<li class="najem">
     <div class="wiersz">
       <div class="glowna"><strong class="mono"><a href="#/jednostki/${encodeURIComponent(n.unit_id)}">${esc(j?.code ?? '?')}</a></strong>
         <span>${formatData(n.start_on)} – ${n.end_on ? formatData(n.end_on) : 'trwa'}</span>
         <span class="zawijaj">${szczegoly}</span>
+        ${wypowiedzenie}
         <span class="zawijaj">płaci: ${esc(platnosc)}${edycja && trwa && platnosc.endsWith('nieustalone')
     ? ` <a class="maly" href="#/najmy/${id}/platnosc">ustal</a>` : ''}</span>
         ${koniec ? `<span class="znacznik${koniec.wygasla ? ' pilne' : ''}">${esc(koniec.wygasla
@@ -150,6 +154,7 @@ function wierszNajmu(s, n, dzien) {
     ${edycja ? `<div class="akcje-wiersza">
       <a href="#/najmy/${id}/stawka">Zmień stawkę</a>
       <a href="#/najmy/${id}/promocja">Promocja</a>
+      <a href="#/najmy/${id}/korekta?tryb=kwota">Kwota 1. okresu</a>
       <a href="#/najmy/${id}/korekta">Korekta należności</a>
       <a href="#/najmy/${id}/platnosc">Gdzie płaci</a>
       ${trwa ? `<a href="#/najmy/${id}/koniec">Zakończ najem</a>` : ''}
@@ -382,6 +387,9 @@ function karta(s, klient) {
   return `
     <div class="pasek-akcji">
       ${przycisk({ tekst: 'Wpłata gotówką', href: `#/wplaty/gotowka?klient=${id}`, ikona: 'plus' })}
+      ${przycisk({ tekst: 'Wpłata przelewem', href: `#/wplaty/przelew?klient=${id}`, drugi: true, ikona: 'plus' })}
+      ${najmy.some((n) => najemTrwa(n, dzien) && !n.end_on && !n.notice_end_on)
+    ? przycisk({ tekst: 'Wypowiedz umowę', href: `#/klienci/${id}/wypowiedzenie`, drugi: true }) : ''}
       ${przyciskEdycji(s)}
     </div>
     ${s.ui.edycja ? opcjeEdycji(`<p class="podpowiedz">Tryb edycji: przy najmach są zmiana stawki, promocja, korekta,
@@ -410,6 +418,44 @@ function karta(s, klient) {
     <section class="karta" aria-labelledby="k-notatki"><h2 id="k-notatki">Notatki i historia kontaktu</h2>
       ${sekcjaNotatek(s, klient)}</section>
     ${s.ui.edycja ? przyciskArchiwizacji(klient, najmy, r, dzien) : ''}`;
+}
+
+// ---------------------------------------------------------------------
+// Wypowiedzenie najmu (prośba 11.11): data złożenia i koniec najmu → oznaczenie przy najmie + zadanie „Zadania”
+// ---------------------------------------------------------------------
+
+/** Trwające najmy klienta bez daty końca – te można wypowiedzieć. */
+function najmyDoWypowiedzenia(s, klient) {
+  const dzien = dzisiaj();
+  return (s.indeksy.najmyKlienta.get(klient.id) ?? []).filter((n) => !n.end_on && !najemZakonczony(n, dzien))
+    .sort((a, b) => porownajKody(s.indeksy.jednostki.get(a.unit_id)?.code ?? '', s.indeksy.jednostki.get(b.unit_id)?.code ?? ''));
+}
+
+function formularzWypowiedzenia(s, klient) {
+  const najmy = najmyDoWypowiedzenia(s, klient);
+  if (!najmy.length) return pustyStan('Ten klient nie ma trwających najmów.', [{ tekst: 'Wróć', href: `#/klienci/${encodeURIComponent(klient.id)}` }]);
+  const dzis = dzisiaj();
+  const f = stanFormularza(s, `klienci/${klient.id}/wypowiedzenie`, () => ({
+    given_on: dzis,
+    end_on: dodajMiesiace(dzis, 1, 31),   // podpowiedź: koniec następnego miesiąca
+    ...Object.fromEntries(najmy.map((n) => [`najem_${n.id}`, n.notice_end_on ? '' : 'on'])),
+  }));
+  const okres = [...s.indeksy.umowy.values()].filter((u) => u.client_id === klient.id && u.notice_period).map((u) => u.notice_period);
+  return formularz(f, {
+    nazwa: 'wypowiedzenie',
+    przycisk: 'Zapisz wypowiedzenie',
+    anuluj: `#/klienci/${encodeURIComponent(klient.id)}`,
+    uwaga: 'Najem trwa do daty końca – należności liczą się dalej. W dniu końca na liście „Zadania” pojawi się przypomnienie, żeby zakończyć najem i rozliczyć kaucję.',
+    tresc: `<fieldset><legend>Które jednostki</legend>
+        ${najmy.map((n) => przelacznik(f, { nazwa: `najem_${n.id}`, etykieta: `${s.indeksy.jednostki.get(n.unit_id)?.code ?? '?'}${
+    n.notice_end_on ? ` (już wypowiedziana do ${formatData(n.notice_end_on)})` : ''}` })).join('')}
+        ${f.bledy.najmy ? `<p class="blad" role="alert">${esc(f.bledy.najmy)}</p>` : ''}</fieldset>
+      <div class="pola-w-rzedzie">
+        ${pole(f, { nazwa: 'given_on', etykieta: 'Data złożenia wypowiedzenia', typ: 'date', wymagane: true })}
+        ${pole(f, { nazwa: 'end_on', etykieta: 'Koniec najmu', typ: 'date', wymagane: true,
+    podpowiedz: okres.length ? `Okres wypowiedzenia w umowie: ${esc(okres.join(', '))}.` : 'Podpowiedź: koniec następnego miesiąca.' })}
+      </div>`,
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -474,13 +520,14 @@ export default {
     if (parametr === 'nowy') return 'Nowy klient';
     const nazwa = s.indeksy.klienci.get(parametr)?.name ?? 'Klient';
     if (akcja === 'notatka') return `Notatka: ${nazwa}`;
+    if (akcja === 'wypowiedzenie') return `Wypowiedzenie: ${nazwa}`;
     return akcja === 'edycja' ? `Edycja: ${nazwa}` : nazwa;
   },
 
   wstecz(s) {
     const { parametr, akcja } = s.ui;
     if (!parametr) return null;
-    if (akcja === 'edycja' || akcja === 'notatka') return { href: `#/klienci/${encodeURIComponent(parametr)}`, tekst: s.indeksy.klienci.get(parametr)?.name ?? 'Klient' };
+    if (['edycja', 'notatka', 'wypowiedzenie'].includes(akcja)) return { href: `#/klienci/${encodeURIComponent(parametr)}`, tekst: s.indeksy.klienci.get(parametr)?.name ?? 'Klient' };
     if (parametr === 'nowy' && s.ui.zapytanie.dalej === 'najem') return { href: '#/najmy/nowy', tekst: 'Nowy najem' };
     return { href: '#/klienci', tekst: 'Klienci' };
   },
@@ -492,10 +539,26 @@ export default {
     const klient = s.indeksy.klienci.get(parametr);
     if (!klient) return pustyStan('Nie znaleziono klienta.', [{ tekst: 'Wróć do listy', href: '#/klienci' }]);
     if (akcja === 'notatka') return formularzNotatki(s, klient);
+    if (akcja === 'wypowiedzenie') return formularzWypowiedzenia(s, klient);
     return akcja === 'edycja' ? formularzKlienta(s, klient) : karta(s, klient);
   },
 
   akcje: {
+    /** Cofnięcie wypowiedzenia (tryb edycji). Zadanie na liście zostaje – można je odhaczyć albo usunąć. */
+    async 'cofnij-wypowiedzenie'(el, ctx) {
+      const s = ctx.state;
+      if (s.podglad || s.offline || s.zKopii) {
+        ctx.toast('Zmiana wymaga połączenia z bazą.');
+        return;
+      }
+      try {
+        const n = await ctx.db.zmien('rentals', el.dataset.id, { notice_given_on: null, notice_end_on: null });
+        ctx.scal({ rentals: [n] });
+        ctx.toast('Cofnięto wypowiedzenie. Zadanie na liście zostało – odhacz je albo usuń.');
+      } catch (e) {
+        ctx.toast(e.message);
+      }
+    },
     'sort-klienci'(el, ctx) {
       ctx.state.ui.sortKlienci = el.dataset.wartosc;
       ctx.render();
@@ -600,6 +663,28 @@ export default {
   },
 
   formularze: {
+    async wypowiedzenie(form, ctx) {
+      const s = ctx.state;
+      const klient = s.indeksy.klienci.get(s.ui.parametr);
+      if (!klient) return;
+      const w = wartosciFormularza(form);
+      const { bledy, wybrane, zmiany } = walidujWypowiedzenie(w, { najmy: najmyDoWypowiedzenia(s, klient) });
+      if (maBledy(ctx, w, bledy)) return;
+      const kody = wybrane.map((n) => s.indeksy.jednostki.get(n.unit_id)?.code ?? '?').join(', ');
+      await zapisz(ctx, async () => {
+        const najmy = [];
+        for (const n of wybrane) najmy.push(await ctx.db.zmien('rentals', n.id, zmiany));
+        const zadanie = await ctx.db.wstaw('client_notes', {
+          client_id: klient.id, kind: 'notatka', task_owner: 'ja', promised_on: zmiany.notice_end_on,
+          body: `Wypowiedzenie ${kody} (złożone ${formatData(zmiany.notice_given_on)}): koniec najmu ${
+            formatData(zmiany.notice_end_on)} – zakończ najem i rozlicz kaucję.`,
+        });
+        ctx.scal({ rentals: najmy, client_notes: [zadanie] });
+        ctx.toast(`Wypowiedzenie ${kody} – koniec ${formatData(zmiany.notice_end_on)}, dodano zadanie`);
+        ctx.nawiguj(`klienci/${encodeURIComponent(klient.id)}`);
+      });
+    },
+
     async notatka(form, ctx) {
       const s = ctx.state;
       const klientId = s.ui.parametr;

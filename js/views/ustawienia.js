@@ -65,6 +65,7 @@ function przeglad(s) {
         ['Okno terminowości', `${u.punctuality_months} mies.`],
         ['Ostrzeżenie o końcu umowy', `${u.expiring_days} dni wcześniej`],
         ['Ostatni okres najmu', ostatni],
+        ['Dzień płatności nowych najmów', `${u.default_billing_day ?? 20}.`],
       ]), '#/ustawienia/edycja')}
       ${sekcjaKarty('podatek', 'Podatek', pola([
         ['Wpłaty ryczałtu', u.tax_period === 'miesiac' ? 'miesięcznie' : 'kwartalnie'],
@@ -105,6 +106,7 @@ function wartosciUstawien(u) {
   return {
     tolerance_days: String(u.tolerance_days), punctuality_months: String(u.punctuality_months),
     expiring_days: String(u.expiring_days), default_last_period: u.default_last_period, tax_period: u.tax_period,
+    default_billing_day: String(u.default_billing_day ?? 20),
     tax_rate_low_bp: procentDoPola(u.tax_rate_low_bp), tax_rate_high_bp: procentDoPola(u.tax_rate_high_bp),
     tax_threshold_gr: kwotaDoPola(u.tax_threshold_gr), vat_limit_gr: kwotaDoPola(u.vat_limit_gr),
     tax_account: u.tax_account ? formatRachunek(u.tax_account) : '', data_start: u.data_start,
@@ -124,8 +126,12 @@ function formularzUstawien(s) {
           ${pole(f, { nazwa: 'punctuality_months', etykieta: 'Okno terminowości (mies.)', typ: 'number', wymagane: true,
             podpowiedz: 'Z ilu ostatnich miesięcy liczyć terminowość (Z30).', atrybuty: liczba })}
         </div>
+        <div class="pola-w-rzedzie">
         ${pole(f, { nazwa: 'expiring_days', etykieta: 'Ostrzeżenie o końcu umowy (dni wcześniej)', typ: 'number', wymagane: true,
           atrybuty: liczba })}
+        ${pole(f, { nazwa: 'default_billing_day', etykieta: 'Dzień płatności nowych najmów', typ: 'number', wymagane: true,
+          podpowiedz: 'Pierwszy, niepełny okres liczy się proporcjonalnie do tego dnia.', atrybuty: 'min="1" max="31" inputmode="numeric"' })}
+        </div>
         ${opcje(f, { nazwa: 'default_last_period', legenda: 'Domyślny ostatni okres nowego najmu (Z8)', opcje: [
           { wartosc: 'proporcjonalnie', tekst: 'Proporcjonalnie do dni' }, { wartosc: 'pelny', tekst: 'Pełny okres' }] })}`)}
       ${sekcja('Podatek', `

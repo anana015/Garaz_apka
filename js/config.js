@@ -7,7 +7,7 @@ export const CONFIG = Object.freeze({
   supabaseKey: 'sb_publishable_aFlZhbycefQPMj6imB3jFQ_KSLQmZ28',   // klucz publiczny (publishable)
 });
 
-export const WERSJA = '0.8.0';
+export const WERSJA = '0.9.0';
 
 /** Tabele z rozdziału 4 – kolejność nie ma znaczenia, służy do pobierania i kopii zapasowej. */
 export const TABELE = Object.freeze([
@@ -41,6 +41,7 @@ export const DOMYSLNE_USTAWIENIA = Object.freeze({
   punctuality_months: 12,
   expiring_days: 30,
   default_last_period: 'proporcjonalnie',
+  default_billing_day: 20,   // decyzja 11.11: wszyscy płacą 20., niezależnie od daty umowy
   tax_period: 'kwartal',
   tax_rate_low_bp: 850,
   tax_rate_high_bp: 1250,

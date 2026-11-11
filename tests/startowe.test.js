@@ -29,7 +29,7 @@ test('pełny import: jednostki, klienci, najmy z umowami i kaucją, wpłaty got�
 
   const [r1, r2, r3] = pakiet.rentals;
   assert.equal(r1.contract_id, r2.contract_id, 'ten sam numer umowy = jedna umowa z dwiema jednostkami');
-  assert.equal(r1.billing_day, 15, 'dzień płatności z daty startu');
+  assert.equal(r1.billing_day, 20, 'dzień płatności z ustawień (20.), nie z daty startu');
   assert.equal(r3.end_on, '2026-05-31');
   assert.equal(pakiet.contracts[1].client_id, pakiet.clients[1].id, 'klient znaleziony po NIP');
   assert.deepEqual(pakiet.deposits, [{ contract_id: r1.contract_id, kind: 'przyjecie', amount_gr: 50000, method: 'gotowka', on_date: '2024-03-10' }]);

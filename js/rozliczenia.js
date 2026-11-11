@@ -8,7 +8,8 @@ import { roznicaDni } from './utils.js';
  * Rozliczenie jednego klienta.
  * @param {object} k
  * @param {Array} k.naleznosci należności jego najmów (okresy.naleznosciNajmu), z polem kod (numer jednostki)
- * @param {Array} k.wplaty wpłaty kind = 'czynsz' tego klienta
+ * @param {Array} k.wplaty wpłaty kind = 'czynsz' tego klienta; rental_id = wpłata przypisana ręcznie do jednostki
+ *   (najpierw pokrywa należności tego najmu od najstarszej, reszta – pozostałe jak zwykle)
  * @param {number} k.saldoOtwarcia clients.opening_balance_gr (ujemne = zaległość)
  * @param {string} k.dataStart, k.dzis RRRR-MM-DD
  * @param {number} k.tolerancja dni (settings.tolerance_days)
@@ -25,14 +26,17 @@ export function rozliczKlienta({ naleznosci, wplaty, saldoOtwarcia = 0, dataStar
 
   const ruchy = [...wplaty]
     .sort((a, b) => a.booked_on.localeCompare(b.booked_on) || String(a.created_at).localeCompare(String(b.created_at)))
-    .map((w) => ({ data: w.booked_on, kwota: w.amount_gr }));
+    .map((w) => ({ data: w.booked_on, kwota: w.amount_gr, najemId: w.rental_id ?? null }));
   if (saldoOtwarcia > 0) ruchy.unshift({ data: dataStart, kwota: saldoOtwarcia });
 
   let nadwyzka = 0;   // wpłacone, a jeszcze niczego nie pokrywa (brak dalszych należności)
   for (const r of ruchy) {
     if (r.kwota >= 0) {
       let zostalo = r.kwota;
-      for (const p of pozycje) {
+      const kolejnosc = r.najemId && pozycje.some((p) => p.najemId === r.najemId)
+        ? [...pozycje.filter((p) => p.najemId === r.najemId), ...pozycje.filter((p) => p.najemId !== r.najemId)]
+        : pozycje;
+      for (const p of kolejnosc) {
         if (!zostalo) break;
         const brak = p.kwotaGr - p.zaplaconoGr;
         if (brak <= 0) continue;
@@ -150,7 +154,9 @@ export function kartoteka({ pozycje, wplaty, saldoOtwarcia = 0, dataStart, dzis 
   }
   for (const w of wplaty) {
     if (w.booked_on > dzis) continue;
-    const opis = w.amount_gr < 0 ? 'Zwrot nadpłaty' : OPIS_WPLATY[w.method] ?? 'Wpłata';
+    const rodzaj = w.amount_gr < 0 ? 'Zwrot nadpłaty' : OPIS_WPLATY[w.method] ?? 'Wpłata';
+    const kod = w.rental_id ? pozycje.find((p) => p.najemId === w.rental_id)?.kod : null;
+    const opis = kod ? `${rodzaj} za ${kod}` : rodzaj;
     wiersze.push({ data: w.booked_on, kolej: 2, opis: w.title ? `${opis} · ${w.title}` : opis,
       winienGr: w.amount_gr < 0 ? -w.amount_gr : 0, maGr: w.amount_gr > 0 ? w.amount_gr : 0 });
   }

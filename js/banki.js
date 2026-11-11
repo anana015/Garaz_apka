@@ -1,5 +1,5 @@
 // Profile banków (7.1–7.2): tekst wyciągu → wspólny odczyt wierszy.
-// Czyste funkcje. Obsługiwane: Nest Bank, Millennium. Inne banki (PKO BP, Alior…) – ręczne mapowanie kolumn
+// Czyste funkcje. Profile: Nest Bank, Millennium, PKO BP, Alior. Inne banki – ręczne mapowanie kolumn
 // zapamiętane przy koncie (bank_accounts.csv_mapping, migracja 005).
 //
 // Wynik odczytajWyciag(tekst):
@@ -111,6 +111,69 @@ function millennium(tekst) {
 }
 
 // ---------------------------------------------------------------------
+// PKO BP: „Zestawienie_operacji_*.csv”, Windows-1250, każdy wiersz jako jedno pole w cudzysłowie (jak Millennium).
+// Kolumny: Data operacji, Data waluty, Typ transakcji, Kwota („+200.00”), Waluta, Saldo po transakcji, Opis transakcji
+// i kilka kolumn bez nazwy. Nadawca, rachunek i tytuł są w komórkach opisu: „Nazwa nadawcy: …”, „Rachunek nadawcy: …”,
+// „Tytuł: …”. Numeru własnego rachunku w pliku nie ma.
+// ---------------------------------------------------------------------
+
+/** Wartość z komórek „Etykieta: wartość” (od kolumny od). */
+function zOpisuPKO(pola, od, wzor) {
+  for (const p of pola.slice(od)) {
+    const m = wzor.exec(p.replace(/^'/, '').trim());
+    if (m) return m[1].trim();
+  }
+  return '';
+}
+
+function pko(tekst) {
+  const rekordy = rozpakuj(parsujCsv(tekst, wykryjSeparator(tekst)));
+  const start = rekordy.findIndex((r) => kluczNaglowka(r.pola).includes('DATA OPERACJI'));
+  const n = kluczNaglowka(rekordy[start].pola);
+  const i = (nazwa) => n.indexOf(nazwa);
+  const kol = { data: i('DATA OPERACJI'), kwota: i('KWOTA'), waluta: i('WALUTA'), opis: i('OPIS TRANSAKCJI') };
+  return {
+    bank: 'pko',
+    rachunek: null,
+    wiersze: rekordy.slice(start + 1).map(({ nr, pola }) => wiersz(nr, {
+      data: pola[kol.data], kwota: pola[kol.kwota], waluta: pola[kol.waluta],
+      kontrahent: zOpisuPKO(pola, kol.opis, /^nazwa (?:nadawcy|odbiorcy)\s*:\s*(.*)$/i),
+      rachunek: zOpisuPKO(pola, kol.opis, /^rachunek (?:nadawcy|odbiorcy)\s*:\s*(.*)$/i),
+      tytul: zOpisuPKO(pola, kol.opis, /^tytuł\s*:\s*(.*)$/i),
+    })),
+  };
+}
+
+// ---------------------------------------------------------------------
+// Alior: „Historia_Operacji_*.csv”, UTF-8, średnik. Nad tabelą linia „Kryteria transakcji: …”.
+// Kwota w walucie rachunku („-18,49”), daty DD.MM.RRRR. Własny rachunek = „Numer rachunku odbiorcy” przy wpływie.
+// ---------------------------------------------------------------------
+
+function alior(tekst) {
+  const rekordy = parsujCsv(tekst, ';');
+  const start = rekordy.findIndex((r) => kluczNaglowka(r.pola).includes('NAZWA NADAWCY'));
+  const n = kluczNaglowka(rekordy[start].pola);
+  const i = (nazwa) => n.indexOf(nazwa);
+  const kwota = i('KWOTA W WALUCIE RACHUNKU') >= 0 ? i('KWOTA W WALUCIE RACHUNKU') : i('KWOTA OPERACJI');
+  const waluta = i('WALUTA RACHUNKU') >= 0 ? i('WALUTA RACHUNKU') : i('WALUTA OPERACJI');
+  const kol = {
+    data: i('DATA KSIEGOWANIA') >= 0 ? i('DATA KSIEGOWANIA') : i('DATA TRANSAKCJI'), kwota, waluta,
+    kontrahent: i('NAZWA NADAWCY'), tytul: i('SZCZEGOLY TRANSAKCJI'), rachunek: i('NUMER RACHUNKU NADAWCY'),
+    odbiorca: i('NUMER RACHUNKU ODBIORCY'),
+  };
+  const dane = rekordy.slice(start + 1);
+  const wplyw = dane.find(({ pola }) => (kwotaWyciagu(pola[kol.kwota]) ?? 0) > 0 && oczyscRachunek(pola[kol.odbiorca]));
+  return {
+    bank: 'alior',
+    rachunek: wplyw ? oczyscRachunek(wplyw.pola[kol.odbiorca]) : null,
+    wiersze: dane.map(({ nr, pola }) => wiersz(nr, {
+      data: pola[kol.data], kwota: pola[kol.kwota], waluta: pola[kol.waluta],
+      kontrahent: pola[kol.kontrahent], rachunek: pola[kol.rachunek], tytul: pola[kol.tytul],
+    })),
+  };
+}
+
+// ---------------------------------------------------------------------
 // Ręczne mapowanie kolumn (7.2: „Inny – ręczne mapowanie kolumn zapamiętane jako profil”).
 // Mapowanie: { podpis: 'NAGLOWEK|…' (nagłówki bez ogonków), kolumny: { data: 'DATA OPERACJI', kwota: 'KWOTA', … } }.
 // Kolumny wskazujemy nazwą nagłówka, nie numerem – plik z dodatkową kolumną dalej się wczyta.
@@ -137,7 +200,10 @@ export function kolumnyPliku(tekst) {
   const poczatek = rekordy.slice(0, 30);
   const max = Math.max(0, ...poczatek.map((r) => r.pola.length));
   if (max < 2) return null;
-  const i = poczatek.findIndex((r) => r.pola.length === max && r.pola.filter((p) => p.trim()).length >= 2);
+  // Nagłówek: wiersz bez dat (≥ 2 niepuste pola), po którym jest wiersz z datą. Zapas: pierwszy najszerszy wiersz.
+  const maDate = (r) => r?.pola.some((p) => dataWyciagu(p));
+  let i = poczatek.findIndex((r, idx) => r.pola.filter((p) => p.trim()).length >= 2 && !maDate(r) && maDate(poczatek[idx + 1]));
+  if (i < 0) i = poczatek.findIndex((r) => r.pola.length === max && r.pola.filter((p) => p.trim()).length >= 2);
   if (i < 0) return null;
   return {
     separator, start: i,
@@ -220,13 +286,15 @@ export function odczytajZMapowaniem(tekst, mapowanie) {
 
 // ---------------------------------------------------------------------
 
-export const OBSLUGIWANE = Object.freeze({ nest: 'Nest Bank', millennium: 'Millennium' });
+export const OBSLUGIWANE = Object.freeze({ nest: 'Nest Bank', millennium: 'Millennium', pko: 'PKO BP', alior: 'Alior' });
 
 /** Rozpoznaje bank po treści pliku. */
 export function rozpoznajBank(tekst) {
   const poczatek = normalizujTekst(tekst.slice(0, 2000));
   if (poczatek.includes('DATA KSIEGOWANIA') && poczatek.includes('DANE KONTRAHENTA')) return 'nest';
   if (poczatek.includes('NUMER RACHUNKU KARTY') && poczatek.includes('UZNANIA')) return 'millennium';
+  if (poczatek.includes('DATA OPERACJI') && poczatek.includes('SALDO PO TRANSAKCJI') && poczatek.includes('OPIS TRANSAKCJI')) return 'pko';
+  if (poczatek.includes('NAZWA NADAWCY') && poczatek.includes('NAZWA ODBIORCY') && poczatek.includes('SZCZEGOLY TRANSAKCJI')) return 'alior';
   return null;
 }
 
@@ -235,6 +303,8 @@ export function odczytajWyciag(tekst) {
   const bank = rozpoznajBank(tekst);
   if (bank === 'nest') return nest(tekst);
   if (bank === 'millennium') return millennium(tekst);
+  if (bank === 'pko') return pko(tekst);
+  if (bank === 'alior') return alior(tekst);
   return {
     bank: null, rachunek: null, wiersze: [],
     nierozpoznany: true,   // widok proponuje ręczne mapowanie kolumn

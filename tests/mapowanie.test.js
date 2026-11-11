@@ -78,3 +78,31 @@ test('zapamiętane mapowanie pasuje tylko do pliku z tymi samymi nagłówkami; p
   const o = odczytajZMapowaniem(uznania, zbudujMapowanie(ku.kolumny, zgadnijMapowanie(ku.kolumny)));
   assert.deepEqual(o.wiersze.map((w) => [w.kwotaGr, Boolean(w.blad)]), [[30000, false], [0, false]]);
 });
+
+// Profile PKO BP i Alior – zanonimizowane kopie plików przesłanych przez użytkowniczkę (tests/pliki/).
+import { readFileSync } from 'node:fs';
+import { dekoduj } from '../js/csv.js';
+
+const plik = (nazwa) => dekoduj(readFileSync(new URL(`./pliki/${nazwa}`, import.meta.url)));
+
+test('PKO BP: Windows-1250, wiersz w cudzysłowie, nadawca/rachunek/tytuł z opisu', () => {
+  const o = odczytajWyciag(plik('pko_przyklad.csv'));
+  assert.equal(o.bank, 'pko');
+  assert.equal(o.wiersze.length, 2);
+  const [karta, przelew] = o.wiersze;
+  assert.equal(karta.kwotaGr, -20960);
+  assert.deepEqual([przelew.data, przelew.kwotaGr, przelew.rachunekNadawcy], ['2026-11-10', 20000, '61109010140000071219812874']);
+  assert.equal(przelew.kontrahent, 'JAN TESTOWY UL. PRZYKŁADOWA 1/2');
+  assert.equal(przelew.tytul, 'opłata za na najem boxa kontenerow ego nr 12');
+});
+
+test('Alior: linia kryteriów nad tabelą, kwota w walucie rachunku, własny rachunek z wpływu', () => {
+  const o = odczytajWyciag(plik('alior_przyklad.csv'));
+  assert.equal(o.bank, 'alior');
+  assert.equal(o.rachunek, '11222233334444555566667777');
+  assert.deepEqual(o.wiersze.map((w) => w.kwotaGr), [-1849, -2598, -9770, 35000]);
+  const w = o.wiersze[3];
+  assert.deepEqual([w.data, w.kontrahent, w.tytul, w.rachunekNadawcy],
+    ['2026-11-10', 'ANNA PRZYKŁADOWA UL. TESTOWA 5 KRAKÓW', 'czynsz G-07 listopad', '61109010140000071219812875']);
+  assert.equal(kolumnyPliku(plik('alior_przyklad.csv')).kolumny[0], 'Data transakcji');   // nagłówek pod linią kryteriów
+});

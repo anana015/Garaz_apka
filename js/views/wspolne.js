@@ -98,3 +98,24 @@ export function pobierzEksport(s, rodzaj, { rok } = {}) {
   } else return;
   pobierzPlik(`${nazwa}_${dzis}.csv`, doCsv(wynik.naglowek, wynik.wiersze));
 }
+
+/**
+ * Jednostki klienta do pola „Za jednostkę” (ręczne przypisanie wpłaty, payments.rental_id).
+ * Pusta lista, gdy klient ma mniej niż 2 najmy – wtedy pola nie pokazujemy (i tak wszystko idzie na ten jeden najem).
+ */
+export function opcjeNajmowKlienta(s, klientId) {
+  const najmy = s.indeksy.najmyKlienta.get(klientId) ?? [];
+  if (najmy.length < 2) return [];
+  return [...najmy].sort((a, b) => (a.end_on != null) - (b.end_on != null)
+    || (s.indeksy.jednostki.get(a.unit_id)?.code ?? '').localeCompare(s.indeksy.jednostki.get(b.unit_id)?.code ?? '', 'pl', { numeric: true }))
+    .map((n) => ({ wartosc: n.id, tekst: `${s.indeksy.jednostki.get(n.unit_id)?.code ?? '?'}${n.end_on ? ` (zakończony ${n.end_on})` : ''}` }));
+}
+
+/**
+ * rental_id do zapisu: bez klucza, gdy puste i wcześniej też puste – zapis działa wtedy także bez migracji 006.
+ * Zwraca obiekt do rozłożenia w wierszu zapisu.
+ */
+export function poleNajmu(rentalId, poprzednia = null) {
+  if (rentalId) return { rental_id: rentalId };
+  return poprzednia?.rental_id ? { rental_id: null } : {};
+}

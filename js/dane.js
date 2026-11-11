@@ -118,3 +118,6 @@ export function opisPlatnosci(najem, konta = new Map()) {
   const konto = najem?.bank_account_id ? konta.get(najem.bank_account_id) : null;
   return `przelew · ${konto ? konto.name : 'konto nieustalone'}`;
 }
+
+/** Wpłata wpisana ręcznie (gotówka albo przelew bez wyciągu) – można ją poprawić i usunąć. */
+export const wplataReczna = (w) => w.method === 'gotowka' || (w.method === 'przelew' && !w.dedup_key && !w.import_id);

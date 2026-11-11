@@ -125,7 +125,7 @@ function wartosciNowegoNajmu(s) {
   const { klient = '', jednostka = '' } = s.ui.zapytanie;
   const cennik = s.indeksy.jednostki.get(jednostka)?.list_price_gr;
   return {
-    client_id: klient, unit_id: jednostka, start_on: dzien, billing_day: String(Number(dzien.slice(8))),
+    client_id: klient, unit_id: jednostka, start_on: dzien, billing_day: String(ustawienia(s).default_billing_day ?? 20),
     amount_gr: kwotaDoPola(cennik), period_months: '1', last_period: ustawienia(s).default_last_period,
     deposit_method: 'gotowka', pay_method: 'przelew', bank_account_id: '',
   };
@@ -196,10 +196,7 @@ function przyZmianieNajmu(nazwa, f, s, poprzednie = {}) {
     }
     delete f.bledy.unit_id;
   }
-  if (nazwa === 'start_on' && w.start_on) {
-    const dzienStary = poprzednie.start_on ? String(Number(poprzednie.start_on.slice(8))) : '';
-    if (!poprzednie.billing_day || poprzednie.billing_day === dzienStary) w.billing_day = String(Number(w.start_on.slice(8)));
-  }
+  // Dzień płatności nie zależy od daty startu (decyzja 11.11: wszyscy płacą 20.) – podpowiedź z Ustawień.
   if (nazwa === 'pdf') {
     const blad = walidujPdf(f.pliki.pdf);
     if (blad) f.bledy.pdf = blad; else delete f.bledy.pdf;
@@ -401,7 +398,7 @@ function kaucjaDoRozliczenia(s, k) {
 
 function formularzKonca(s, k) {
   const f = stanFormularza(s, `najmy/${k.najem.id}/koniec`, () => ({
-    end_on: k.najem.end_on ?? dzisiaj(), last_period: k.najem.last_period, zwrot_metoda: 'gotowka', zatrzymanie_powod: '',
+    end_on: k.najem.end_on ?? k.najem.notice_end_on ?? dzisiaj(), last_period: k.najem.last_period, zwrot_metoda: 'gotowka', zatrzymanie_powod: '',
   }));
   const kaucja = kaucjaDoRozliczenia(s, k);
   const inneTrwajace = k.umowa && s.dane.rentals.some((n) => n.contract_id === k.umowa.id && n.id !== k.najem.id && n.end_on == null);
@@ -477,7 +474,13 @@ function formularzKorekty(s, k) {
   const naleznosci = naleznosciDoKorekty(s, k);
   const dzien = dzisiaj();
   const biezacy = [...naleznosci].reverse().find((n) => n.poczatek <= dzien) ?? naleznosci[0];
-  const f = stanFormularza(s, `najmy/${k.najem.id}/korekta`, () => ({ period_start: biezacy?.poczatek ?? '' }));
+  const naKwote = s.ui.zapytanie.tryb === 'kwota';
+  const f = stanFormularza(s, `najmy/${k.najem.id}/korekta`, () => ({
+    tryb: naKwote ? 'kwota' : 'roznica',
+    // „Kwota 1. okresu” z karty klienta: pierwszy okres; zwykła korekta: bieżący.
+    period_start: (naKwote ? naleznosci[0] : biezacy)?.poczatek ?? '',
+  }));
+  const kwotaOkresu = naleznosci.find((n) => n.poczatek === f.wartosci.period_start);
   if (!naleznosci.length) {
     return `${naglowekNajmu(s, k)}${pustyStan(`Najem nie ma należności od ${formatData(ustawienia(s).data_start)}.`)}`;
   }
@@ -493,10 +496,16 @@ function formularzKorekty(s, k) {
         nazwa: 'korekta', przycisk: 'Zapisz korektę',
         anuluj: k.klient ? `#/klienci/${encodeURIComponent(k.klient.id)}` : '#/klienci',
         tresc: `
-          ${wybor(f, { nazwa: 'period_start', etykieta: 'Okres', opcje: okresy, wymagane: true })}
-          ${pole(f, { nazwa: 'amount_gr', etykieta: 'Kwota korekty (zł)', typ: 'kwota', wymagane: true,
-            podpowiedz: 'Ujemna = rabat lub umorzenie, np. -50. Dodatnia = dopłata. Należność nie może spaść poniżej 0 zł.' })}
-          ${pole(f, { nazwa: 'reason', etykieta: 'Powód', wymagane: true, atrybuty: 'maxlength="200"' })}`,
+          ${wybor(f, { nazwa: 'period_start', etykieta: 'Okres', opcje: okresy, wymagane: true, odswiez: true })}
+          ${opcje(f, { nazwa: 'tryb', legenda: 'Jak zmienić', odswiez: true, opcje: [
+    { wartosc: 'kwota', tekst: 'Ustaw kwotę należności' }, { wartosc: 'roznica', tekst: 'Zmień o kwotę (+/−)' }] })}
+          ${f.wartosci.tryb === 'kwota'
+    ? pole(f, { nazwa: 'nowa_kwota', etykieta: 'Należność za ten okres (zł)', typ: 'kwota', wymagane: true,
+      podpowiedz: `Teraz: ${kwotaOkresu ? formatZl(kwotaOkresu.kwotaGr) : '—'}. Np. kwota, którą klient faktycznie miał zapłacić za niepełny pierwszy miesiąc.` })
+    : pole(f, { nazwa: 'amount_gr', etykieta: 'Kwota korekty (zł)', typ: 'kwota', wymagane: true,
+      podpowiedz: 'Ujemna = rabat lub umorzenie, np. -50. Dodatnia = dopłata. Należność nie może spaść poniżej 0 zł.' })}
+          ${pole(f, { nazwa: 'reason', etykieta: 'Powód', wymagane: f.wartosci.tryb !== 'kwota', atrybuty: 'maxlength="200"',
+    podpowiedz: f.wartosci.tryb === 'kwota' ? 'Puste = „Ręczna kwota okresu”.' : '' })}`,
       })}
       <section class="karta"><h2>Dotychczasowe korekty</h2>
         ${dotychczas.length ? `<ul class="lista">${dotychczas.map((x) => `<li><div class="wiersz"><div class="glowna">

@@ -59,7 +59,7 @@ test('najem: jednostka wolna od daty startu, kolizje opisane, wyłączona jednos
   assert.ok(kolizjaNajmu([{ id: 'x', start_on: '2027-01-01', end_on: null }], '2026-11-01'), 'późniejszy najem też koliduje');
 });
 
-test('najem: pakiet z nową umową, stawką od startu, kaucją; dzień płatności z daty startu', () => {
+test('najem: pakiet z nową umową, stawką od startu, kaucją; dzień płatności z ustawień', () => {
   const { bledy, pakiet } = walidujNajem({
     client_id: 'k2', unit_id: 'u2', number: 'U/7/2026', signed_on: '2026-11-08', start_on: '2026-11-10',
     amount_gr: '150', billing_day: '', period_months: '1', deposit_gr: '300', deposit_method: 'gotowka',
@@ -68,7 +68,7 @@ test('najem: pakiet z nową umową, stawką od startu, kaucją; dzień płatnoś
   const [umowa] = pakiet.contracts;
   const [najem] = pakiet.rentals;
   assert.equal(najem.contract_id, umowa.id);
-  assert.equal(najem.billing_day, 10, 'podpowiedź z daty startu');
+  assert.equal(najem.billing_day, 20, 'puste pole = dzień z ustawień (20.), nie z daty startu');
   assert.equal(najem.last_period, 'proporcjonalnie', 'domyślnie z Ustawień');
   assert.deepEqual(pakiet.rental_rates, [{ rental_id: najem.id, valid_from: '2026-11-10', amount_gr: 15000, reason: 'start' }]);
   assert.deepEqual(pakiet.deposits[0], { contract_id: umowa.id, kind: 'przyjecie', amount_gr: 30000, method: 'gotowka', on_date: '2026-11-08' });
@@ -188,8 +188,21 @@ test('korekta należności: okres z listy, powód wymagany, wynik okresu ≥ 0',
   assert.deepEqual(wiersz, { rental_id: 'r1', period_start: '2026-04-15', amount_gr: -5000, reason: 'awaria bramy' });
 });
 
+test('korekta „ustaw kwotę należności”: różnica do obecnej kwoty, domyślny powód, ta sama kwota = błąd', () => {
+  const najem = dane.rentals[0];
+  const naleznosci = naleznosciNajmu(najem, { stawki: dane.rental_rates, dataStart: '2026-01-01', dzis: DZIS });
+  const okres = naleznosci.find((n) => n.poczatek === '2026-04-15');
+  const { bledy, wiersz } = walidujKorekte({ tryb: 'kwota', period_start: '2026-04-15', nowa_kwota: '120' }, { najem, naleznosci });
+  assert.deepEqual(bledy, {});
+  assert.equal(wiersz.amount_gr, 12000 - okres.kwotaGr);
+  assert.equal(wiersz.reason, 'Ręczna kwota okresu');
+  assert.ok(walidujKorekte({ tryb: 'kwota', period_start: '2026-04-15', nowa_kwota: String(okres.kwotaGr / 100) },
+    { najem, naleznosci }).bledy.nowa_kwota);
+  assert.ok(walidujKorekte({ tryb: 'kwota', period_start: '2026-04-15', nowa_kwota: '-5' }, { najem, naleznosci }).bledy.nowa_kwota);
+});
+
 test('ustawienia i konto bankowe', () => {
-  const w = { tolerance_days: '3', punctuality_months: '12', expiring_days: '30', tax_rate_low_bp: '8,5',
+  const w = { tolerance_days: '3', punctuality_months: '12', expiring_days: '30', default_billing_day: '20', tax_rate_low_bp: '8,5',
     tax_rate_high_bp: '12,5', tax_threshold_gr: '100 000', vat_limit_gr: '240000', data_start: '2026-01-01',
     tax_account: 'PL 61 1090 1014 0000 0712 1981 2874' };
   const { bledy, wiersz } = walidujUstawienia(w, { dzis: DZIS });
