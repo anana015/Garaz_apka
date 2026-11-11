@@ -3,7 +3,7 @@
 
 import { DNI_BEZ_IMPORTU, TYPY_JEDNOSTEK } from '../config.js';
 import { koniecUmowy } from './jednostki.js';
-import { biezacyNajem, doPrzypisania, najemTrwa } from '../dane.js';
+import { biezacyNajem, doPrzypisania, najemTrwa, planowanyKoniec } from '../dane.js';
 import { pilneZadania } from '../zadania.js';
 import { limityVat, PROGI_VAT } from '../statystyki.js';
 import {
@@ -185,9 +185,12 @@ function oblozenie(s, dzis) {
 
 /** Karta „Kończące się najmy”: trwające najmy z wypowiedzeniem, od najbliższego końca. Po dacie – „zakończ najem”. */
 function konczaceNajmy(s, dzis) {
-  const najmy = s.dane.rentals.filter((n) => !n.end_on && n.notice_end_on)
+  // Wypowiedziane i z zaplanowaną datą końca (np. jednostka przejęta przez nowego najemcę) – oraz po terminie bez „Zakończ najem”.
+  const koniecNajmu = (n) => (n.end_on ? null : n.notice_end_on) ?? planowanyKoniec(n, dzis);
+  const najmy = s.dane.rentals.filter((n) => koniecNajmu(n))
+    .map((n) => ({ ...n, notice_end_on: koniecNajmu(n) }))
     .sort((a, b) => a.notice_end_on.localeCompare(b.notice_end_on));
-  if (!najmy.length) return '<p class="wyciszony">Brak wypowiedzianych najmów.</p>';
+  if (!najmy.length) return '<p class="wyciszony">Brak wypowiedzianych ani kończących się najmów.</p>';
   return `<ul class="lista">${najmy.map((n) => {
     const klient = s.indeksy.klienci.get(s.indeksy.umowy.get(n.contract_id)?.client_id);
     const kod = s.indeksy.jednostki.get(n.unit_id)?.code ?? '?';

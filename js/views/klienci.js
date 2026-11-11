@@ -11,8 +11,11 @@ import { filtry, poleSzukaj, przycisk, pustyStan, przyciskEdycji } from '../ui.j
 import {
   dataZeZnacznika, dodajMiesiace, esc, dzisiaj, etykietaMiesiaca, formatData, formatDataKrotka, formatRachunek, formatZl, kwotaDoPola, normalizujTekst, parseKwota, porownajKody,
 } from '../utils.js';
-import { saldoKaucji, walidujKaucje, walidujKlienta, walidujPdf, walidujWypowiedzenie } from '../walidacja.js';
+import {
+  saldoKaucji, TYPY_DOKUMENTU, walidujKaucje, walidujKlienta, walidujPdf, walidujWypowiedzenie,
+} from '../walidacja.js';
 import { grupa, grupaNajmu, menu, pozycja } from './edycja.js';
+import { akcjeAnulowania } from './edycja.js';
 import { promocjaNajmu } from '../promocje.js';
 import { koniecUmowy } from './jednostki.js';
 import { rozliczeniaKlientow, ustawienia } from './wspolne.js';
@@ -31,6 +34,7 @@ const FILTRY = {
   aktywni: { tekst: 'Aktywni', warunek: (k, najmy, d) => czyAktywny(k, najmy, d) },
   dluznicy: { tekst: 'Dłużnicy', warunek: (k, najmy, d, r) => !k.archived && Boolean(r?.dluznik) },
   byli: { tekst: 'Byli', warunek: (k, najmy, d) => !czyAktywny(k, najmy, d) },
+  niepelne: { tekst: 'Niepełne dane', warunek: (k, najmy, d) => czyAktywny(k, najmy, d) && brakiDanych(k).length > 0 },
   wszyscy: { tekst: 'Wszyscy', warunek: () => true },
 };
 
@@ -67,6 +71,9 @@ export function przelewNaInneKonto(s, klient, dzien = dzisiaj()) {
   return { wplata, konto: s.indeksy.konta.get(wplata.bank_account_id),
     ustalone: [...ustalone].map((id) => s.indeksy.konta.get(id)?.name ?? '?') };
 }
+
+/** Brakujące obowiązkowe dane klienta (prośba 11.11): telefon, e-mail, adres. */
+export const brakiDanych = (k) => [!k.phone && 'telefon', !k.email && 'e-mail', !k.address && 'adres'].filter(Boolean);
 
 function kodyJednostek(najmy, s, dzien) {
   return najmy.filter((n) => !najemZakonczony(n, dzien))
@@ -137,6 +144,7 @@ function lista(s) {
     <span class="wyciszony maly">Sortuj:</span>${Object.entries({ nazwa: 'nazwa', zaleglosc: 'zaległość', terminowosc: 'terminowość' })
     .map(([id, tekst]) => `<button type="button" data-akcja="sort-klienci" data-wartosc="${id}" aria-pressed="${id === sort}">${tekst}</button>`).join('')}</div>`;
   const liczbaDluznikow = s.dane.clients.filter((k) => !k.archived && rozl.get(k.id)?.dluznik).length;
+  const liczbaNiepelnych = s.dane.clients.filter((k) => FILTRY.niepelne.warunek(k, s.indeksy.najmyKlienta.get(k.id) ?? [], dzien)).length;
 
   let tresc;
   if (!wiersze.length) {
@@ -146,7 +154,8 @@ function lista(s) {
     tresc = `<ul class="lista">${wiersze.map(({ k, r, t: term, kody }) => `<li>
       <a class="wiersz" href="#/klienci/${encodeURIComponent(k.id)}">
         <div class="glowna"><strong>${esc(k.name)}</strong>
-          <span>${kody.length ? kody.map((c) => `<span class="chip">${esc(c)}</span>`).join('') : 'brak aktywnych najmów'}</span></div>
+          <span>${kody.length ? kody.map((c) => `<span class="chip">${esc(c)}</span>`).join('') : 'brak aktywnych najmów'}</span>
+          ${filtr === 'niepelne' ? `<span class="status czesciowo">brak: ${esc(brakiDanych(k).join(', '))}</span>` : ''}</div>
         <div class="prawa">${stanSalda(r, s, k)}${przelewNaInneKonto(s, k, dzien)
     ? '<div class="maly"><span class="status czesciowo">przelew na inne konto</span></div>' : ''}${term && term.etykieta !== 'Za mało danych'
     ? `<div class="maly wyciszony">${esc(term.etykieta)}</div>` : ''}</div>
@@ -155,11 +164,15 @@ function lista(s) {
 
   return `${akcje}
     ${filtry(Object.entries(FILTRY).map(([id, f]) => ({ id, tekst: f.tekst,
-    liczba: id === 'dluznicy' ? liczbaDluznikow : undefined })), filtr, 'Grupa klientów')}
-    <div class="filtry sortowanie" role="group" aria-label="Gdzie płaci">
-      <span class="wyciszony maly">Płaci:</span>${platnosci.map((o) => `<button type="button" data-akcja="platnosc-klienci"
-        data-wartosc="${esc(o.id)}" aria-pressed="${o.id === platnosc.id}">${esc(o.tekst)}</button>`).join('')}</div>
-    ${sortowanie}
+    liczba: id === 'dluznicy' ? liczbaDluznikow : id === 'niepelne' ? liczbaNiepelnych : undefined }))
+    .filter((o) => o.id !== 'niepelne' || o.liczba || filtr === 'niepelne'), filtr, 'Grupa klientów')}
+    <details class="wiecej-filtrow"${platnosc.id !== 'wszyscy' || s.ui.sortKlienci ? ' open' : ''}>
+      <summary>Więcej filtrów i sortowanie${platnosc.id !== 'wszyscy' ? ` · płaci: ${esc(platnosc.tekst)}` : ''}</summary>
+      <div class="filtry sortowanie" role="group" aria-label="Gdzie płaci">
+        <span class="wyciszony maly">Płaci:</span>${platnosci.map((o) => `<button type="button" data-akcja="platnosc-klienci"
+          data-wartosc="${esc(o.id)}" aria-pressed="${o.id === platnosc.id}">${esc(o.tekst)}</button>`).join('')}</div>
+      ${sortowanie}
+    </details>
     ${poleSzukaj('klienci', s.ui.szukaj.klienci, 'Szukaj po nazwie, telefonie, NIP, jednostce')}
     <section class="karta">${tresc}</section>`;
 }
@@ -190,7 +203,8 @@ function wierszNajmu(s, n, dzien) {
   const platnosc = opisPlatnosci(n, s.indeksy.konta);
   const promo = trwa ? promocjaNajmu(stawki, dzien) : null;
   const edycja = s.ui.edycja;
-  const wypowiedzenie = trwa && n.notice_end_on ? `<span class="zawijaj"><span class="status czesciowo">wypowiedziana</span>
+  const wypowiedzenie = trwa && !n.notice_end_on && n.end_on ? `<span class="zawijaj"><span class="status czesciowo">kończy się</span>
+    najem do <strong>${formatData(n.end_on)}</strong></span>` : trwa && n.notice_end_on ? `<span class="zawijaj"><span class="status czesciowo">wypowiedziana</span>
     ${n.notice_given_on ? `złożona ${formatData(n.notice_given_on)} · ` : ''}koniec najmu <strong>${formatData(n.notice_end_on)}</strong>${
   edycja ? ` <button type="button" class="link-btn maly" data-akcja="cofnij-wypowiedzenie" data-id="${esc(n.id)}">cofnij</button>` : ''}</span>` : '';
 
@@ -359,7 +373,7 @@ function saldo(s, klient, r, najmy, dzien) {
     <p class="maly">Terminowość: <strong>${esc(t.etykieta)}</strong></p>
     ${oplacone ? `<dl class="opis-pol">${oplacone}</dl>` : ''}
     <p class="podpowiedz">Ostatnia wpłata: ${r.ostatniaWplata ? formatData(r.ostatniaWplata) : 'brak'} ·
-      <a href="#/wplaty/gotowka?klient=${encodeURIComponent(klient.id)}">dodaj gotówkę</a>${zalega
+      <a href="#/wplaty/gotowka?klient=${encodeURIComponent(klient.id)}">dodaj wpłatę</a>${zalega
     ? ` · <a href="#/klienci/${encodeURIComponent(klient.id)}/notatka?rodzaj=obietnica">zapisz obietnicę zapłaty</a>` : ''}</p>`;
 }
 
@@ -503,6 +517,8 @@ function karta(s, klient) {
     opis('NIP', klient.nip && `<span class="mono">${esc(klient.nip)}</span>`),
     opis('Adres', klient.address && esc(klient.address)),
     opis('Osoba kontaktowa', klient.contact_person && esc(klient.contact_person)),
+    opis(esc(TYPY_DOKUMENTU[klient.doc_type] ?? 'Dokument'), klient.doc_number && `<span class="mono">${esc(klient.doc_number)}</span>`),
+    opis('PESEL', klient.pesel && `<span class="mono">${esc(klient.pesel)}</span>`),
     opis(`Saldo otwarcia (${formatData(ustawienia(s).data_start)})`, klient.opening_balance_gr
       ? `<span class="kwota">${formatZl(klient.opening_balance_gr)}</span>` : ''),
   ].join('');
@@ -511,8 +527,7 @@ function karta(s, klient) {
 
   return `
     <div class="pasek-akcji">
-      ${przycisk({ tekst: 'Wpłata gotówką', href: `#/wplaty/gotowka?klient=${id}`, ikona: 'plus' })}
-      ${przycisk({ tekst: 'Wpłata przelewem', href: `#/wplaty/przelew?klient=${id}`, drugi: true, ikona: 'plus' })}
+      ${przycisk({ tekst: 'Wpłata', href: `#/wplaty/gotowka?klient=${id}`, ikona: 'plus' })}
       ${najmy.some((n) => najemTrwa(n, dzien) && !n.end_on && !n.notice_end_on)
     ? przycisk({ tekst: 'Wypowiedz umowę', href: `#/klienci/${id}/wypowiedzenie`, drugi: true }) : ''}
       ${przyciskEdycji(s)}
@@ -626,6 +641,7 @@ function wartosciKlienta(k) {
   return {
     kind: k.kind, name: k.name, contact_person: k.contact_person ?? '', nip: k.nip ?? '', address: k.address ?? '',
     phone: k.phone ?? '', email: k.email ?? '', note: k.note ?? '',
+    doc_type: k.doc_type ?? '', doc_number: k.doc_number ?? '', pesel: k.pesel ?? '',
     opening_balance_gr: k.opening_balance_gr ? kwotaDoPola(k.opening_balance_gr) : '',
   };
 }
@@ -647,10 +663,17 @@ function formularzKlienta(s, k) {
         ${pole(f, { nazwa: 'nip', etykieta: 'NIP', atrybuty: 'inputmode="numeric" autocomplete="off"' })}
         ${pole(f, { nazwa: 'contact_person', etykieta: 'Osoba kontaktowa', atrybuty: 'autocomplete="off"' })}</div>` : ''}
       <div class="pola-w-rzedzie">
-        ${pole(f, { nazwa: 'phone', etykieta: 'Telefon', typ: 'tel', podpowiedz: '9 cyfr albo z +48.', atrybuty: 'autocomplete="off"' })}
-        ${pole(f, { nazwa: 'email', etykieta: 'E-mail', typ: 'email', atrybuty: 'autocomplete="off"' })}
+        ${pole(f, { nazwa: 'phone', etykieta: 'Telefon', typ: 'tel', wymagane: true, podpowiedz: '9 cyfr albo z +48.', atrybuty: 'autocomplete="off"' })}
+        ${pole(f, { nazwa: 'email', etykieta: 'E-mail', typ: 'email', wymagane: true, atrybuty: 'autocomplete="off"' })}
       </div>
-      ${pole(f, { nazwa: 'address', etykieta: 'Adres', atrybuty: 'autocomplete="off"' })}
+      ${pole(f, { nazwa: 'address', etykieta: 'Adres', wymagane: true, atrybuty: 'autocomplete="off"' })}
+      ${firma ? '' : `<div class="pola-w-rzedzie">
+        ${wybor(f, { nazwa: 'doc_type', etykieta: 'Typ dokumentu', pusta: '—',
+    opcje: Object.entries(TYPY_DOKUMENTU).map(([wartosc, tekst]) => ({ wartosc, tekst })) })}
+        ${pole(f, { nazwa: 'doc_number', etykieta: 'Numer dokumentu', atrybuty: 'maxlength="30" autocomplete="off" autocapitalize="characters"' })}
+      </div>
+      ${pole(f, { nazwa: 'pesel', etykieta: 'PESEL', atrybuty: 'inputmode="numeric" maxlength="11" autocomplete="off"',
+    podpowiedz: 'Dane osobowe – nie trafiają do eksportów CSV, ale są w kopii zapasowej.' })}`}
       ${pole(f, { nazwa: 'opening_balance_gr', etykieta: `Saldo otwarcia na ${formatData(ustawienia(s).data_start)} (zł)`, typ: 'kwota',
         podpowiedz: 'Stan rozliczeń sprzed startu danych (Z34): ujemne = zaległość, np. -300; dodatnie = nadpłata.' })}
       ${obszar(f, { nazwa: 'note', etykieta: 'Notatka', wiersze: 2 })}`,
@@ -705,6 +728,7 @@ export default {
   },
 
   akcje: {
+    ...akcjeAnulowania,
     'usun-kaucje'(_el, ctx) {
       if (!ctx.state.ui.form) return;
       ctx.state.ui.form.potwierdzUsuniecie = true;
@@ -924,7 +948,7 @@ export default {
       const s = ctx.state;
       const k = s.ui.parametr === 'nowy' ? null : s.indeksy.klienci.get(s.ui.parametr);
       const w = wartosciFormularza(form);
-      const { bledy, wiersz } = walidujKlienta(w, { klienci: s.dane.clients, id: k?.id ?? null });
+      const { bledy, wiersz } = walidujKlienta(w, { klienci: s.dane.clients, id: k?.id ?? null, wymagajKontaktu: true });
       if (maBledy(ctx, w, bledy)) return;
       const { dalej, jednostka } = s.ui.zapytanie;
 

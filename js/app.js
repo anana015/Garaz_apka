@@ -18,10 +18,11 @@ import { oznaczZadanie, pilneZadania } from './zadania.js';
 import importWidok from './views/import.js';
 import ustawienia from './views/ustawienia.js';
 import najmy from './views/najmy.js';
+import koszty from './views/koszty.js';
 import logowanie from './views/logowanie.js';
 
 // najmy: formularze najmu (nowy, stawka, koniec, korekta, podwyżka) – bez własnej zakładki.
-const EKRANY = { pulpit, wplaty, klienci, zadania: zadaniaWidok, jednostki, raporty, import: importWidok, ustawienia, najmy };
+const EKRANY = { pulpit, wplaty, klienci, zadania: zadaniaWidok, jednostki, raporty, import: importWidok, ustawienia, najmy, koszty };
 const ZAKLADKI = [
   { id: 'pulpit', tekst: 'Pulpit' },
   { id: 'wplaty', tekst: 'Wpłaty' },

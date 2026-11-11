@@ -1,7 +1,7 @@
 // Odczyt i zapis danych w Supabase. Jedyny moduł, który rozmawia z bazą.
 // Kopia ostatnio pobranych danych w IndexedDB (tryb offline, rozdz. 3): bez internetu tylko podgląd.
 
-import { CONFIG, TABELE } from './config.js';
+import { CONFIG, TABELE, TABELE_OPCJONALNE } from './config.js';
 
 const SKRYPT_SUPABASE = 'js/vendor/supabase-2.119.0.js';
 const ROZMIAR_STRONY = 1000;   // domyślny limit wierszy na zapytanie w Supabase (max rows)
@@ -91,6 +91,7 @@ async function pobierzTabele(sb, tabela) {
   for (let od = 0; ; od += ROZMIAR_STRONY) {
     const { data, error } = await sb.from(tabela).select('*')
       .order(kolumnaSortu).range(od, od + ROZMIAR_STRONY - 1);
+    if (error && TABELE_OPCJONALNE.includes(tabela)) return [];   // migracja 010 jeszcze nieuruchomiona
     if (error) throw new Error(`Nie udało się pobrać danych (${tabela}): ${error.message}`);
     wiersze.push(...data);
     if (data.length < ROZMIAR_STRONY) return wiersze;
@@ -128,6 +129,9 @@ const OGRANICZENIA = {
   payers_user_id_name_key_key: 'Ta nazwa płatnika jest już przypisana innemu klientowi.',
   tax_payments_user_id_year_quarter_key: 'Wpłata ryczałtu za ten kwartał jest już zapisana.',
   tax_payments_rok_kwartal_grupa: 'Wpłata ryczałtu za ten kwartał i licznik jest już zapisana.',
+  expenses_dedup: 'Ten wypływ z wyciągu jest już zapisany jako koszt.',
+  cost_rules_user_id_phrase_key: 'Taka reguła już jest.',
+  clients_pesel_unikalny: 'Klient z tym numerem PESEL już istnieje.',
 };
 
 /**
@@ -138,6 +142,9 @@ export function komunikatZapisu(error) {
   const m = `${error?.message ?? ''} ${error?.details ?? ''}`;
   const ograniczenie = Object.keys(OGRANICZENIA).find((nazwa) => m.includes(nazwa));
   if (ograniczenie) return OGRANICZENIA[ograniczenie];
+  if (/expenses|cost_rules/.test(m) && (error?.code === '42P01' || error?.code === 'PGRST205' || /does not exist|schema cache/.test(m))) {
+    return 'W bazie brakuje tabel kosztów. Uruchom w Supabase plik supabase/migracje/010_koszty.sql.';
+  }
   switch (error?.code) {
     case '23505': return 'Taki wpis już istnieje.';
     case '23P01': return OGRANICZENIA.rentals_no_overlap;

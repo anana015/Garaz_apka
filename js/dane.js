@@ -71,6 +71,15 @@ export function biezacyNajem(najmy = [], dzien) {
   return najmy.find((n) => najemTrwa(n, dzien)) ?? null;
 }
 
+/**
+ * Planowany koniec trwającego najmu (prośba 11.11): data końca z wypowiedzenia albo przyszła data końca
+ * (np. jednostka przejęta przez nowego najemcę). null – najem bez końca albo już zakończony.
+ */
+export function planowanyKoniec(najem, dzien) {
+  if (!najem || najemZakonczony(najem, dzien)) return null;
+  return najem.notice_end_on ?? najem.end_on ?? null;
+}
+
 /** Stawka miesięczna (grosze) o największym valid_from nie późniejszym niż dzień (5.1); null, gdy brak. */
 export function stawkaNaDzien(stawki = [], dzien) {
   let wynik = null;

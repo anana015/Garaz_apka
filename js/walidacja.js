@@ -125,7 +125,24 @@ export function walidujJednostke(w, { jednostki = [], id = null, wynajeta = fals
  * @param {object} w pola: kind, name, contact_person, nip, address, phone, email, note, opening_balance_gr
  * @param {{ klienci?: Array, id?: string|null }} kontekst
  */
-export function walidujKlienta(w, { klienci = [], id = null } = {}) {
+export const TYPY_DOKUMENTU = Object.freeze({
+  dowod: 'Dowód osobisty', paszport: 'Paszport', karta_pobytu: 'Karta pobytu', inny: 'Inny dokument',
+});
+
+/** PESEL: 11 cyfr z poprawną cyfrą kontrolną (wagi 1-3-7-9). */
+export function walidujPesel(tekstPesel) {
+  const p = String(tekstPesel ?? '').replace(/\s/g, '');
+  if (!/^\d{11}$/.test(p)) return false;
+  const wagi = [1, 3, 7, 9, 1, 3, 7, 9, 1, 3];
+  const suma = wagi.reduce((x, wg, i) => x + wg * Number(p[i]), 0);
+  return (10 - (suma % 10)) % 10 === Number(p[10]);
+}
+
+/**
+ * kontekst.wymagajKontaktu – formularz klienta (prośba 11.11): telefon, e-mail i adres obowiązkowe.
+ * Import danych startowych tego nie wymaga (stare dane bywają niepełne).
+ */
+export function walidujKlienta(w, { klienci = [], id = null, wymagajKontaktu = false } = {}) {
   const bledy = {};
   const kind = w.kind === 'firma' ? 'firma' : 'osoba';
   const name = tekst(w.name).replace(/\s+/g, ' ');
@@ -146,14 +163,35 @@ export function walidujKlienta(w, { klienci = [], id = null } = {}) {
   const email = lubNull(w.email);
   if (email && !walidujEmail(email)) bledy.email = 'Nieprawidłowy adres e-mail.';
   const saldo = kwota(w, 'opening_balance_gr', bledy) ?? 0;
+  const address = lubNull(w.address);
+  if (wymagajKontaktu) {
+    if (!phone) bledy.phone = 'Podaj telefon.';
+    if (!email) bledy.email = 'Podaj adres e-mail.';
+    if (!address) bledy.address = 'Podaj adres.';
+  }
 
-  return {
-    bledy,
-    wiersz: {
-      kind, name, nip, phone, email, opening_balance_gr: saldo,
-      contact_person: lubNull(w.contact_person), address: lubNull(w.address), note: lubNull(w.note),
-    },
+  // Dokument tożsamości i PESEL (prośba 11.11) – tylko osoba; pola opcjonalne.
+  const docType = kind === 'osoba' && TYPY_DOKUMENTU[w.doc_type] ? w.doc_type : null;
+  const docNumber = kind === 'osoba' ? lubNull(String(w.doc_number ?? '').toUpperCase().replace(/\s+/g, ' ')) : null;
+  if (docNumber && docNumber.length > 30) bledy.doc_number = 'Najwyżej 30 znaków.';
+  if (docNumber && !docType) bledy.doc_type = 'Wybierz typ dokumentu.';
+  let pesel = null;
+  if (kind === 'osoba' && tekst(w.pesel)) {
+    pesel = tekst(w.pesel).replace(/\s/g, '');
+    if (!walidujPesel(pesel)) bledy.pesel = 'PESEL musi mieć 11 cyfr z poprawną cyfrą kontrolną.';
+    else {
+      const inny = klienci.find((k) => k.id !== id && k.pesel === pesel);
+      if (inny) bledy.pesel = `Ten PESEL ma już klient ${inny.name}.`;
+    }
+  }
+
+  const wiersz = {
+    kind, name, nip, phone, email, opening_balance_gr: saldo,
+    contact_person: lubNull(w.contact_person), address, note: lubNull(w.note),
   };
+  // Kolumny z migracji 009 – wysyłane tylko z formularza (import działa też bez migracji).
+  if (wymagajKontaktu) Object.assign(wiersz, { doc_type: docType, doc_number: docNumber, pesel });
+  return { bledy, wiersz };
 }
 
 // ---------------------------------------------------------------------
@@ -195,7 +233,7 @@ export function walidujPdf(plik) {
  * @param {{ indeksy: object, ustawienia: object, plik?: {name,size,type}|null, noweId?: () => string }} kontekst
  * @returns {{ bledy, pakiet?, umowaId?, najemId?, istniejacaUmowa? }}
  */
-export function walidujNajem(w, { indeksy, ustawienia, plik = null, noweId = losoweId }) {
+export function walidujNajem(w, { indeksy, ustawienia, plik = null, noweId = losoweId, przejmowany = null }) {
   const bledy = {};
   const klient = indeksy.klienci.get(w.client_id);
   if (!klient) bledy.client_id = 'Wybierz klienta.';
@@ -211,7 +249,8 @@ export function walidujNajem(w, { indeksy, ustawienia, plik = null, noweId = los
   if (start && umowaDo && umowaDo < start) bledy.valid_until = 'Umowa nie może kończyć się przed startem najmu.';
 
   if (jednostka && start && !bledy.unit_id) {
-    const kolizja = kolizjaNajmu(indeksy.najmyJednostki.get(jednostka.id), start);
+    // przejmowany – najem obecnego najemcy, który kończy się dzień przed startem (widok ustawia mu end_on przed zapisem).
+    const kolizja = kolizjaNajmu(indeksy.najmyJednostki.get(jednostka.id), start, przejmowany?.id ?? null);
     if (kolizja) bledy.unit_id = opisKolizji(kolizja, start, jednostka.code, indeksy);
   }
 
@@ -228,7 +267,7 @@ export function walidujNajem(w, { indeksy, ustawienia, plik = null, noweId = los
   const kaucjaData = kaucja ? (data(w, 'deposit_on', bledy) ?? podpisana ?? start) : null;
   const bladPdf = walidujPdf(plik);
   if (bladPdf) bledy.pdf = bladPdf;
-  const platnosc = walidujMiejscePlatnosci(w, { konta: indeksy.konta });
+  const platnosc = walidujMiejscePlatnosci(w, { konta: indeksy.konta, wymagajKonta: true });
   Object.assign(bledy, platnosc.bledy);
 
   if (!bezBledow(bledy)) return { bledy };
@@ -544,10 +583,14 @@ export const RODZAJE_GOTOWKI = Object.freeze({ czynsz: 'Czynsz', przychod_inny: 
  * @param {object} w pola: pay_method, bank_account_id
  * @param {{ konta?: Map }} kontekst
  */
-export function walidujMiejscePlatnosci(w, { konta = new Map() } = {}) {
+export function walidujMiejscePlatnosci(w, { konta = new Map(), wymagajKonta = false } = {}) {
   const bledy = {};
   const pay_method = w.pay_method in MIEJSCA_PLATNOSCI ? w.pay_method : 'przelew';
   let bank_account_id = pay_method === 'przelew' ? lubNull(w.bank_account_id) : null;
+  // Nowy najem (prośba 11.11): przy przelewie konto musi być wskazane, żeby klient wiedział, gdzie płacić.
+  if (wymagajKonta && pay_method === 'przelew' && !bank_account_id && konta.size) {
+    bledy.bank_account_id = 'Wybierz konto, na które klient będzie wpłacał.';
+  }
   if (bank_account_id && !konta.has(bank_account_id)) {
     bledy.bank_account_id = 'Nie ma takiego konta.';
     bank_account_id = null;

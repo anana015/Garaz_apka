@@ -12,6 +12,7 @@ import { filtry, pustyStan } from '../ui.js';
 import {
   esc, dzisiaj, etykietaMiesiaca, formatData, formatRachunek, formatZl, kwotaDoPola, MIESIACE_KROTKO, porownajKody,
 } from '../utils.js';
+import { zyskZakresu, nazwaKategorii } from '../koszty.js';
 import { limityVat, przychodKasowy, przychodMiesiecznie, PROGI_VAT, wiekowanie, zakresOkresu } from '../statystyki.js';
 import { walidujWplateRyczaltu } from '../walidacja.js';
 import { opisProgu, pobierzEksport, rozliczeniaKlientow, ustawienia, wyborMiesiaca, pokazWybranyMiesiac } from './wspolne.js';
@@ -130,6 +131,49 @@ function kartaJednostek(s, z) {
     <ol class="ranking">${top.map((x) => `<li><a class="mono" href="#/jednostki/${encodeURIComponent(x.j.id)}">${esc(x.j.code)}</a>
       <span class="kwota">${formatZl(x.gr)}</span></li>`).join('')}</ol>
     <p class="podpowiedz">Opłacone należności z terminem w okresie (wpłaty przypisane do najmów).</p>`;
+}
+
+/**
+ * Zysk w okresie (etap 2): przychód kasowy − koszty − ryczałt, rozbicie kosztów na kategorie, zysk według typu
+ * jednostki i jednostek (koszty wspólne i ryczałt rozłożone proporcjonalnie do przychodu jednostki).
+ */
+function kartaZysku(s, z) {
+  const dzis = dzisiaj();
+  const doDnia = z.do < dzis ? z.do : dzis;
+  const pozycje = [...rozliczeniaKlientow(s).values()].flatMap((r) => r.pozycje);
+  const w = zyskZakresu(s.dane, { od: z.od, do: doDnia, ustawienia: ustawienia(s), pozycje });
+  const kl = (gr) => (gr < 0 ? ' class="kwota status zalega"' : ' class="kwota"');
+  const typy = Object.entries(TYPY_JEDNOSTEK).map(([typ, t]) => {
+    const wiersze = w.naJednostke.filter((x) => s.indeksy.jednostki.get(x.jednostkaId)?.type === typ);
+    if (!wiersze.length) return '';
+    const suma = (k) => wiersze.reduce((x, y) => x + y[k], 0);
+    return `<tr><td>${esc(t.mnoga)}</td><td class="kwota">${formatZl(suma('przychodGr'), { grosze: false })}</td>
+      <td class="kwota">${formatZl(suma('kosztyGr') + suma('wspolneGr'), { grosze: false })}</td>
+      <td${kl(suma('zyskGr'))}>${formatZl(suma('zyskGr'), { grosze: false })}</td></tr>`;
+  }).join('');
+  const jednostki = [...w.naJednostke].map((x) => ({ ...x, j: s.indeksy.jednostki.get(x.jednostkaId) })).filter((x) => x.j)
+    .sort((a, b) => a.zyskGr - b.zyskGr || porownajKody(a.j.code, b.j.code));
+  const wierszJ = (x) => `<tr><td><a class="mono" href="#/jednostki/${encodeURIComponent(x.j.id)}">${esc(x.j.code)}</a></td>
+    <td class="kwota">${formatZl(x.przychodGr, { grosze: false })}</td>
+    <td class="kwota">${formatZl(x.kosztyGr, { grosze: false })}${x.wspolneGr ? ` <span class="wyciszony maly">+${formatZl(x.wspolneGr, { grosze: false })}</span>` : ''}</td>
+    <td${kl(x.zyskGr)}>${formatZl(x.zyskGr, { grosze: false })}</td></tr>`;
+  return `<dl class="opis-pol">
+      <dt>Przychód (wpłaty)</dt><dd class="kwota">${formatZl(w.przychodGr)}</dd>
+      <dt>Koszty</dt><dd class="kwota">− ${formatZl(w.kosztyGr)}</dd>
+      ${w.wgKategorii.map((k) => `<dt class="wyciszony">&nbsp;&nbsp;${esc(nazwaKategorii(k.kategoria))}</dt><dd class="kwota wyciszony">${formatZl(k.gr)}</dd>`).join('')}
+      <dt>Ryczałt (szacunkowo)</dt><dd class="kwota">− ${formatZl(w.ryczaltGr)}</dd>
+      <dt><strong>Zysk</strong></dt><dd${kl(w.zyskGr)}><strong>${formatZl(w.zyskGr)}</strong></dd>
+    </dl>
+    ${typy ? `<div class="tabela-przewijana"><table class="tabela"><thead><tr><th scope="col">Typ</th><th scope="col" class="kwota">Przychód</th>
+      <th scope="col" class="kwota">Koszty</th><th scope="col" class="kwota">Zysk</th></tr></thead><tbody>${typy}</tbody></table></div>` : ''}
+    ${jednostki.length ? `<details class="historia-stawek"><summary>Zysk według jednostek (${jednostki.length}) – od najniższego</summary>
+      <div class="tabela-przewijana"><table class="tabela"><thead><tr><th scope="col">Jednostka</th><th scope="col" class="kwota">Przychód</th>
+        <th scope="col" class="kwota">Koszty (+ wspólne)</th><th scope="col" class="kwota">Zysk</th></tr></thead>
+        <tbody>${jednostki.map(wierszJ).join('')}</tbody></table></div></details>` : ''}
+    <p><a class="przycisk drugi" href="#/koszty">Koszty i reguły importu</a></p>
+    <p class="podpowiedz">Zysk = przychód − koszty − ryczałt. Przy ryczałcie koszty nie zmniejszają podatku – to wskaźnik do
+      zarządzania, nie do rozliczeń z urzędem. Na jednostkę: opłacone należności z terminem w okresie; koszty wspólne i ryczałt
+      rozłożone proporcjonalnie do przychodu jednostki.</p>`;
 }
 
 /** Ryczałt roku (6.2–6.5) osobno dla każdego licznika: Millennium, pozostałe konta, gotówka. */
@@ -251,7 +295,7 @@ export default {
   render(s) {
     if (s.ui.parametr === 'ryczalt') return formularzRyczaltu(s);
     if (pelneMiesiaceWplat(s.dane.payments, dzisiaj()) < MIN_PELNYCH_MIESIECY) {
-      return pustyStan('Raporty pojawią się po drugim pełnym miesiącu wpłat.');
+      return pustyStan('Raporty pojawią się po drugim pełnym miesiącu wpłat.', [{ tekst: 'Koszty', href: '#/koszty', drugi: true }]);
     }
     const okres = s.ui.filtry.raporty ?? 'miesiac';
     const z = zakresOkresu(okres, s.ui.miesiac, dzisiaj());
@@ -259,11 +303,13 @@ export default {
     const karta = (id, tytul, tresc, klasa = '') => `<section class="karta${klasa ? ` ${klasa}` : ''}" aria-labelledby="r-${id}">
       <h2 id="r-${id}">${tytul}</h2>${tresc}</section>`;
     return `
+      <div class="pasek-akcji"><a class="przycisk drugi" href="#/koszty">Koszty</a></div>
       ${filtry(OKRESY, okres, 'Okres raportu')}
       ${okres !== '12m' ? wyborMiesiaca(s) : ''}
       ${z.tytul ? `<p class="podpowiedz">${esc(z.tytul)}: ${formatData(z.od)} – ${formatData(z.do)}</p>` : ''}
       <div class="siatka">
         ${karta('przychod', 'Przychód', kartaPrzychodu(s, z))}
+        ${karta('zysk', 'Koszty i zysk', kartaZysku(s, z))}
         ${karta('vat', `Limity zwolnienia z VAT ${rok}`, kartaVat(s, rok))}
         ${karta('dluznicy', 'Dłużnicy (stan na dziś)', kartaDluznikow(s))}
         ${karta('jednostki', 'Przychód według jednostek', kartaJednostek(s, z))}

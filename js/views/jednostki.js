@@ -2,11 +2,12 @@
 // Adresy: #/jednostki, #/jednostki/nowa, #/jednostki/<id>, #/jednostki/<id>/edycja
 
 import { TYPY_JEDNOSTEK } from '../config.js';
-import { biezacyNajem, opisPlatnosci, stawkaNaDzien } from '../dane.js';
+import { biezacyNajem, opisPlatnosci, planowanyKoniec, stawkaNaDzien } from '../dane.js';
 import { formularz, maBledy, obszar, pole, przelacznik, stanFormularza, wartosciFormularza, wybor, zapisz } from '../formularz.js';
 import { filtry, poleSzukaj, przycisk, pustyStan, przyciskEdycji } from '../ui.js';
 import { promocjaNajmu } from '../promocje.js';
 import { grupa, grupaNajmu, kartaUstawien, menu, pozycja } from './edycja.js';
+import { akcjeAnulowania } from './edycja.js';
 import {
   esc, dzisiaj, etykietaMiesiaca, formatData, formatDataKrotka, formatM2, formatZl, kluczMiesiaca, kwotaDoPola,
   MIESIACE_KROTKO, nastepnyNumer, normalizujTekst, porownajKody, roznicaDni, zakresMiesiecy, dodajMiesiace,
@@ -42,8 +43,12 @@ function opisJednostki(s, j, dzien) {
   if (j.out_of_service) status = 'wylaczona';
   else if (najem) status = zalegloscGr > 0 ? 'zalega' : 'oplacona';
   const promo = najem ? promocjaNajmu(s.indeksy.stawkiNajmu.get(najem.id) ?? [], dzien) : null;
-  const wypowiedzenie = najem && !najem.end_on && najem.notice_end_on ? najem.notice_end_on : null;
-  return { j, najem, umowa, klient, status, stawka, zalegloscGr, oplaconeDo, promo, wypowiedzenie };
+  const wypowiedzenie = najem ? planowanyKoniec(najem, dzien) : null;
+  // Następny najem (jednostka przejęta albo wynajęta od przyszłej daty).
+  const nastepny = (s.indeksy.najmyJednostki.get(j.id) ?? []).filter((n) => n.start_on > dzien)
+    .sort((a, b) => a.start_on.localeCompare(b.start_on))[0] ?? null;
+  const nastepnyKlient = nastepny && s.indeksy.klienci.get(s.indeksy.umowy.get(nastepny.contract_id)?.client_id);
+  return { j, najem, umowa, klient, status, stawka, zalegloscGr, oplaconeDo, promo, wypowiedzenie, nastepny, nastepnyKlient };
 }
 
 /**
@@ -65,7 +70,7 @@ const FILTRY = {
   zalegle: { tekst: 'Z zaległością', warunek: (o) => o.status === 'zalega' },
   wylaczone: { tekst: 'Wyłączone', warunek: (o) => o.status === 'wylaczona' },
   konczace: { tekst: 'Kończące się umowy', warunek: (o, s) => Boolean(koniecUmowy(o.umowa, o.najem, s)) },
-  wypowiedziane: { tekst: 'Wypowiedziane', warunek: (o) => Boolean(o.wypowiedzenie) },
+  wypowiedziane: { tekst: 'Kończące się najmy', warunek: (o) => Boolean(o.wypowiedzenie) },
   promocje: { tekst: 'W promocji', warunek: (o) => Boolean(o.promo) },
 };
 
@@ -78,7 +83,8 @@ function kafelek(o, s) {
     : o.status === 'oplacona' && o.oplaconeDo ? `opłacona do ${formatDataKrotka(o.oplaconeDo)}` : st.tekst}</span>
     <span>${[formatM2(o.j.area_m2), o.stawka != null ? formatZl(o.stawka, { grosze: false }) : ''].filter(Boolean).join(' · ')}</span>
     ${o.klient ? `<span>${esc(o.klient.name)}</span>` : ''}
-    ${o.wypowiedzenie ? `<span class="znacznik${o.wypowiedzenie < dzisiaj() ? ' pilne' : ''}">wypowiedziana do ${formatDataKrotka(o.wypowiedzenie)}</span>` : ''}
+    ${o.wypowiedzenie ? `<span class="znacznik${o.wypowiedzenie < dzisiaj() ? ' pilne' : ''}">${o.najem.notice_end_on ? 'wypowiedziana' : 'najem'} do ${formatDataKrotka(o.wypowiedzenie)}</span>` : ''}
+    ${o.nastepny ? `<span class="znacznik promocja">od ${formatDataKrotka(o.nastepny.start_on)}: ${esc(o.nastepnyKlient?.name ?? 'nowy najem')}</span>` : ''}
     ${o.promo ? `<span class="znacznik promocja">${o.promo.do ? `promocja do ${formatDataKrotka(o.promo.do)}` : 'promocja'}</span>` : ''}
     ${umowa ? `<span class="znacznik${umowa.wygasla ? ' pilne' : ''}">${esc(umowa.tekst)}</span>` : ''}
   </a>`;
@@ -175,7 +181,10 @@ function szczegoly(s, j) {
           <dt>Stawka</dt><dd class="kwota">${o.stawka != null ? formatZl(o.stawka) : '—'}</dd>
           <dt>Płaci</dt><dd>${esc(opisPlatnosci(o.najem, s.indeksy.konta))}</dd>
           ${o.promo ? `<dt>Promocja</dt><dd>${o.promo.do ? `do ${formatData(o.promo.do)}` : 'do końca najmu'}</dd>` : ''}
-          ${o.wypowiedzenie ? `<dt>Wypowiedziana</dt><dd>${o.najem.notice_given_on ? `złożona ${formatData(o.najem.notice_given_on)} · ` : ''}koniec najmu
+          ${o.wypowiedzenie && !o.najem.notice_end_on ? `<dt>Najem do</dt><dd>${formatData(o.wypowiedzenie)}</dd>` : ''}
+          ${o.nastepny ? `<dt>Następny najem</dt><dd>od ${formatData(o.nastepny.start_on)} – ${o.nastepnyKlient
+    ? `<a href="#/klienci/${encodeURIComponent(o.nastepnyKlient.id)}">${esc(o.nastepnyKlient.name)}</a>` : '?'}</dd>` : ''}
+          ${o.wypowiedzenie && o.najem.notice_end_on ? `<dt>Wypowiedziana</dt><dd>${o.najem.notice_given_on ? `złożona ${formatData(o.najem.notice_given_on)} · ` : ''}koniec najmu
             <strong>${formatData(o.wypowiedzenie)}</strong></dd>` : ''}
           ${o.umowa?.valid_until ? `<dt>Umowa do</dt><dd>${formatData(o.umowa.valid_until)}${umowa
             ? ` <span class="znacznik${umowa.wygasla ? ' pilne' : ''}">${umowa.wygasla ? 'wygasła' : 'kończy się'}</span>` : ''}</dd>` : ''}
@@ -336,6 +345,7 @@ export default {
   },
 
   akcje: {
+    ...akcjeAnulowania,
     /** Cofnięcie wypowiedzenia z ustawień jednostki (jak na karcie klienta). */
     async 'cofnij-wypowiedzenie'(el, ctx) {
       if (ctx.state.podglad || ctx.state.offline || ctx.state.zKopii) {

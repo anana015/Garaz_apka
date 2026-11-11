@@ -639,3 +639,11 @@ details.grupa > .jednostki { padding-bottom: 12px; }
 .licznik-ryczaltu > summary span { font-size: .875rem; }
 .licznik-ryczaltu[open] > summary { padding-bottom: 8px; }
 .naglowek-licznika { margin: 14px 0 4px; font-size: .95rem; }
+
+/* 0.14.0: zwinięte filtry listy klientów */
+.wiecej-filtrow { margin-bottom: 8px; }
+.wiecej-filtrow > summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: .9rem; padding: 4px 0; }
+.wiecej-filtrow[open] > summary { margin-bottom: 6px; }
+
+/* 0.15.0: import – sekcje wpływów i wypływów */
+.naglowek-sekcji { margin: 12px 0 4px; font-size: 1rem; }

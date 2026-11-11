@@ -267,8 +267,7 @@ function formularzPrzypisania(s, w) {
 
 export default {
   tytul(s) {
-    if (s.ui.parametr === 'gotowka') return 'Wpłata gotówką';
-    if (s.ui.parametr === 'przelew') return 'Wpłata przelewem';
+    if (s.ui.parametr === 'gotowka' || s.ui.parametr === 'przelew') return 'Nowa wpłata';
     if (s.ui.akcja === 'przypisz') return 'Przypisz wpłatę';
     if (s.ui.parametr) return 'Popraw wpłatę';
     return 'Wpłaty';

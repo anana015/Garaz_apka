@@ -8,7 +8,7 @@
 //   #/najmy/<id>/platnosc                        gdzie płaci: przelew na konto, gotówka albo FV (decyzja 4)
 
 import { TYPY_JEDNOSTEK, bezKaucji } from '../config.js';
-import { biezacyNajem, MIEJSCA_PLATNOSCI, najemTrwa, opisPlatnosci, stawkaNaDzien } from '../dane.js';
+import { biezacyNajem, MIEJSCA_PLATNOSCI, najemTrwa, opisPlatnosci, planowanyKoniec, stawkaNaDzien } from '../dane.js';
 import {
   formularz, kwotaPodgladu, maBledy, opcje, plik, pole, przelacznik, sekcja, stanFormularza, wartosciFormularza,
   wybor, zapisz,
@@ -19,7 +19,7 @@ import {
 } from '../promocje.js';
 import { pustyStan } from '../ui.js';
 import {
-  esc, dodajDni, dodajMiesiace, dzisiaj, formatData, formatZl, iso, kwotaDoPola, parseKwota, porownajKody,
+  esc, dodajDni, dodajMiesiace, dzisiaj, formatRachunek, formatData, formatZl, iso, kwotaDoPola, parseKwota, porownajKody,
 } from '../utils.js';
 import {
   BANKI, OKRESY_ROZLICZENIOWE, POWODY_ZATRZYMANIA, TRYBY_STAWKI, saldoKaucji, walidujKoniec, walidujKorekte,
@@ -68,14 +68,22 @@ function naglowekNajmu(s, k) {
 }
 
 /** Pola „Gdzie płaci” (decyzja 4): sposób i – przy przelewie – konto. Wspólne dla nowego najmu i zmiany. */
-function polaPlatnosci(f, s) {
+/** Numer rachunku wybranego konta – do podania klientowi. */
+function numerKonta(s, id) {
+  const k = id && s.indeksy.konta.get(id);
+  return k?.iban ? `<p class="podpowiedz">Numer do przelewu: <strong class="mono">${esc(formatRachunek(k.iban))}</strong></p>` : '';
+}
+
+function polaPlatnosci(f, s, { wymagajKonta = false } = {}) {
   const konta = s.dane.bank_accounts.filter((k) => !k.archived || k.id === f.wartosci.bank_account_id)
     .sort((a, b) => a.name.localeCompare(b.name, 'pl'))
     .map((k) => ({ wartosc: k.id, tekst: `${k.name} (${BANKI[k.bank] ?? k.bank})` }));
   return `${opcje(f, { nazwa: 'pay_method', legenda: 'Gdzie płaci', odswiez: true,
     opcje: Object.entries(MIEJSCA_PLATNOSCI).map(([wartosc, tekst]) => ({ wartosc, tekst })) })}
     ${(f.wartosci.pay_method ?? 'przelew') === 'przelew' ? (konta.length
-    ? wybor(f, { nazwa: 'bank_account_id', etykieta: 'Na które konto', opcje: konta, pusta: '— jeszcze nie wiem —' })
+    ? wybor(f, { nazwa: 'bank_account_id', etykieta: 'Na które konto klient będzie wpłacał', opcje: konta,
+      pusta: wymagajKonta ? 'Wybierz konto…' : '— jeszcze nie wiem —', wymagane: wymagajKonta, odswiez: true })
+      + numerKonta(s, f.wartosci.bank_account_id)
     : '<p class="podpowiedz">Brak kont bankowych – dodasz je w Ustawieniach.</p>') : ''}`;
 }
 
@@ -111,17 +119,84 @@ async function zapiszPlatnosc(form, ctx) {
 // Nowy najem
 // ---------------------------------------------------------------------
 
-function opcjeJednostek(s, dzien) {
-  return s.dane.units.filter((j) => !j.archived)
-    .sort((a, b) => Object.keys(TYPY_JEDNOSTEK).indexOf(a.type) - Object.keys(TYPY_JEDNOSTEK).indexOf(b.type)
-      || porownajKody(a.code, b.code))
-    .map((j) => {
-      const najem = biezacyNajem(s.indeksy.najmyJednostki.get(j.id), dzien);
-      const klient = najem && s.indeksy.klienci.get(s.indeksy.umowy.get(najem.contract_id)?.client_id);
-      const stan = j.out_of_service ? 'wyłączona' : najem ? `zajęta – ${klient?.name ?? '?'}` : 'wolna';
-      return { wartosc: j.id, tekst: `${j.code} (${stan})`, grupa: TYPY_JEDNOSTEK[j.type]?.mnoga };
-    });
+/** Najmy jednostki, które kolidują z nowym najmem bez końca od dnia `start` (trwają wtedy albo zaczynają się później). */
+const kolizjeJednostki = (s, unitId, start) => (s.indeksy.najmyJednostki.get(unitId) ?? [])
+  .filter((n) => n.end_on == null || n.end_on >= start);
+
+const klientNajmu = (s, n) => s.indeksy.klienci.get(s.indeksy.umowy.get(n.contract_id)?.client_id);
+
+/**
+ * Jednostki do nowego najmu (prośba 11.11): wolne i na wypowiedzeniu (wolne od dnia po końcu najmu).
+ * Zajęte bez wypowiedzenia – tylko po zaznaczeniu „Pokaż też zajęte” (przejęcie z zadaniem wypowiedzenia).
+ */
+function opcjeJednostek(s, dzien, { pokazZajete = false, wybrana = '' } = {}) {
+  const kolejnosc = (a, b) => Object.keys(TYPY_JEDNOSTEK).indexOf(a.type) - Object.keys(TYPY_JEDNOSTEK).indexOf(b.type)
+    || porownajKody(a.code, b.code);
+  const wynik = [];
+  for (const j of s.dane.units.filter((x) => !x.archived && !x.out_of_service).sort(kolejnosc)) {
+    const kolizje = kolizjeJednostki(s, j.id, dzien);
+    const typ = TYPY_JEDNOSTEK[j.type]?.nazwa ?? j.type;
+    if (!kolizje.length) {
+      wynik.push({ wartosc: j.id, tekst: `${j.code} · ${typ}`, grupa: 'Wolne', kol: 0 });
+      continue;
+    }
+    const koniec = kolizje.length === 1 ? planowanyKoniec(kolizje[0], dzien) : null;
+    const kto = klientNajmu(s, kolizje[0])?.name ?? '?';
+    if (koniec) {
+      wynik.push({ wartosc: j.id, tekst: `${j.code} · ${typ} – wolna od ${formatData(dodajDni(koniec, 1))} (${kto})`,
+        grupa: 'Na wypowiedzeniu', kol: 1 });
+    } else if (pokazZajete || j.id === wybrana) {
+      wynik.push({ wartosc: j.id, tekst: `${j.code} · ${typ} – zajęta (${kto})`, grupa: 'Zajęte – wymaga wypowiedzenia', kol: 2 });
+    }
+  }
+  return wynik.sort((a, b) => a.kol - b.kol);
 }
+
+/**
+ * Najem obecnego najemcy przy wybranej jednostce i dacie startu: { najem, klient, koniec, wypowiedziany }
+ * albo null (jednostka wolna) albo { blad } (np. kilka najmów w tym czasie, start przed obecnym najmem).
+ */
+function przejecieJednostki(s, unitId, start) {
+  if (!unitId || !/^\d{4}-\d{2}-\d{2}$/.test(start ?? '')) return null;
+  const kolizje = kolizjeJednostki(s, unitId, start);
+  if (!kolizje.length) return null;
+  if (kolizje.length > 1) return { blad: 'Ta jednostka ma już kilka najmów od tej daty (także zaplanowany). Wybierz inną datę albo jednostkę.' };
+  const najem = kolizje[0];
+  const klient = klientNajmu(s, najem);
+  if (najem.start_on >= start) {
+    return { blad: `Jednostka ma już najem od ${formatData(najem.start_on)} (${klient?.name ?? '?'}). Wybierz inną jednostkę.` };
+  }
+  const koniec = planowanyKoniec(najem, dzisiaj()) ?? najem.end_on;
+  if (koniec && koniec >= start) {
+    return { blad: `${klient?.name ?? 'Obecny najemca'} wynajmuje do ${formatData(koniec)}. Nowy najem może zacząć się najwcześniej ${
+      formatData(dodajDni(koniec, 1))}.` };
+  }
+  return { najem, klient, koniec, wypowiedziany: Boolean(koniec) };
+}
+
+/** Informacja pod wyborem jednostki: kto ją teraz wynajmuje i co stanie się przy zapisie. */
+function infoPrzejecia(f, s) {
+  const p = przejecieJednostki(s, f.wartosci.unit_id, f.wartosci.start_on);
+  if (!p) return '';
+  if (p.blad) return `<p class="baner ostrzezenie">${esc(p.blad)}</p>`;
+  const kto = esc(p.klient?.name ?? 'obecny najemca');
+  if (p.wypowiedziany) {
+    return `<p class="podpowiedz">Teraz wynajmuje ${kto} – wypowiedziana, koniec najmu ${formatData(p.koniec)}.
+      Nowy najem zacznie się po nim, więc jednostka nie będzie wynajęta dwóm osobom naraz.</p>`;
+  }
+  const koniecStary = dodajDni(f.wartosci.start_on, -1);
+  return `<div class="baner ostrzezenie"><p>Jednostkę wynajmuje teraz <strong>${kto}</strong> (umowa bez wypowiedzenia).
+      Po zapisie najem ${kto} będzie trwał do <strong>${formatData(koniecStary)}</strong>, a w Zadaniach pojawi się
+      zadanie „wypowiedz umowę” z terminem poniżej.</p></div>
+    ${pole(f, { nazwa: 'wypowiedz_do', etykieta: `Wypowiedzieć umowę ${p.klient?.name ?? ''} do`, typ: 'date', wymagane: true, odswiez: true,
+    podpowiedz: 'Termin zadania – najpóźniej wtedy trzeba złożyć wypowiedzenie obecnemu najemcy.' })}`;
+}
+
+/** Domyślny termin wypowiedzenia: miesiąc przed startem nowego najmu, nie wcześniej niż dziś. */
+const domyslneWypowiedzDo = (start) => {
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(start ?? '') ? dodajMiesiace(start, -1) : dzisiaj();
+  return d < dzisiaj() ? dzisiaj() : d;
+};
 
 function wartosciNowegoNajmu(s) {
   const dzien = dzisiaj();
@@ -153,8 +228,12 @@ function formularzNowegoNajmu(s) {
       ${sekcja('Najem', `
         ${wybor(f, { nazwa: 'client_id', etykieta: 'Klient', opcje: klienci, wymagane: true, pusta: 'Wybierz klienta…' })}
         <p class="pod-polem"><a href="${nowyKlient}">+ Nowy klient</a></p>
-        ${wybor(f, { nazwa: 'unit_id', etykieta: 'Jednostka', opcje: opcjeJednostek(s, f.wartosci.start_on || dzisiaj()),
-          wymagane: true, pusta: 'Wybierz jednostkę…', odswiez: true })}
+        ${wybor(f, { nazwa: 'unit_id', etykieta: 'Jednostka', opcje: opcjeJednostek(s, dzisiaj(),
+          { pokazZajete: zaznaczone(f.wartosci.pokaz_zajete), wybrana: f.wartosci.unit_id }),
+          wymagane: true, pusta: 'Wybierz jednostkę…', odswiez: true,
+          podpowiedz: 'Wolne i na wypowiedzeniu. Zajętą wybierzesz po zaznaczeniu „Inne – pokaż też zajęte”.' })}
+        ${przelacznik(f, { nazwa: 'pokaz_zajete', etykieta: 'Inne – pokaż też zajęte jednostki', odswiez: true })}
+        ${infoPrzejecia(f, s)}
         <div class="pola-w-rzedzie">
           ${pole(f, { nazwa: 'start_on', etykieta: 'Data startu', typ: 'date', wymagane: true, odswiez: true })}
           ${pole(f, { nazwa: 'amount_gr', etykieta: 'Stawka (zł / mies.)', typ: 'kwota', wymagane: true, odswiez: true,
@@ -168,7 +247,7 @@ function formularzNowegoNajmu(s) {
         </div>
         ${wybor(f, { nazwa: 'last_period', etykieta: 'Ostatni okres przy końcu najmu', opcje: OSTATNI_OKRES })}`)}
       ${sekcja('Promocja', polaPromocjiNajmu(f, s))}
-      ${sekcja('Płatność', polaPlatnosci(f, s))}
+      ${sekcja('Płatność – gdzie klient wpłaca', polaPlatnosci(f, s, { wymagajKonta: true }))}
       ${sekcja('Umowa', `
         <div class="pola-w-rzedzie">
           ${pole(f, { nazwa: 'number', etykieta: 'Numer umowy', atrybuty: 'autocomplete="off"',
@@ -255,6 +334,16 @@ function przyZmianieNajmu(nazwa, f, s, poprzednie = {}) {
     }
     delete f.bledy.unit_id;
   }
+  // Jednostka na wypowiedzeniu: start najwcześniej dzień po końcu obecnego najmu.
+  if (nazwa === 'unit_id' && w.unit_id) {
+    const kol = kolizjeJednostki(s, w.unit_id, w.start_on || dzisiaj());
+    const koniec = kol.length === 1 ? planowanyKoniec(kol[0], dzisiaj()) : null;
+    if (koniec && (!w.start_on || w.start_on <= koniec)) w.start_on = dodajDni(koniec, 1);
+  }
+  if (nazwa === 'wypowiedz_do') f.wypowiedzDoZmienione = true;
+  if (!f.wypowiedzDoZmienione && (nazwa === 'unit_id' || nazwa === 'start_on' || nazwa === 'pokaz_zajete' || !w.wypowiedz_do)) {
+    w.wypowiedz_do = domyslneWypowiedzDo(w.start_on);
+  }
   // Dzień płatności nie zależy od daty startu (decyzja 11.11: wszyscy płacą 20.) – podpowiedź z Ustawień.
   if (nazwa === 'pdf') {
     const blad = walidujPdf(f.pliki.pdf);
@@ -267,9 +356,19 @@ async function zapiszNajem(form, ctx) {
   const f = s.ui.form;
   const w = wartosciFormularza(form);
   const umowaPdf = f.pliki.pdf ?? null;
-  const wynik = walidujNajem(w, { indeksy: s.indeksy, ustawienia: ustawienia(s), plik: umowaPdf });
+  // Przejęcie jednostki od obecnego najemcy (prośba 11.11): jego najem kończy się dzień przed startem nowego.
+  const przejecie = przejecieJednostki(s, w.unit_id, w.start_on);
+  const bledyPrzejecia = {};
+  if (przejecie?.blad) bledyPrzejecia.unit_id = przejecie.blad;
+  else if (przejecie && !przejecie.wypowiedziany) {
+    if (!zaznaczone(w.pokaz_zajete)) bledyPrzejecia.unit_id = 'Jednostka jest zajęta – zaznacz „Inne – pokaż też zajęte”, żeby ją przejąć.';
+    else if (!/^\d{4}-\d{2}-\d{2}$/.test(w.wypowiedz_do ?? '')) bledyPrzejecia.wypowiedz_do = 'Podaj termin wypowiedzenia.';
+    else if (w.wypowiedz_do >= w.start_on) bledyPrzejecia.wypowiedz_do = 'Termin musi być przed startem nowego najmu.';
+  }
+  const wynik = walidujNajem(w, { indeksy: s.indeksy, ustawienia: ustawienia(s), plik: umowaPdf,
+    przejmowany: przejecie && !przejecie.blad ? przejecie.najem : null });
   const promocja = promocjaNowegoNajmu(w, s);
-  if (maBledy(ctx, w, { ...(wynik.bledy ?? {}), ...promocja.bledy })) return;
+  if (maBledy(ctx, w, { ...(wynik.bledy ?? {}), ...promocja.bledy, ...bledyPrzejecia })) return;
   if (promocja.wybrana) {
     // Stawka startowa → obniżona od startu + normalna od końca promocji (dwa wiersze rental_rates w tym samym pakiecie).
     const najem = wynik.pakiet.rentals[0];
@@ -281,8 +380,33 @@ async function zapiszNajem(form, ctx) {
   const klientId = w.client_id;
 
   await zapisz(ctx, async () => {
-    ctx.scal(await ctx.db.zapiszPakiet(wynik.pakiet));
+    // Najpierw koniec obecnego najmu (baza nie pozwala na dwa najmy jednostki w tym samym czasie), potem nowy najem.
+    let stary = null;
+    if (przejecie?.najem) {
+      const koniec = przejecie.koniec ?? dodajDni(w.start_on, -1);
+      stary = przejecie.najem;
+      ctx.scal({ rentals: [await ctx.db.zmien('rentals', stary.id, { end_on: koniec })] });
+    }
+    try {
+      ctx.scal(await ctx.db.zapiszPakiet(wynik.pakiet));
+    } catch (e) {
+      if (stary) ctx.scal({ rentals: [await ctx.db.zmien('rentals', stary.id, { end_on: stary.end_on ?? null })] });
+      throw e;
+    }
     let komunikat = `Dodano najem ${jednostka.code}${promocja.wybrana ? ` z promocją „${promocja.wybrana.nazwa}”` : ''}`;
+    if (stary && !przejecie.wypowiedziany && przejecie.klient) {
+      const nowy = s.indeksy.klienci.get(klientId)?.name ?? 'nowy klient';
+      try {
+        ctx.scal({ client_notes: [await ctx.db.wstaw('client_notes', {
+          client_id: przejecie.klient.id, kind: 'notatka', task_owner: 'ja', promised_on: w.wypowiedz_do,
+          body: `Wypowiedz umowę – ${jednostka.code} od ${formatData(w.start_on)} wynajmuje ${nowy}. Najem kończy się ${
+            formatData(dodajDni(w.start_on, -1))}: złóż wypowiedzenie, potem „Zakończ najem” i rozlicz kaucję.`,
+        })] });
+        komunikat += `; zadanie: wypowiedz umowę ${przejecie.klient.name} do ${formatData(w.wypowiedz_do)}`;
+      } catch (e) {
+        komunikat += `, ale zadanie wypowiedzenia nie zapisało się (${e.message})`;
+      }
+    }
     if (promocja.wybrana?.nowa && zaznaczone(w.promo_zapisz)) {
       try {
         const lista = [...listaPromocji(ustawienia(s)), promocja.wybrana.nowa];
