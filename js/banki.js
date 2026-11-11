@@ -1,5 +1,6 @@
 // Profile banków (7.1–7.2): tekst wyciągu → wspólny odczyt wierszy.
-// Czyste funkcje. Obsługiwane: Nest Bank, Millennium. PKO BP i Alior – po otrzymaniu przykładowych plików.
+// Czyste funkcje. Obsługiwane: Nest Bank, Millennium. Inne banki (PKO BP, Alior…) – ręczne mapowanie kolumn
+// zapamiętane przy koncie (bank_accounts.csv_mapping, migracja 005).
 //
 // Wynik odczytajWyciag(tekst):
 //   { bank: 'nest'|'millennium'|null, rachunek: '26 cyfr'|null (konto, z którego jest wyciąg),
@@ -11,13 +12,18 @@ import { normalizujTekst, oczyscRachunek, parseKwota } from './utils.js';
 
 const kluczNaglowka = (pola) => pola.map((p) => normalizujTekst(p));
 
-/** Data z wyciągu: RRRR-MM-DD albo DD-MM-RRRR / DD.MM.RRRR → RRRR-MM-DD. */
-function dataWyciagu(tekst) {
-  const s = String(tekst ?? '').trim();
-  let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  m = /^(\d{2})[-.](\d{2})[-.](\d{4})$/.exec(s);
-  return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
+/**
+ * Data z wyciągu → RRRR-MM-DD. Formaty: RRRR-MM-DD, RRRR.MM.DD, RRRR/MM/DD, DD-MM-RRRR, DD.MM.RRRR, DD/MM/RRRR;
+ * godzina po dacie jest pomijana („2026-03-01 12:30”). Dzień i miesiąc mogą być jednocyfrowe.
+ */
+export function dataWyciagu(tekst) {
+  const s = String(tekst ?? '').trim().split(/[ T]/)[0];
+  const p2 = (x) => x.padStart(2, '0');
+  const ok = (y, m, d) => (Number(m) >= 1 && Number(m) <= 12 && Number(d) >= 1 && Number(d) <= 31 ? `${y}-${p2(m)}-${p2(d)}` : null);
+  let m = /^(\d{4})[-./](\d{1,2})[-./](\d{1,2})$/.exec(s);
+  if (m) return ok(m[1], m[2], m[3]);
+  m = /^(\d{1,2})[-./](\d{1,2})[-./](\d{4})$/.exec(s);
+  return m ? ok(m[3], m[2], m[1]) : null;
 }
 
 /** Kwota z wyciągu (kropka albo przecinek dziesiętny) → grosze. */
@@ -105,6 +111,114 @@ function millennium(tekst) {
 }
 
 // ---------------------------------------------------------------------
+// Ręczne mapowanie kolumn (7.2: „Inny – ręczne mapowanie kolumn zapamiętane jako profil”).
+// Mapowanie: { podpis: 'NAGLOWEK|…' (nagłówki bez ogonków), kolumny: { data: 'DATA OPERACJI', kwota: 'KWOTA', … } }.
+// Kolumny wskazujemy nazwą nagłówka, nie numerem – plik z dodatkową kolumną dalej się wczyta.
+// ---------------------------------------------------------------------
+
+/** Pola wspólnego odczytu. kwota = jedna kolumna ze znakiem; uznania = osobna kolumna wpływów (gdy bank je rozdziela). */
+export const POLA_MAPOWANIA = Object.freeze([
+  { id: 'data', tekst: 'Data księgowania', wymagane: true, slowa: ['DATA KSIEGOWANIA', 'DATA OPERACJI', 'DATA TRANSAKCJI', 'DATA WALUTY', 'DATA'] },
+  { id: 'kwota', tekst: 'Kwota (wpływ dodatni)', wymagane: true, slowa: ['KWOTA OPERACJI', 'KWOTA TRANSAKCJI', 'KWOTA', 'UZNANIA', 'WPLYWY', 'WPLYW'] },
+  { id: 'kontrahent', tekst: 'Nadawca', slowa: ['NADAWCA', 'ZLECENIODAWCA', 'DANE KONTRAHENTA', 'KONTRAHENT', 'NAZWA'] },
+  { id: 'tytul', tekst: 'Tytuł', slowa: ['TYTUL', 'OPIS OPERACJI', 'OPIS TRANSAKCJI', 'OPIS', 'SZCZEGOLY'] },
+  { id: 'rachunek', tekst: 'Rachunek nadawcy (zalecany)', slowa: ['RACHUNEK NADAWCY', 'NUMER RACHUNKU NADAWCY', 'RACHUNEK KONTRAHENTA', 'NUMER RACHUNKU KONTRAHENTA', 'KONTO NADAWCY', 'RACHUNEK'] },
+  { id: 'waluta', tekst: 'Waluta', slowa: ['WALUTA'] },
+]);
+
+/**
+ * Nagłówek i przykładowe wiersze pliku z nieznanego banku. Nagłówek = pierwszy wiersz z największą liczbą pól
+ * (wśród pierwszych 30) – linie opisu nad tabelą (numer rachunku, okres) są pomijane.
+ * @returns {{ separator, start: number, kolumny: string[], przyklady: string[][] } | null}
+ */
+export function kolumnyPliku(tekst) {
+  const separator = wykryjSeparator(tekst.split(/\r?\n/).find((l) => /[;,\t]/.test(l)) ?? tekst);
+  const rekordy = rozpakuj(parsujCsv(tekst, separator));
+  const poczatek = rekordy.slice(0, 30);
+  const max = Math.max(0, ...poczatek.map((r) => r.pola.length));
+  if (max < 2) return null;
+  const i = poczatek.findIndex((r) => r.pola.length === max && r.pola.filter((p) => p.trim()).length >= 2);
+  if (i < 0) return null;
+  return {
+    separator, start: i,
+    kolumny: rekordy[i].pola.map((p) => p.trim()),
+    przyklady: rekordy.slice(i + 1, i + 4).map((r) => r.pola.map((p) => p.trim())),
+  };
+}
+
+const podpisNaglowka = (kolumny) => kolumny.map((k) => normalizujTekst(k)).join('|');
+
+/** Podpowiedź mapowania po nazwach nagłówków (kolejność słów kluczowych = pierwszeństwo). */
+export function zgadnijMapowanie(kolumny) {
+  const n = kolumny.map((k) => normalizujTekst(k));
+  const zajete = new Set();
+  const wynik = {};
+  for (const pole of POLA_MAPOWANIA) {
+    for (const slowo of pole.slowa) {
+      const i = n.findIndex((k, idx) => !zajete.has(idx) && (k === slowo || k.startsWith(`${slowo} `) || k.includes(slowo)));
+      if (i >= 0) {
+        wynik[pole.id] = n[i];
+        zajete.add(i);
+        break;
+      }
+    }
+  }
+  return wynik;
+}
+
+/** Mapowanie do zapisania przy koncie. kolumny: { pole: 'NAZWA NAGŁÓWKA' } (puste pomijane). */
+export function zbudujMapowanie(naglowek, kolumny) {
+  const k = Object.fromEntries(Object.entries(kolumny).filter(([, v]) => v).map(([pole, v]) => [pole, normalizujTekst(v)]));
+  return { podpis: podpisNaglowka(naglowek), kolumny: k };
+}
+
+/** Czy zapamiętane mapowanie pasuje do pliku (te same nagłówki). */
+export function mapowaniePasuje(mapowanie, tekst) {
+  const k = mapowanie?.podpis && kolumnyPliku(tekst);
+  return Boolean(k) && podpisNaglowka(k.kolumny) === mapowanie.podpis;
+}
+
+const WZORY_OPISU = Object.freeze({
+  kontrahent: /^(?:nazwa nadawcy|nadawca|zleceniodawca)\s*:\s*(.+)$/i,
+  rachunek: /^(?:rachunek nadawcy|numer rachunku nadawcy|z rachunku)\s*:\s*(.+)$/i,
+  tytul: /^(?:tytuł|tytul)\s*:\s*(.+)$/i,
+});
+
+/** Odczyt pliku według mapowania → ten sam układ co profile banków (bank: null = mapowanie ręczne). */
+export function odczytajZMapowaniem(tekst, mapowanie) {
+  const k = kolumnyPliku(tekst);
+  if (!k) return { bank: null, rachunek: null, wiersze: [], blad: 'Ten plik nie wygląda na wyciąg CSV.' };
+  const n = k.kolumny.map((x) => normalizujTekst(x));
+  const idx = Object.fromEntries(Object.entries(mapowanie.kolumny ?? {}).map(([pole, nazwa]) => [pole, n.indexOf(nazwa)]));
+  if (!(idx.data >= 0) || !(idx.kwota >= 0)) {
+    return { bank: null, rachunek: null, wiersze: [], blad: 'W pliku nie ma kolumn daty albo kwoty z zapamiętanego mapowania.' };
+  }
+  // Brak osobnej kolumny: wartość z opisu w stylu „Nazwa nadawcy: JAN NOWAK” w dowolnej komórce wiersza.
+  const zOpisu = (pola, id) => {
+    const wzor = WZORY_OPISU[id];
+    if (!wzor) return undefined;
+    for (const p of pola) {
+      const m = wzor.exec(p.trim());
+      if (m) return m[1];
+    }
+    return undefined;
+  };
+  const pole = (pola, id) => (idx[id] >= 0 && String(pola[idx[id]] ?? '').trim() ? pola[idx[id]] : zOpisu(pola, id));
+  const rekordy = rozpakuj(parsujCsv(tekst, k.separator));
+  const naglowekNr = rekordy[k.start].nr;
+  return {
+    bank: null, rachunek: null, reczne: true,
+    wiersze: rekordy.filter((r) => r.nr > naglowekNr && r.pola.some((p) => p.trim()))
+      .map(({ nr, pola }) => wiersz(nr, {
+        // Pusta kwota (np. kolumna „Uznania” przy obciążeniu) = 0, czyli wiersz pomijany jak wypływ.
+        data: pole(pola, 'data'), kwota: String(pole(pola, 'kwota') ?? '').trim() || '0',
+        waluta: pole(pola, 'waluta'), kontrahent: pole(pola, 'kontrahent'), rachunek: pole(pola, 'rachunek'),
+        tytul: pole(pola, 'tytul'),
+      })),
+  };
+}
+
+// ---------------------------------------------------------------------
 
 export const OBSLUGIWANE = Object.freeze({ nest: 'Nest Bank', millennium: 'Millennium' });
 
@@ -123,7 +237,8 @@ export function odczytajWyciag(tekst) {
   if (bank === 'millennium') return millennium(tekst);
   return {
     bank: null, rachunek: null, wiersze: [],
-    blad: 'Nie rozpoznaję tego wyciągu. Na razie obsługuję CSV z Nest Banku i Millennium – PKO BP i Alior dojdą, gdy dostanę przykładowe pliki.',
+    nierozpoznany: true,   // widok proponuje ręczne mapowanie kolumn
+    blad: 'Nie rozpoznaję tego wyciągu – wskaż kolumny ręcznie.',
   };
 }
 

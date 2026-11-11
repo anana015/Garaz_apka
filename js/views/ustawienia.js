@@ -30,7 +30,8 @@ function kontaBankowe(s) {
   const lista = konta.length
     ? `<ul class="lista">${konta.map((k) => `<li><a class="wiersz" href="#/ustawienia/konto/${encodeURIComponent(k.id)}">
         <div class="glowna"><strong>${esc(k.name)}${k.archived ? ' <span class="wyciszony">(archiwalne)</span>' : ''}</strong>
-        <span>${esc(BANKI[k.bank] ?? k.bank)}${k.iban ? ` · <span class="mono">${esc(formatRachunek(k.iban))}</span>` : ''}</span>
+        <span>${esc(BANKI[k.bank] ?? k.bank)}${k.iban ? ` · <span class="mono">${esc(formatRachunek(k.iban))}</span>` : ''}${
+  k.csv_mapping ? ' · kolumny CSV zapamiętane' : ''}</span>
       </div></a></li>`).join('')}</ul>`
     : '<p class="wyciszony">Brak kont. Dodaj konta, z których pobierasz wyciągi.</p>';
   return lista + `<div class="pasek-akcji">${przycisk({ tekst: 'Dodaj konto', href: '#/ustawienia/konto/nowe', drugi: true, ikona: 'plus' })}</div>`;

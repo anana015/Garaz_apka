@@ -7,7 +7,7 @@ export const CONFIG = Object.freeze({
   supabaseKey: 'sb_publishable_aFlZhbycefQPMj6imB3jFQ_KSLQmZ28',   // klucz publiczny (publishable)
 });
 
-export const WERSJA = '0.7.2';
+export const WERSJA = '0.8.0';
 
 /** Tabele z rozdziału 4 – kolejność nie ma znaczenia, służy do pobierania i kopii zapasowej. */
 export const TABELE = Object.freeze([

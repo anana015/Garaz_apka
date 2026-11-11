@@ -1,14 +1,18 @@
 // Import wyciągu (8.3): wybór konta i pliku → podgląd z przypisaniem klientów (7.3) → zapis → wynik.
 // Plik czyta przeglądarka; do bazy trafiają tylko wpływy (imports + payments, wpłaty jednym pakietem).
+// Nieznany bank: ekran ręcznego mapowania kolumn (7.2), mapowanie zapamiętane przy koncie (csv_mapping, migracja 005).
 
-import { kluczeDuplikatow, odczytajWyciag, OBSLUGIWANE } from '../banki.js';
+import {
+  kluczeDuplikatow, kolumnyPliku, mapowaniePasuje, odczytajWyciag, odczytajZMapowaniem, OBSLUGIWANE, POLA_MAPOWANIA,
+  zbudujMapowanie, zgadnijMapowanie,
+} from '../banki.js';
 import { dekoduj } from '../csv.js';
 import { najemZakonczony, ostatniaWplataNaKoncie } from '../dane.js';
-import { formularz, plik, stanFormularza, wybor, zapisz } from '../formularz.js';
+import { formularz, plik, przelacznik, stanFormularza, wartosciFormularza, wybor, zapisz } from '../formularz.js';
 import { indeksPlatnikow, rozpoznaj } from '../rozpoznanie.js';
 import { przycisk, pustyStan } from '../ui.js';
 import {
-  esc, dzisiaj, formatData, formatZl, formatRachunek, dataZeZnacznika, noweId, odmiana, porownajKody,
+  esc, dzisiaj, formatData, formatZl, formatRachunek, dataZeZnacznika, noweId, normalizujTekst, odmiana, porownajKody,
 } from '../utils.js';
 import { BANKI } from '../walidacja.js';
 
@@ -23,7 +27,7 @@ const ZNACZNIK = {
 // Przygotowanie podglądu (bez DOM)
 // ---------------------------------------------------------------------
 
-function przygotuj(s, odczyt, kontoId, nazwaPliku) {
+function przygotuj(s, odczyt, kontoId, nazwaPliku, zrodlo = null) {
   const istniejace = new Set(s.dane.payments.map((p) => p.dedup_key).filter(Boolean));
   const klucze = kluczeDuplikatow(kontoId, odczyt.wiersze);
   const indeks = indeksPlatnikow(s.dane);
@@ -36,7 +40,8 @@ function przygotuj(s, odczyt, kontoId, nazwaPliku) {
     if (istniejace.has(klucze[i])) { l.duplikaty += 1; return; }
     nowe.push({ ...w, klucz: klucze[i], ...rozpoznaj(w, indeks) });
   });
-  return { kontoId, nazwaPliku, bank: odczyt.bank, rachunek: odczyt.rachunek, nowe, bledne, l };
+  // zrodlo: tekst pliku przy mapowaniu ręcznym – pozwala wrócić do wyboru kolumn („Zmień kolumny”).
+  return { kontoId, nazwaPliku, bank: odczyt.bank, rachunek: odczyt.rachunek, nowe, bledne, l, reczne: Boolean(odczyt.reczne), zrodlo };
 }
 
 // ---------------------------------------------------------------------
@@ -48,7 +53,7 @@ function wyborPliku(s, konta) {
   return formularz(f, {
     nazwa: 'wyciag',
     przycisk: 'Wczytaj',
-    uwaga: `Obsługiwane wyciągi: ${Object.values(OBSLUGIWANE).join(', ')}. Konto podpowiem z numeru rachunku w pliku.`,
+    uwaga: `Rozpoznaję wyciągi: ${Object.values(OBSLUGIWANE).join(', ')}. Z innego banku (np. PKO BP, Alior) wskażesz kolumny raz – zapamiętam je przy koncie.`,
     tresc: `<h2>Wczytaj wyciąg CSV</h2>
       ${wybor(f, { nazwa: 'konto', etykieta: 'Konto', opcje: konta.map((k) => ({ wartosc: k.id, tekst: k.name })) })}
       ${plik(f, { nazwa: 'plik', etykieta: 'Plik z banku', akceptuj: '.csv,text/csv',
@@ -75,6 +80,63 @@ function ostatnieImporty(s) {
       <ul class="lista">${naKontach}</ul></section>
     <section class="karta" aria-labelledby="imp-historia"><h2 id="imp-historia">Ostatnie importy</h2>
       ${importy ? `<ul class="lista">${importy}</ul>` : '<p class="wyciszony">Nie wczytano jeszcze żadnego wyciągu.</p>'}</section>`;
+}
+
+
+// ---------------------------------------------------------------------
+// Ekran 1b: ręczne mapowanie kolumn (7.2) – plik z banku bez gotowego profilu
+// ---------------------------------------------------------------------
+
+const LICZBA_PODGLADU = 5;
+
+/** Wybrane kolumny z wartości formularza: { data: 'NAGLOWEK', … }. */
+const wybraneKolumny = (w) => Object.fromEntries(POLA_MAPOWANIA.map((p) => [p.id, w[`k_${p.id}`] || '']));
+
+function ekranMapowania(s, m) {
+  const konto = s.indeksy.konta.get(m.kontoId);
+  const f = stanFormularza(s, 'import/mapowanie', () => {
+    const zgadniete = m.zapamietane?.kolumny ?? zgadnijMapowanie(m.kolumny.kolumny);
+    return { ...Object.fromEntries(POLA_MAPOWANIA.map((p) => [`k_${p.id}`, zgadniete[p.id] ?? ''])), zapamietaj: 'on' };
+  });
+  const przyklad = (i) => m.kolumny.przyklady.map((w) => w[i]).find((x) => x) ?? '';
+  const opcje = m.kolumny.kolumny.map((k, i) => {
+    const pr = przyklad(i);
+    return { wartosc: normalizujTekst(k), tekst: `${k || `kolumna ${i + 1}`}${pr ? ` – np. „${pr.slice(0, 30)}”` : ''}` };
+  });
+  const pola = POLA_MAPOWANIA.map((p) => wybor(f, { nazwa: `k_${p.id}`, etykieta: p.tekst, opcje, wymagane: p.wymagane,
+    pusta: p.wymagane ? 'Wybierz kolumnę…' : '— brak w pliku —', odswiez: true })).join('');
+
+  // Podgląd: pierwsze wiersze odczytane według bieżącego wyboru.
+  const wybrane = wybraneKolumny(f.wartosci);
+  let podgladHtml = '<p class="podpowiedz">Wybierz kolumny daty i kwoty, a pokażę, jak odczytam pierwsze wiersze.</p>';
+  if (wybrane.data && wybrane.kwota) {
+    const o = odczytajZMapowaniem(m.tekst, { kolumny: wybrane });
+    const wiersze = o.wiersze.slice(0, LICZBA_PODGLADU);
+    podgladHtml = `<div class="tabela-przewijana"><table class="tabela"><thead><tr><th scope="col">Data</th>
+      <th scope="col" class="kwota">Kwota</th><th scope="col">Nadawca</th><th scope="col">Tytuł</th><th scope="col">Uwagi</th></tr></thead>
+      <tbody>${wiersze.map((w) => `<tr><td>${w.data ? formatData(w.data) : '—'}</td>
+        <td class="kwota">${w.kwotaGr != null ? formatZl(w.kwotaGr) : '—'}</td><td>${esc(w.kontrahent || '—')}</td>
+        <td>${esc((w.tytul || '').slice(0, 60))}</td>
+        <td>${w.blad ? `<span class="status zalega">${esc(w.blad)}</span>` : w.kwotaGr <= 0
+    ? '<span class="wyciszony">wypływ – pominę</span>' : w.rachunekNadawcy ? '<span class="status ok">rachunek</span>' : ''}</td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="podpowiedz">W pliku ${odmiana(o.wiersze.length, ['wiersz', 'wiersze', 'wierszy'])}; czytelnych:
+        ${o.wiersze.filter((w) => !w.blad).length}.</p>`;
+  }
+  return formularz(f, {
+    nazwa: 'wyciag-mapowanie',
+    przycisk: 'Dalej – podgląd wpłat',
+    uwaga: '',
+    tresc: `<h2>Wskaż kolumny wyciągu</h2>
+      <p class="podpowiedz">Nie rozpoznaję pliku <strong>${esc(m.nazwaPliku)}</strong>. Wskaż, w których kolumnach są dane –
+        podpowiedziałam po nazwach nagłówków. Konto: <strong>${esc(konto?.name ?? '?')}</strong>.</p>
+      ${pola}
+      <h3 class="maly">Podgląd</h3>
+      ${podgladHtml}
+      ${przelacznik(f, { nazwa: 'zapamietaj', etykieta: `Zapamiętaj kolumny dla konta ${konto?.name ?? ''}`,
+    podpowiedz: 'Kolejne wyciągi z tymi samymi nagłówkami wczytają się bez pytania.' })}
+      <p><button type="button" class="link-btn" data-akcja="anuluj-import">Anuluj</button></p>`,
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -127,8 +189,9 @@ function podglad(s, p) {
 
   const naglowek = `<section class="karta">
     <h2>${esc(p.nazwaPliku)}</h2>
-    <p class="podpowiedz">${esc(OBSLUGIWANE[p.bank] ?? '')} · konto <strong>${esc(konto?.name ?? '?')}</strong>${
-  p.rachunek ? ` · <span class="mono">${esc(formatRachunek(p.rachunek))}</span>` : ''}</p>
+    <p class="podpowiedz">${p.reczne ? 'kolumny wskazane ręcznie' : esc(OBSLUGIWANE[p.bank] ?? '')} · konto <strong>${
+  esc(konto?.name ?? '?')}</strong>${p.rachunek ? ` · <span class="mono">${esc(formatRachunek(p.rachunek))}</span>` : ''}${
+  p.zrodlo ? ' · <button type="button" class="link-btn" data-akcja="zmien-kolumny">Zmień kolumny</button>' : ''}</p>
     <div class="kafelki">
       ${kafelek(p.nowe.length, 'nowe wpłaty')}
       ${kafelek(przypisane.length, 'przypisane automatycznie', `rachunek ${zRachunku} · nazwa ${przypisane.length - zRachunku}`)}
@@ -183,12 +246,21 @@ export default {
     }
     if (s.ui.wyciag?.wynik) return wynik(s.ui.wyciag.wynik);
     if (s.ui.wyciag?.podglad) return podglad(s, s.ui.wyciag.podglad);
+    if (s.ui.wyciag?.mapowanie) return ekranMapowania(s, s.ui.wyciag.mapowanie);
     return `<div class="siatka">${wyborPliku(s, konta)}<div class="stos">${ostatnieImporty(s)}</div></div>`;
   },
 
   akcje: {
     'anuluj-import'(_el, ctx) {
       ctx.state.ui.wyciag = null;
+      ctx.state.ui.form = null;
+      ctx.render();
+    },
+    /** Powrót z podglądu do wyboru kolumn (mapowanie ręczne). */
+    'zmien-kolumny'(_el, ctx) {
+      const z = ctx.state.ui.wyciag?.podglad?.zrodlo;
+      if (!z) return;
+      ctx.state.ui.wyciag = { mapowanie: z };
       ctx.state.ui.form = null;
       ctx.render();
     },
@@ -211,26 +283,88 @@ export default {
         ctx.render();
         return;
       }
-      const odczyt = odczytajWyciag(dekoduj(await plikWyciagu.arrayBuffer()));
+      const tekst = dekoduj(await plikWyciagu.arrayBuffer());
+      let odczyt = odczytajWyciag(tekst);
+      let kontoId = f.wartosci.konto;
+      let zrodlo = null;
+      if (odczyt.nierozpoznany) {
+        // Nieznany bank: zapamiętane mapowanie (najpierw wybranego konta, potem innych) albo ekran wyboru kolumn.
+        const aktywne = s.dane.bank_accounts.filter((k) => !k.archived);
+        const wybrane = s.indeksy.konta.get(kontoId);
+        const zMapowaniem = [wybrane, ...aktywne].find((k) => k?.csv_mapping && mapowaniePasuje(k.csv_mapping, tekst));
+        const kolumny = kolumnyPliku(tekst);
+        if (!kolumny) {
+          f.bledy = { plik: 'Ten plik nie wygląda na wyciąg CSV.' };
+          ctx.render();
+          return;
+        }
+        zrodlo = { tekst, kontoId, nazwaPliku: plikWyciagu.name, kolumny, zapamietane: wybrane?.csv_mapping ?? null };
+        if (!zMapowaniem) {
+          s.ui.wyciag = { mapowanie: zrodlo };
+          s.ui.form = null;
+          ctx.render();
+          globalThis.scrollTo?.(0, 0);
+          return;
+        }
+        if (zMapowaniem.id !== kontoId) ctx.toast(`Te kolumny są zapamiętane dla konta ${zMapowaniem.name} – przełączyłam.`);
+        kontoId = zMapowaniem.id;
+        zrodlo = { ...zrodlo, kontoId, zapamietane: zMapowaniem.csv_mapping };
+        odczyt = odczytajZMapowaniem(tekst, zMapowaniem.csv_mapping);
+      }
       if (odczyt.blad) {
         f.bledy = { plik: odczyt.blad };
         ctx.render();
         return;
       }
       // Konto z numeru rachunku w pliku (7.2); gdy inne niż wybrane – przełączamy i mówimy o tym.
-      let kontoId = f.wartosci.konto;
       const pasujace = odczyt.rachunek && s.dane.bank_accounts.find((k) => k.iban === odczyt.rachunek && !k.archived);
       if (pasujace && pasujace.id !== kontoId) {
         ctx.toast(`Ten wyciąg jest z konta ${pasujace.name} – przełączyłam.`);
         kontoId = pasujace.id;
       }
       const konto = s.indeksy.konta.get(kontoId);
-      if (konto && konto.bank !== odczyt.bank && konto.bank !== 'inny') {
+      if (konto && odczyt.bank && konto.bank !== odczyt.bank && konto.bank !== 'inny') {
         f.bledy = { konto: `Ten plik jest z banku ${OBSLUGIWANE[odczyt.bank]}, a wybrane konto to ${BANKI[konto.bank] ?? konto.bank}.` };
         ctx.render();
         return;
       }
-      s.ui.wyciag = { podglad: przygotuj(s, odczyt, kontoId, plikWyciagu.name) };
+      s.ui.wyciag = { podglad: przygotuj(s, odczyt, kontoId, plikWyciagu.name, zrodlo) };
+      s.ui.form = null;
+      ctx.render();
+      globalThis.scrollTo?.(0, 0);
+    },
+
+    /** Wybrane kolumny → (opcjonalnie) zapamiętanie przy koncie → podgląd wpłat. */
+    async 'wyciag-mapowanie'(form, ctx) {
+      const s = ctx.state;
+      const m = s.ui.wyciag?.mapowanie;
+      const f = s.ui.form;
+      if (!m || !f) return;
+      const w = wartosciFormularza(form);
+      const kolumny = wybraneKolumny(w);
+      const bledy = {};
+      for (const p of POLA_MAPOWANIA) if (p.wymagane && !kolumny[p.id]) bledy[`k_${p.id}`] = 'Wskaż kolumnę.';
+      const odczyt = Object.keys(bledy).length ? null : odczytajZMapowaniem(m.tekst, { kolumny });
+      if (odczyt && !odczyt.wiersze.some((x) => !x.blad)) {
+        bledy.k_data = 'Żaden wiersz się nie odczytał – sprawdź kolumny daty i kwoty.';
+      }
+      Object.assign(f, { wartosci: w, bledy });
+      if (Object.keys(bledy).length) {
+        ctx.render();
+        document.querySelector('#widok [aria-invalid="true"]')?.focus();
+        return;
+      }
+      if (w.zapamietaj === 'on' && !s.podglad && !s.offline && !s.zKopii) {
+        try {
+          const konto = await ctx.db.zmien('bank_accounts', m.kontoId, { csv_mapping: zbudujMapowanie(m.kolumny.kolumny, kolumny) });
+          ctx.scal({ bank_accounts: [konto] });
+        } catch (e) {
+          ctx.toast(/csv_mapping/.test(e.message)
+            ? 'Nie zapamiętałam kolumn – uruchom w Supabase migrację 005_mapowanie_csv.sql.'
+            : `Nie zapamiętałam kolumn: ${e.message}`);
+        }
+      }
+      s.ui.wyciag = { podglad: przygotuj(s, odczyt, m.kontoId, m.nazwaPliku, { ...m, zapamietane: { kolumny } }) };
       s.ui.form = null;
       ctx.render();
       globalThis.scrollTo?.(0, 0);
