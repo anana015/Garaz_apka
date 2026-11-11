@@ -127,6 +127,7 @@ const OGRANICZENIA = {
   payers_user_id_account_key: 'Ten rachunek jest już przypisany innemu klientowi.',
   payers_user_id_name_key_key: 'Ta nazwa płatnika jest już przypisana innemu klientowi.',
   tax_payments_user_id_year_quarter_key: 'Wpłata ryczałtu za ten kwartał jest już zapisana.',
+  tax_payments_rok_kwartal_grupa: 'Wpłata ryczałtu za ten kwartał i licznik jest już zapisana.',
 };
 
 /**

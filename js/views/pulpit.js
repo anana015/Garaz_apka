@@ -7,7 +7,8 @@ import { biezacyNajem, doPrzypisania, najemTrwa } from '../dane.js';
 import { pilneZadania } from '../zadania.js';
 import { limityVat, PROGI_VAT } from '../statystyki.js';
 import {
-  datyKwartalu, etykietaKwartalu, kwartalDaty, kwartalyDoZaplaty, progRoku, zestawienieRoku,
+  daneGrupy, datyKwartalu, etykietaKwartalu, GRUPY_RYCZALTU, kwartalDaty, kwartalyDoZaplaty, nazwaGrupy, progRoku,
+  zestawienieRoku,
 } from '../podatek.js';
 import { pustyStan } from '../ui.js';
 import {
@@ -62,20 +63,23 @@ function paskiOstrzezen(s) {
     paski.push(`<button type="button" class="baner ${l.przekroczono || l.udzial >= PROGI_VAT[1] ? 'blad' : 'ostrzezenie'} pelny-wiersz"
       data-akcja="idz" data-ekran="raporty">${esc(tekst)} ›</button>`);
   }
-  // Ryczałt (8.1, 6.5): jeden pasek – po terminie (czerwony) albo najbliższy do zapłaty.
+  // Ryczałt (8.1, 6.5): po jednym pasku na licznik – po terminie (czerwony) albo najbliższy do zapłaty.
   const ryczalt = kwartalyDoZaplaty(s.dane, { dzis, ustawienia: ustawienia(s) });
-  const zalegle = ryczalt.filter((k) => k.status !== 'do_zaplaty');
-  if (zalegle.length) {
-    const ktore = zalegle.map((k) => `${etykietaKwartalu(k.q)}${zalegle.some((x) => x.rok !== k.rok) ? ` ${k.rok}` : ''}`).join(', ');
-    const k = zalegle[0];
-    paski.push(`<a class="baner blad pelny-wiersz" href="#/raporty/ryczalt/${k.rok}-${k.q}">Ryczałt po terminie lub niedopłacony: ${esc(ktore)}${
-      zalegle.length === 1 ? ` ${k.rok}` : ''} – wpisz wpłatę albo zapłać ›</a>`);
-  }
-  const najblizszy = ryczalt.find((k) => k.status === 'do_zaplaty');
-  if (najblizszy) {
-    paski.push(`<a class="baner ostrzezenie pelny-wiersz" href="#/raporty/ryczalt/${najblizszy.rok}-${najblizszy.q}">Ryczałt za ${
-      etykietaKwartalu(najblizszy.q)} ${najblizszy.rok}: ${formatZl(najblizszy.doZaplatyGr, { grosze: false })} do zapłaty do ${
-      formatData(najblizszy.termin)} ›</a>`);
+  for (const g of GRUPY_RYCZALTU) {
+    const wGrupie = ryczalt.filter((k) => k.grupa === g.id);
+    const zalegle = wGrupie.filter((k) => k.status !== 'do_zaplaty');
+    if (zalegle.length) {
+      const ktore = zalegle.map((k) => `${etykietaKwartalu(k.q)} ${k.rok}`).join(', ');
+      const k = zalegle[0];
+      paski.push(`<a class="baner blad pelny-wiersz" href="#/raporty/ryczalt/${k.rok}-${k.q}-${g.id}">Ryczałt (${esc(g.nazwa)}) po terminie lub niedopłacony: ${
+        esc(ktore)} – wpisz wpłatę albo zapłać ›</a>`);
+    }
+    const najblizszy = wGrupie.find((k) => k.status === 'do_zaplaty');
+    if (najblizszy) {
+      paski.push(`<a class="baner ostrzezenie pelny-wiersz" href="#/raporty/ryczalt/${najblizszy.rok}-${najblizszy.q}-${g.id}">Ryczałt (${
+        esc(nazwaGrupy(g.id))}) za ${etykietaKwartalu(najblizszy.q)} ${najblizszy.rok}: ${formatZl(najblizszy.doZaplatyGr, { grosze: false })} do zapłaty do ${
+        formatData(najblizszy.termin)} ›</a>`);
+    }
   }
   return paski.join('');
 }
@@ -179,20 +183,42 @@ function oblozenie(s, dzis) {
     : '<p class="wyciszony">Wszystkie jednostki są wynajęte.</p>'}`;
 }
 
-/** Karta „Ryczałt” (8.1 nr 9): bieżący kwartał – przychód, ryczałt szacunkowy, termin; pasek progu 100 000 zł. */
+/** Karta „Kończące się najmy”: trwające najmy z wypowiedzeniem, od najbliższego końca. Po dacie – „zakończ najem”. */
+function konczaceNajmy(s, dzis) {
+  const najmy = s.dane.rentals.filter((n) => !n.end_on && n.notice_end_on)
+    .sort((a, b) => a.notice_end_on.localeCompare(b.notice_end_on));
+  if (!najmy.length) return '<p class="wyciszony">Brak wypowiedzianych najmów.</p>';
+  return `<ul class="lista">${najmy.map((n) => {
+    const klient = s.indeksy.klienci.get(s.indeksy.umowy.get(n.contract_id)?.client_id);
+    const kod = s.indeksy.jednostki.get(n.unit_id)?.code ?? '?';
+    const minelo = n.notice_end_on < dzis;
+    const za = roznicaDni(dzis, n.notice_end_on);
+    return `<li><a class="wiersz" href="#/klienci/${encodeURIComponent(klient?.id ?? '')}">
+      <div class="glowna"><strong><span class="mono">${esc(kod)}</span> · ${esc(klient?.name ?? '—')}</strong>
+        <span>koniec najmu ${formatData(n.notice_end_on)}</span></div>
+      <div class="prawa"><span class="status ${minelo ? 'zalega' : za <= 14 ? 'czesciowo' : 'zajeta'}">${minelo
+    ? 'zakończ najem' : za === 0 ? 'dziś' : `za ${dni(za)}`}</span></div></a></li>`;
+  }).join('')}</ul>`;
+}
+
+/** Karta „Ryczałt” (8.1 nr 9): bieżący kwartał osobno dla każdego licznika – przychód, ryczałt, próg 100 000 zł. */
 function kartaRyczaltu(s, dzis) {
   const u = ustawienia(s);
   const rok = Number(dzis.slice(0, 4));
   const q = kwartalDaty(dzis);
-  const k = zestawienieRoku(s.dane, { rok, dzis, ustawienia: u }).kwartaly[q - 1];
   const { od } = datyKwartalu(rok, q);
-  return `<dl class="opis-pol">
-      <dt>${etykietaKwartalu(q)} ${rok}</dt><dd class="wyciszony">${formatData(od)} – dziś</dd>
-      <dt>Przychód kwartału</dt><dd class="kwota">${formatZl(k.przychodGr, { grosze: false })}</dd>
-      <dt>Ryczałt szacunkowy</dt><dd class="kwota"><strong>${formatZl(k.ryczaltGr, { grosze: false })}</strong></dd>
-      <dt>Termin</dt><dd>${formatData(k.termin)}</dd>
-    </dl>
-    ${opisProgu(progRoku(s.dane.payments, { rok, dzis, ustawienia: u }), u)}
+  const liczniki = GRUPY_RYCZALTU.map((g) => {
+    const dane = daneGrupy(s.dane, g.id);
+    const k = zestawienieRoku(dane, { rok, dzis, ustawienia: u }).kwartaly[q - 1];
+    return `<h3 class="naglowek-licznika">${esc(g.nazwa)}</h3>
+      <dl class="opis-pol">
+        <dt>Przychód kwartału</dt><dd class="kwota">${formatZl(k.przychodGr, { grosze: false })}</dd>
+        <dt>Ryczałt szacunkowy</dt><dd class="kwota"><strong>${formatZl(k.ryczaltGr, { grosze: false })}</strong></dd>
+      </dl>
+      ${opisProgu(progRoku(dane.payments, { rok, dzis, ustawienia: u }), u)}`;
+  }).join('');
+  return `<p class="wyciszony">${etykietaKwartalu(q)} ${rok}: ${formatData(od)} – dziś · termin ${formatData(zestawienieRoku(s.dane, { rok, dzis, ustawienia: u }).kwartaly[q - 1].termin)}</p>
+    ${liczniki}
     <p><button type="button" class="link-btn" data-akcja="idz" data-ekran="raporty" data-filtr="rok">Wszystkie kwartały i wpłaty ›</button></p>`;
 }
 
@@ -228,6 +254,8 @@ export default {
           ${listaDluznikow(p.dluznicy, s, p.dzis)}</section>
         <section class="karta" aria-labelledby="k-oblozenie"><h2 id="k-oblozenie">Obłożenie</h2>
           ${oblozenie(s, p.dzis)}</section>
+        <section class="karta" aria-labelledby="k-konczace"><h2 id="k-konczace">Kończące się najmy</h2>
+          ${konczaceNajmy(s, p.dzis)}</section>
         <section class="karta" aria-labelledby="k-ryczalt"><h2 id="k-ryczalt">Ryczałt</h2>
           ${kartaRyczaltu(s, p.dzis)}</section>
       </div>`;

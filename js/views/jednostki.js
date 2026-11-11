@@ -4,7 +4,9 @@
 import { TYPY_JEDNOSTEK } from '../config.js';
 import { biezacyNajem, opisPlatnosci, stawkaNaDzien } from '../dane.js';
 import { formularz, maBledy, obszar, pole, przelacznik, stanFormularza, wartosciFormularza, wybor, zapisz } from '../formularz.js';
-import { filtry, poleSzukaj, przycisk, pustyStan, wPlanie, opcjeEdycji, przyciskEdycji } from '../ui.js';
+import { filtry, poleSzukaj, przycisk, pustyStan, wPlanie, przyciskEdycji } from '../ui.js';
+import { promocjaNajmu } from '../promocje.js';
+import { grupa, grupaNajmu, kartaUstawien, menu, pozycja } from './edycja.js';
 import {
   esc, dzisiaj, formatData, formatDataKrotka, formatM2, formatZl, kwotaDoPola, nastepnyNumer, normalizujTekst,
   porownajKody, roznicaDni,
@@ -39,7 +41,9 @@ function opisJednostki(s, j, dzien) {
   let status = 'wolna';
   if (j.out_of_service) status = 'wylaczona';
   else if (najem) status = zalegloscGr > 0 ? 'zalega' : 'oplacona';
-  return { j, najem, umowa, klient, status, stawka, zalegloscGr, oplaconeDo };
+  const promo = najem ? promocjaNajmu(s.indeksy.stawkiNajmu.get(najem.id) ?? [], dzien) : null;
+  const wypowiedzenie = najem && !najem.end_on && najem.notice_end_on ? najem.notice_end_on : null;
+  return { j, najem, umowa, klient, status, stawka, zalegloscGr, oplaconeDo, promo, wypowiedzenie };
 }
 
 /**
@@ -61,6 +65,8 @@ const FILTRY = {
   zalegle: { tekst: 'Z zaległością', warunek: (o) => o.status === 'zalega' },
   wylaczone: { tekst: 'Wyłączone', warunek: (o) => o.status === 'wylaczona' },
   konczace: { tekst: 'Kończące się umowy', warunek: (o, s) => Boolean(koniecUmowy(o.umowa, o.najem, s)) },
+  wypowiedziane: { tekst: 'Wypowiedziane', warunek: (o) => Boolean(o.wypowiedzenie) },
+  promocje: { tekst: 'W promocji', warunek: (o) => Boolean(o.promo) },
 };
 
 function kafelek(o, s) {
@@ -72,6 +78,8 @@ function kafelek(o, s) {
     : o.status === 'oplacona' && o.oplaconeDo ? `opłacona do ${formatDataKrotka(o.oplaconeDo)}` : st.tekst}</span>
     <span>${[formatM2(o.j.area_m2), o.stawka != null ? formatZl(o.stawka, { grosze: false }) : ''].filter(Boolean).join(' · ')}</span>
     ${o.klient ? `<span>${esc(o.klient.name)}</span>` : ''}
+    ${o.wypowiedzenie ? `<span class="znacznik${o.wypowiedzenie < dzisiaj() ? ' pilne' : ''}">wypowiedziana do ${formatDataKrotka(o.wypowiedzenie)}</span>` : ''}
+    ${o.promo ? `<span class="znacznik promocja">${o.promo.do ? `promocja do ${formatDataKrotka(o.promo.do)}` : 'promocja'}</span>` : ''}
     ${umowa ? `<span class="znacznik${umowa.wygasla ? ' pilne' : ''}">${esc(umowa.tekst)}</span>` : ''}
   </a>`;
 }
@@ -119,7 +127,10 @@ function lista(s) {
   const liczbaWolnych = opisy.filter((o) => o.status === 'wolna').length;
   const liczbaZaleglych = opisy.filter((o) => o.status === 'zalega').length;
   const opcje = Object.entries(FILTRY).map(([id, f]) => ({
-    id, tekst: f.tekst, liczba: id === 'wolne' ? liczbaWolnych : id === 'zalegle' ? liczbaZaleglych : undefined }));
+    id, tekst: f.tekst, liczba: id === 'wolne' ? liczbaWolnych : id === 'zalegle' ? liczbaZaleglych
+      : ['wypowiedziane', 'promocje'].includes(id) ? opisy.filter((o) => f.warunek(o, s)).length : undefined }))
+    // Filtry bez trafień (wypowiedziane, w promocji) nie zajmują miejsca – chyba że są wybrane.
+    .filter((o) => o.liczba !== 0 || o.id === filtr || !['wypowiedziane', 'promocje'].includes(o.id));
 
   return `
     ${filtry(opcje, filtr, 'Status jednostek')}
@@ -138,19 +149,14 @@ function szczegoly(s, j) {
   const ostatniKoniec = historia.filter((n) => n.end_on && n.end_on < dzien).map((n) => n.end_on).sort().at(-1);
   const pustostan = o.status === 'wolna' && ostatniKoniec ? roznicaDni(ostatniKoniec, dzien) : null;
 
+  if (s.ui.edycja) return ustawieniaJednostki(s, j, o, historia, dzien);
   const akcje = [
     o.status === 'wolna' ? przycisk({ tekst: 'Wynajmij', href: `#/najmy/nowy?jednostka=${encodeURIComponent(j.id)}`, ikona: 'plus' }) : '',
     przyciskEdycji(s),
   ].join('');
-  const edycja = s.ui.edycja ? opcjeEdycji(`<div class="pasek-akcji">
-    ${przycisk({ tekst: 'Edytuj dane jednostki', href: `#/jednostki/${encodeURIComponent(j.id)}/edycja`, drugi: true })}
-    ${!o.najem ? `<button type="button" class="przycisk drugi" data-akcja="wylacz" data-id="${esc(j.id)}">${
-    j.out_of_service ? 'Przywróć do najmu' : 'Wyłącz z najmu'}</button>` : ''}
-    ${o.najem ? przycisk({ tekst: 'Gdzie płaci', href: `#/najmy/${encodeURIComponent(o.najem.id)}/platnosc`, drugi: true }) : ''}
-  </div>`) : '';
 
   return `
-    <div class="pasek-akcji">${akcje}</div>${edycja}
+    <div class="pasek-akcji">${akcje}</div>
     <div class="siatka">
       <section class="karta" aria-labelledby="j-dane"><h2 id="j-dane">Dane</h2>
         <dl class="opis-pol">
@@ -168,6 +174,9 @@ function szczegoly(s, j) {
           <dt>Od</dt><dd>${formatData(o.najem.start_on)}</dd>
           <dt>Stawka</dt><dd class="kwota">${o.stawka != null ? formatZl(o.stawka) : '—'}</dd>
           <dt>Płaci</dt><dd>${esc(opisPlatnosci(o.najem, s.indeksy.konta))}</dd>
+          ${o.promo ? `<dt>Promocja</dt><dd>${o.promo.do ? `do ${formatData(o.promo.do)}` : 'do końca najmu'}</dd>` : ''}
+          ${o.wypowiedzenie ? `<dt>Wypowiedziana</dt><dd>${o.najem.notice_given_on ? `złożona ${formatData(o.najem.notice_given_on)} · ` : ''}koniec najmu
+            <strong>${formatData(o.wypowiedzenie)}</strong></dd>` : ''}
           ${o.umowa?.valid_until ? `<dt>Umowa do</dt><dd>${formatData(o.umowa.valid_until)}${umowa
             ? ` <span class="znacznik${umowa.wygasla ? ' pilne' : ''}">${umowa.wygasla ? 'wygasła' : 'kończy się'}</span>` : ''}</dd>` : ''}
         </dl>` : `<p class="wyciszony">${j.out_of_service ? 'Jednostka jest wyłączona z najmu.' : 'Jednostka jest wolna.'}</p>`}
@@ -185,6 +194,33 @@ function szczegoly(s, j) {
       </section>
     </div>
     ${wPlanie('Przychód z jednostki za 12 miesięcy – krok 1c (rozliczenia wpłat).')}`;
+}
+
+/** Tryb „Edytuj” jednostki: zwarte ustawienia z rozwijanymi grupami (jak na karcie klienta). */
+function ustawieniaJednostki(s, j, o, historia, dzien) {
+  const id = encodeURIComponent(j.id);
+  const dane = [TYPY_JEDNOSTEK[j.type]?.nazwa ?? j.type, formatM2(j.area_m2),
+    j.list_price_gr != null ? `cennik ${formatZl(j.list_price_gr)}` : null].filter(Boolean).map(esc).join(' · ');
+  const klientNajmu = (n) => s.indeksy.klienci.get(s.indeksy.umowy.get(n.contract_id)?.client_id);
+  const tresc = `
+    ${grupa('Dane jednostki', dane, `<dl class="opis-pol">
+        <dt>Numer</dt><dd class="mono">${esc(j.code)}</dd>
+        ${j.description ? `<dt>Opis</dt><dd>${esc(j.description)}</dd>` : ''}
+      </dl>
+      ${menu([pozycja({ tekst: 'Edytuj dane jednostki', href: `#/jednostki/${id}/edycja` })])}`)}
+    ${grupa('Dostępność', j.out_of_service ? 'wyłączona z najmu' : o.najem ? 'wynajęta' : 'wolna', o.najem
+    ? '<p class="podpowiedz">Wynajętej jednostki nie można wyłączyć z najmu – najpierw zakończ najem.</p>'
+    : menu([
+      pozycja({ tekst: j.out_of_service ? 'Przywróć do najmu' : 'Wyłącz z najmu (np. remont)', akcja: 'wylacz', id: j.id }),
+      !j.out_of_service ? pozycja({ tekst: '+ Wynajmij', href: `#/najmy/nowy?jednostka=${id}` }) : null,
+    ]))}
+    <h3 class="naglowek-grup">Bieżący najem</h3>
+    ${o.najem ? grupaNajmu(s, o.najem, dzien, { tytul: esc(o.klient?.name ?? 'Klient') })
+    + menu([o.klient ? pozycja({ tekst: 'Karta klienta', href: `#/klienci/${encodeURIComponent(o.klient.id)}` }) : null])
+    : '<p class="wyciszony">Brak – jednostka jest wolna.</p>'}
+    ${historia.filter((n) => n !== o.najem).length ? `<h3 class="naglowek-grup">Wcześniejsze najmy</h3>
+      ${historia.filter((n) => n !== o.najem).map((n) => grupaNajmu(s, n, dzien, { tytul: esc(klientNajmu(n)?.name ?? '—') })).join('')}` : ''}`;
+  return kartaUstawien(s, { id: 'j-ustawienia', tytul: `Ustawienia jednostki ${esc(j.code)}`, tresc, przyciskEdycji });
 }
 
 // ---------------------------------------------------------------------
@@ -269,6 +305,20 @@ export default {
   },
 
   akcje: {
+    /** Cofnięcie wypowiedzenia z ustawień jednostki (jak na karcie klienta). */
+    async 'cofnij-wypowiedzenie'(el, ctx) {
+      if (ctx.state.podglad || ctx.state.offline || ctx.state.zKopii) {
+        ctx.toast('Zmiana wymaga połączenia z bazą.');
+        return;
+      }
+      try {
+        ctx.scal({ rentals: [await ctx.db.zmien('rentals', el.dataset.id, { notice_given_on: null, notice_end_on: null })] });
+        ctx.toast('Cofnięto wypowiedzenie. Zadanie na liście zostało – odhacz je albo usuń.');
+        ctx.render();
+      } catch (e) {
+        ctx.toast(e.message);
+      }
+    },
     /** Wyłącz z najmu / przywróć (8.7). Wynajętej nie da się wyłączyć – przycisk jest wtedy ukryty. */
     async wylacz(el, ctx) {
       const j = ctx.state.indeksy.jednostki.get(el.dataset.id);

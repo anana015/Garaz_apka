@@ -3,7 +3,7 @@
 import { DOMYSLNE_USTAWIENIA } from '../config.js';
 import { doCsv } from '../csv.js';
 import { eksportDluznikow, eksportJednostek, eksportKlientow, eksportWplat } from '../eksport.js';
-import { NAGLOWEK_CSV, wierszeCsv, zestawienieRoku } from '../podatek.js';
+import { daneGrupy, GRUPY_RYCZALTU, NAGLOWEK_CSV, wierszeCsv, zestawienieRoku } from '../podatek.js';
 import { rozliczenia } from '../rozliczenia.js';
 import { pobierzPlik } from '../ui.js';
 import {
@@ -93,7 +93,9 @@ export function pobierzEksport(s, rodzaj, { rok } = {}) {
   } else if (rodzaj === 'dluznicy') [wynik, nazwa] = [eksportDluznikow(s.dane, o), 'dluznicy'];
   else if (rodzaj === 'ryczalt') {
     const r = rok ?? Number(dzis.slice(0, 4));
-    wynik = { naglowek: [...NAGLOWEK_CSV], wiersze: wierszeCsv(zestawienieRoku(s.dane, { rok: r, dzis, ustawienia: u })) };
+    // Osobne liczniki (Millennium, pozostałe konta, gotówka) jeden pod drugim, z kolumną „licznik”.
+    wynik = { naglowek: ['licznik', ...NAGLOWEK_CSV], wiersze: GRUPY_RYCZALTU.flatMap((g) =>
+      wierszeCsv(zestawienieRoku(daneGrupy(s.dane, g.id), { rok: r, dzis, ustawienia: u })).map((w) => [g.nazwa, ...w])) };
     nazwa = `ryczalt_${r}`;
   } else return;
   pobierzPlik(`${nazwa}_${dzis}.csv`, doCsv(wynik.naglowek, wynik.wiersze));

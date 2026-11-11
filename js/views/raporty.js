@@ -5,7 +5,8 @@ import { TYPY_JEDNOSTEK } from '../config.js';
 import { najemTrwa, pelneMiesiaceWplat } from '../dane.js';
 import { formularz, maBledy, pole, stanFormularza, wartosciFormularza, zapisz } from '../formularz.js';
 import {
-  etykietaKwartalu, progRoku, STATUSY_KWARTALU, zestawienieRoku,
+  daneGrupy, etykietaKwartalu, GRUPY_RYCZALTU, grupaWplatyPodatku, nazwaGrupy, progRoku, STATUSY_KWARTALU,
+  zestawienieRoku,
 } from '../podatek.js';
 import { filtry, pustyStan } from '../ui.js';
 import {
@@ -131,14 +132,41 @@ function kartaJednostek(s, z) {
     <p class="podpowiedz">Opłacone należności z terminem w okresie (wpłaty przypisane do najmów).</p>`;
 }
 
-/** Ryczałt roku (6.2–6.5): tabela kwartałów z wpłatami, próg 100 000 zł, ryczałt roczny i eksport do PIT-28. */
+/** Ryczałt roku (6.2–6.5) osobno dla każdego licznika: Millennium, pozostałe konta, gotówka. */
 function kartaRyczaltu(s, rok) {
   const u = ustawienia(s);
+  const liczniki = GRUPY_RYCZALTU.map((g, i) => `<details class="licznik-ryczaltu"${i === 0 ? ' open' : ''}>
+      <summary><h3>${esc(g.nazwa)}</h3><span class="wyciszony">${podsumowanieLicznika(s, rok, g.id)}</span></summary>
+      ${tabelaLicznika(s, rok, g.id)}</details>`).join('');
+  return `${liczniki}
+    <dl class="opis-pol">
+      <dt>Mikrorachunek</dt><dd>${u.tax_account ? `<span class="mono">${esc(formatRachunek(u.tax_account))}</span>`
+    : '<a href="#/ustawienia">wpisz w Ustawieniach</a>'}</dd>
+    </dl>
+    <p><button type="button" class="przycisk drugi" data-akcja="eksport" data-rodzaj="ryczalt" data-rok="${rok}">Zestawienie do PIT-28 (CSV)</button></p>
+    <p class="podpowiedz">Trzy osobne liczniki, każdy z własnym progiem ${formatZl(u.tax_threshold_gr, { grosze: false })} i własnymi wpłatami:
+      przelewy na konto Millennium, przelewy na pozostałe konta (także bez wskazanego konta i pokrycie z kaucji) oraz gotówka.
+      Przychód kasowy: czynsz i inne przychody, bez kaucji i wpłat pominiętych. Przychód kwartału i ryczałt zaokrąglone
+      do pełnych złotych. Kwoty orientacyjne – nie zastępują księgowej.${
+  u.tax_period === 'miesiac' ? ' W Ustawieniach wybrano wpłaty miesięczne – aplikacja liczy na razie kwartalnie.' : ''}</p>`;
+}
+
+/** „ryczałt roku 2 450 zł · wpłacono 1 900 zł” – w nagłówku zwiniętego licznika. */
+function podsumowanieLicznika(s, rok, grupa) {
+  const z = zestawienieRoku(daneGrupy(s.dane, grupa), { rok, dzis: dzisiaj(), ustawienia: ustawienia(s) });
+  return `przychód ${formatZl(z.przychodGr, { grosze: false })} · ryczałt ${formatZl(z.ryczaltKwartalyGr, { grosze: false })} · wpłacono ${
+    formatZl(z.wplaconoGr, { grosze: false })}`;
+}
+
+/** Tabela kwartałów jednego licznika z wpłatami, próg 100 000 zł i ryczałt roczny. */
+function tabelaLicznika(s, rok, grupa) {
+  const u = ustawienia(s);
   const dzis = dzisiaj();
-  const z = zestawienieRoku(s.dane, { rok, dzis, ustawienia: u });
+  const dane = daneGrupy(s.dane, grupa);
+  const z = zestawienieRoku(dane, { rok, dzis, ustawienia: u });
   const wiersze = z.kwartaly.map((k) => {
     const st = STATUSY_KWARTALU[k.status];
-    const link = k.status === 'przyszly' ? '' : `<a class="maly" href="#/raporty/ryczalt/${rok}-${k.q}">${k.wplata ? 'Popraw' : 'Wpisz wpłatę'}</a>`;
+    const link = k.status === 'przyszly' ? '' : `<a class="maly" href="#/raporty/ryczalt/${rok}-${k.q}-${grupa}">${k.wplata ? 'Popraw' : 'Wpisz wpłatę'}</a>`;
     return `<tr>
       <th scope="row">${etykietaKwartalu(k.q)}</th>
       <td class="kwota">${formatZl(k.przychodGr, { grosze: false })}</td>
@@ -149,7 +177,7 @@ function kartaRyczaltu(s, rok) {
       <td><span class="status ${st.klasa}">${st.tekst}</span>${link ? `<br>${link}` : ''}</td></tr>`;
   }).join('');
   const ujemny = z.kwartaly.some((k) => k.ujemny);
-  const p = progRoku(s.dane.payments, { rok, dzis: rok < Number(dzis.slice(0, 4)) ? `${rok}-12-31` : dzis, ustawienia: u });
+  const p = progRoku(dane.payments, { rok, dzis: rok < Number(dzis.slice(0, 4)) ? `${rok}-12-31` : dzis, ustawienia: u });
   const roznica = z.roznicaGr;
   const rokZamkniety = dzis > `${rok}-12-31`;
   return `<div class="tabela-przewijana"><table class="tabela">
@@ -166,34 +194,35 @@ function kartaRyczaltu(s, rok) {
       <dt>Ryczałt za rok (PIT-28)</dt><dd class="kwota">${formatZl(z.ryczaltRocznyGr, { grosze: false })}</dd>
       <dt>${roznica >= 0 ? (rokZamkniety ? 'Do dopłaty w zeznaniu' : 'Pozostało do wpłaty') : 'Nadpłata'}</dt>
       <dd class="kwota">${formatZl(Math.abs(roznica), { grosze: false })}</dd>
-      <dt>Mikrorachunek</dt><dd>${u.tax_account ? `<span class="mono">${esc(formatRachunek(u.tax_account))}</span>`
-    : '<a href="#/ustawienia">wpisz w Ustawieniach</a>'}</dd>
     </dl>
     ${opisProgu(p, u)}
     <details class="historia-stawek"><summary>Przychód miesięcznie</summary>
       <table class="tabela"><tbody>${z.miesiace.map((m) => `<tr><td>${esc(etykietaMiesiaca(m.klucz))}</td>
-        <td class="kwota">${formatZl(m.przychodGr)}</td></tr>`).join('')}</tbody></table></details>
-    <p><button type="button" class="przycisk drugi" data-akcja="eksport" data-rodzaj="ryczalt" data-rok="${rok}">Zestawienie do PIT-28 (CSV)</button></p>
-    <p class="podpowiedz">Przychód kasowy: czynsz i inne przychody (przelewy, gotówka, zatrzymane kaucje), bez kaucji i wpłat pominiętych.
-      Przychód kwartału i ryczałt zaokrąglone do pełnych złotych. Kwoty orientacyjne – nie zastępują księgowej.${
-  u.tax_period === 'miesiac' ? ' W Ustawieniach wybrano wpłaty miesięczne – aplikacja liczy na razie kwartalnie.' : ''}</p>`;
+        <td class="kwota">${formatZl(m.przychodGr)}</td></tr>`).join('')}</tbody></table></details>`;
 }
 
-/** Kwartał z adresu #/raporty/ryczalt/RRRR-K. */
+/** Kwartał i licznik z adresu #/raporty/ryczalt/RRRR-K-grupa (bez grupy = pozostałe konta). */
 function kwartalZAdresu(s) {
-  const m = /^(\d{4})-([1-4])$/.exec(s.ui.akcja ?? '');
-  return m ? { rok: Number(m[1]), q: Number(m[2]) } : null;
+  const m = /^(\d{4})-([1-4])(?:-([a-z]+))?$/.exec(s.ui.akcja ?? '');
+  if (!m) return null;
+  const grupa = m[3] ?? 'pozostale';
+  return GRUPY_RYCZALTU.some((g) => g.id === grupa) ? { rok: Number(m[1]), q: Number(m[2]), grupa } : null;
 }
+
+/** Zapisana wpłata ryczałtu za kwartał w liczniku. */
+const wplataKwartalu = (s, kw) => s.dane.tax_payments.find((t) => t.year === kw.rok && t.quarter === kw.q
+  && grupaWplatyPodatku(t) === kw.grupa);
 
 function formularzRyczaltu(s) {
   const kw = kwartalZAdresu(s);
   if (!kw) return pustyStan('Nie ma takiego kwartału.', [{ tekst: 'Wróć do raportów', href: '#/raporty' }]);
   const u = ustawienia(s);
-  const k = zestawienieRoku(s.dane, { rok: kw.rok, dzis: dzisiaj(), ustawienia: u }).kwartaly[kw.q - 1];
+  const k = zestawienieRoku(daneGrupy(s.dane, kw.grupa), { rok: kw.rok, dzis: dzisiaj(), ustawienia: u }).kwartaly[kw.q - 1];
   const f = stanFormularza(s, `raporty/ryczalt/${s.ui.akcja}`, () => (k.wplata
     ? { paid_on: k.wplata.paid_on, amount_gr: kwotaDoPola(k.wplata.amount_gr) }
     : { paid_on: dzisiaj(), amount_gr: kwotaDoPola(k.ryczaltGr) }));
   const szczegoly = `<section class="karta"><dl class="opis-pol">
+    <dt>Licznik</dt><dd><strong>${esc(nazwaGrupy(kw.grupa))}</strong></dd>
     <dt>Kwartał</dt><dd><strong>${etykietaKwartalu(kw.q)} ${kw.rok}</strong> (${formatData(k.od)} – ${formatData(k.do)})</dd>
     <dt>Przychód</dt><dd class="kwota">${formatZl(k.przychodGr, { grosze: false })}</dd>
     <dt>Narastająco</dt><dd class="kwota">${formatZl(k.narastajacoGr, { grosze: false })}</dd>
@@ -254,7 +283,7 @@ export default {
     async 'usun-ryczalt'(el, ctx) {
       const s = ctx.state;
       const kw = kwartalZAdresu(s);
-      const wplata = kw && s.dane.tax_payments.find((t) => t.year === kw.rok && t.quarter === kw.q);
+      const wplata = kw && wplataKwartalu(s, kw);
       if (!wplata) return;
       if (s.podglad || s.offline) {
         ctx.toast('Usuwanie wymaga połączenia z bazą.');
@@ -263,7 +292,7 @@ export default {
       try {
         await ctx.db.usun('tax_payments', wplata.id);
         s.dane = { ...s.dane, tax_payments: s.dane.tax_payments.filter((t) => t.id !== wplata.id) };
-        ctx.toast(`Usunięto wpłatę ryczałtu za ${etykietaKwartalu(kw.q)} ${kw.rok}`);
+        ctx.toast(`Usunięto wpłatę ryczałtu (${nazwaGrupy(kw.grupa)}) za ${etykietaKwartalu(kw.q)} ${kw.rok}`);
         ctx.nawiguj('raporty');
       } catch (e) {
         ctx.toast(e.message);
@@ -279,12 +308,12 @@ export default {
       const w = wartosciFormularza(form);
       const { bledy, wiersz } = walidujWplateRyczaltu(w, { ...kw, dzis: dzisiaj() });
       if (maBledy(ctx, w, bledy)) return;
-      const istniejaca = s.dane.tax_payments.find((t) => t.year === kw.rok && t.quarter === kw.q);
+      const istniejaca = wplataKwartalu(s, kw);
       await zapisz(ctx, async () => {
         const zapisana = istniejaca ? await ctx.db.zmien('tax_payments', istniejaca.id, wiersz)
           : await ctx.db.wstaw('tax_payments', wiersz);
         ctx.scal({ tax_payments: [zapisana] });
-        ctx.toast(`Zapisano wpłatę ryczałtu ${formatZl(zapisana.amount_gr, { grosze: false })} za ${etykietaKwartalu(kw.q)} ${kw.rok}`);
+        ctx.toast(`Zapisano wpłatę ryczałtu (${nazwaGrupy(kw.grupa)}) ${formatZl(zapisana.amount_gr, { grosze: false })} za ${etykietaKwartalu(kw.q)} ${kw.rok}`);
         ctx.nawiguj('raporty');
       });
     },

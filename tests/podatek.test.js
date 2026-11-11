@@ -119,7 +119,7 @@ test('CSV do PIT-28: 12 miesięcy, 4 kwartały i rok, kwoty z przecinkiem', () =
 test('walidacja wpłaty ryczałtu: data wymagana i nie z przyszłości, kwota ≥ 0', () => {
   const ok = walidujWplateRyczaltu({ paid_on: '2026-04-15', amount_gr: '2 550' }, { rok: 2026, q: 1, dzis: '2026-11-10' });
   assert.deepEqual(ok.bledy, {});
-  assert.deepEqual(ok.wiersz, { year: 2026, quarter: 1, paid_on: '2026-04-15', amount_gr: 255000 });
+  assert.deepEqual(ok.wiersz, { year: 2026, quarter: 1, grupa: 'pozostale', paid_on: '2026-04-15', amount_gr: 255000 });
   const zle = walidujWplateRyczaltu({ paid_on: '2026-12-01', amount_gr: '-5' }, { rok: 2026, q: 1, dzis: '2026-11-10' });
   assert.ok(zle.bledy.paid_on);
   assert.ok(zle.bledy.amount_gr);

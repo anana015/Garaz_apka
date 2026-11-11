@@ -5,7 +5,7 @@
 // Ta sama reguła końca promocji jest w supabase/jednorazowe/promocja_startowa_boxy.sql.
 
 import { pierwszyOkresOd } from './okresy.js';
-import { dodajMiesiace, parseData } from './utils.js';
+import { dodajDni, dodajMiesiace, parseData } from './utils.js';
 
 export const DOMYSLNE_PROMOCJE = Object.freeze([
   Object.freeze({ id: 'startowa', nazwa: 'Promocja startowa −50% / 2 mies.', rabat: 50, okresy: 2 }),
@@ -68,4 +68,20 @@ export function nowaPozycja(lista, { nazwa, rabat, okresy }) {
   let id = baza;
   for (let i = 2; lista.some((p) => p.id === id); i++) id = `${baza}-${i}`;
   return { id, nazwa: tekst.slice(0, 60), rabat, okresy };
+}
+
+/**
+ * Trwająca promocja najmu w dniu `dzien` (znacznik „promocja do …”): stawka obowiązująca tego dnia, po której
+ * jest stawka „koniec promocji”, albo stawka z powodem zaczynającym się od „promocja”.
+ * @returns {{ od, do: string|null } | null} do – ostatni dzień promocji (null – do końca najmu)
+ */
+export function promocjaNajmu(stawki = [], dzien) {
+  const posortowane = [...stawki].sort((a, b) => a.valid_from.localeCompare(b.valid_from));
+  const i = posortowane.findLastIndex((st) => st.valid_from <= dzien);
+  if (i < 0) return null;
+  const biezaca = posortowane[i];
+  const nastepna = posortowane[i + 1];
+  if (nastepna?.reason === 'koniec promocji') return { od: biezaca.valid_from, do: dodajDni(nastepna.valid_from, -1) };
+  if (/^promocja/i.test(biezaca.reason ?? '') && biezaca.reason !== 'koniec promocji') return { od: biezaca.valid_from, do: null };
+  return null;
 }

@@ -12,6 +12,8 @@ import {
   dataZeZnacznika, dodajMiesiace, esc, dzisiaj, etykietaMiesiaca, formatData, formatDataKrotka, formatRachunek, formatZl, kwotaDoPola, normalizujTekst, parseKwota, porownajKody,
 } from '../utils.js';
 import { saldoKaucji, walidujKaucje, walidujKlienta, walidujPdf, walidujWypowiedzenie } from '../walidacja.js';
+import { grupa, grupaNajmu, menu, pozycja } from './edycja.js';
+import { promocjaNajmu } from '../promocje.js';
 import { koniecUmowy } from './jednostki.js';
 import { rozliczeniaKlientow, ustawienia } from './wspolne.js';
 import { PROGI_TERMINOWOSCI, bezKaucji } from '../config.js';
@@ -132,6 +134,7 @@ function wierszNajmu(s, n, dzien) {
     umowa?.valid_until ? `do ${formatData(umowa.valid_until)}` : 'czas nieokreślony',
   ].filter(Boolean).join(' · ');
   const platnosc = opisPlatnosci(n, s.indeksy.konta);
+  const promo = trwa ? promocjaNajmu(stawki, dzien) : null;
   const edycja = s.ui.edycja;
   const wypowiedzenie = trwa && n.notice_end_on ? `<span class="zawijaj"><span class="status czesciowo">wypowiedziana</span>
     ${n.notice_given_on ? `złożona ${formatData(n.notice_given_on)} · ` : ''}koniec najmu <strong>${formatData(n.notice_end_on)}</strong>${
@@ -145,6 +148,7 @@ function wierszNajmu(s, n, dzien) {
         ${wypowiedzenie}
         <span class="zawijaj">płaci: ${esc(platnosc)}${edycja && trwa && platnosc.endsWith('nieustalone')
     ? ` <a class="maly" href="#/najmy/${id}/platnosc">ustal</a>` : ''}</span>
+        ${promo ? `<span class="znacznik promocja">${promo.do ? `promocja do ${formatData(promo.do)}` : 'promocja'}</span>` : ''}
         ${koniec ? `<span class="znacznik${koniec.wygasla ? ' pilne' : ''}">${esc(koniec.wygasla
           ? `Umowa wygasła ${formatData(umowa.valid_until)}: przedłuż albo zakończ najem` : koniec.tekst)}</span>` : ''}</div>
       <div class="prawa kwota">${stawka != null ? formatZl(stawka) : '—'}</div>
@@ -464,43 +468,6 @@ function karta(s, klient) {
 // Tryb „Edytuj”: zwarte „Ustawienia klienta” (prośba 11.11) – rozwijane grupy zamiast pełnej karty.
 // Saldo, terminowość, kartoteka i notatki są tylko w zwykłym widoku.
 // ---------------------------------------------------------------------
-
-/** Rozwijana grupa ustawień: tytuł, jednolinijkowy opis stanu, treść po rozwinięciu. */
-const grupa = (tytul, opisStanu, tresc, { mono = false } = {}) => `<details class="grupa-ustawien">
-    <summary><span class="glowna"><strong${mono ? ' class="mono"' : ''}>${tytul}</strong>${opisStanu ? `<span>${opisStanu}</span>` : ''}</span></summary>
-    <div class="tresc">${tresc}</div></details>`;
-
-/** Pozycja menu ustawień: link albo przycisk akcji, z opcjonalną wartością po prawej. */
-const pozycja = ({ tekst, href, akcja, id, wartosc = '' }) => `<li>${href
-  ? `<a class="pozycja" href="${href}"><span>${tekst}</span><span class="wartosc">${wartosc}</span></a>`
-  : `<button type="button" class="pozycja" data-akcja="${akcja}"${id ? ` data-id="${esc(id)}"` : ''}><span>${tekst}</span>
-      <span class="wartosc">${wartosc}</span></button>`}</li>`;
-
-const menu = (pozycje) => `<ul class="menu-ustawien">${pozycje.filter(Boolean).join('')}</ul>`;
-
-function grupaNajmu(s, n, dzien) {
-  const j = s.indeksy.jednostki.get(n.unit_id);
-  const stawki = [...(s.indeksy.stawkiNajmu.get(n.id) ?? [])].sort((a, b) => a.valid_from.localeCompare(b.valid_from));
-  const stawka = stawkaNaDzien(stawki, najemTrwa(n, dzien) ? dzien : n.end_on ?? n.start_on);
-  const trwa = !najemZakonczony(n, dzien);
-  const id = encodeURIComponent(n.id);
-  const platnosc = opisPlatnosci(n, s.indeksy.konta);
-  const stan = [stawka != null ? formatZl(stawka) : null, `${formatData(n.start_on)} – ${n.end_on ? formatData(n.end_on) : 'trwa'}`,
-    trwa && n.notice_end_on ? `wypowiedziana do ${formatData(n.notice_end_on)}` : null].filter(Boolean).join(' · ');
-  const historia = stawki.length ? `<details class="historia-stawek"><summary>Historia stawek (${stawki.length})</summary>
-      <ul>${stawki.map((st) => `<li><span>od ${formatData(st.valid_from)}${st.reason ? ` · ${esc(st.reason)}` : ''}</span>
-        <span class="kwota">${formatZl(st.amount_gr)}</span></li>`).join('')}</ul></details>` : '';
-  return grupa(esc(j?.code ?? '?'), stan, `${menu([
-    pozycja({ tekst: 'Zmień stawkę', href: `#/najmy/${id}/stawka`, wartosc: stawka != null ? formatZl(stawka) : '' }),
-    pozycja({ tekst: 'Promocja', href: `#/najmy/${id}/promocja` }),
-    pozycja({ tekst: 'Kwota 1. okresu', href: `#/najmy/${id}/korekta?tryb=kwota` }),
-    pozycja({ tekst: 'Korekta należności', href: `#/najmy/${id}/korekta` }),
-    pozycja({ tekst: 'Gdzie płaci', href: `#/najmy/${id}/platnosc`, wartosc: esc(platnosc) }),
-    trwa && n.notice_end_on ? pozycja({ tekst: 'Cofnij wypowiedzenie', akcja: 'cofnij-wypowiedzenie', id: n.id,
-      wartosc: formatData(n.notice_end_on) }) : null,
-    trwa ? pozycja({ tekst: 'Zakończ najem', href: `#/najmy/${id}/koniec` }) : null,
-  ])}${historia}`, { mono: true });
-}
 
 function ustawieniaKlienta(s, klient, { najmy, umowy, kontakt, r, dzien }) {
   const id = encodeURIComponent(klient.id);

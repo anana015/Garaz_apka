@@ -627,3 +627,15 @@ details.grupa > .jednostki { padding-bottom: 12px; }
 .menu-ustawien .pozycja:hover { background: var(--surface-2); }
 .menu-ustawien .pozycja .wartosc { color: var(--muted); font-weight: 400; font-size: .875rem; text-align: right; }
 .ustawienia-klienta > .menu-ustawien { margin-top: 8px; }
+
+/* 0.12.0: znacznik promocji, liczniki ryczałtu */
+.znacznik.promocja { border-color: var(--st-free); color: var(--st-free-text); }
+.licznik-ryczaltu { border-top: 1px solid var(--line); }
+.licznik-ryczaltu:first-child { border-top: 0; }
+.licznik-ryczaltu > summary {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; padding: 10px 0; cursor: pointer;
+}
+.licznik-ryczaltu > summary h3 { margin: 0; font-size: 1rem; }
+.licznik-ryczaltu > summary span { font-size: .875rem; }
+.licznik-ryczaltu[open] > summary { padding-bottom: 8px; }
+.naglowek-licznika { margin: 14px 0 4px; font-size: .95rem; }

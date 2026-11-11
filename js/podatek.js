@@ -11,6 +11,37 @@ const PRZYCHOD = new Set(['czynsz', 'przychod_inny']);
 export const KWARTALY = Object.freeze(['I', 'II', 'III', 'IV']);
 export const etykietaKwartalu = (q) => `${KWARTALY[q - 1]} kw.`;
 
+/**
+ * Osobne liczniki ryczałtu (prośba 11.11.2026): konto Millennium, pozostałe konta, gotówka.
+ * Każdy ma własny próg 100 000 zł, własny ryczałt kwartalny i własne wpłaty (tax_payments.grupa, migracja 008).
+ * Przelew bez wskazanego konta i pokrycie z kaucji liczą się do „pozostałych kont”.
+ */
+export const GRUPY_RYCZALTU = Object.freeze([
+  { id: 'millennium', nazwa: 'Konto Millennium' },
+  { id: 'pozostale', nazwa: 'Pozostałe konta' },
+  { id: 'gotowka', nazwa: 'Gotówka' },
+]);
+export const nazwaGrupy = (id) => GRUPY_RYCZALTU.find((g) => g.id === id)?.nazwa ?? id;
+
+/** Licznik ryczałtu wpłaty: 'millennium' | 'pozostale' | 'gotowka'. bankKonta: Map(id konta → bank). */
+export function grupaWplaty(w, bankKonta) {
+  if (w.method === 'gotowka') return 'gotowka';
+  return w.bank_account_id && bankKonta.get(w.bank_account_id) === 'millennium' ? 'millennium' : 'pozostale';
+}
+
+/** Licznik wpłaty ryczałtu (wpłaty sprzed migracji 008 nie mają grupy – „pozostałe konta”). */
+export const grupaWplatyPodatku = (t) => t.grupa ?? 'pozostale';
+
+/** Dane ograniczone do jednego licznika: wpłaty przychodu i wpłaty ryczałtu tej grupy. */
+export function daneGrupy(dane, grupa) {
+  const bankKonta = new Map((dane.bank_accounts ?? []).map((k) => [k.id, k.bank]));
+  return {
+    ...dane,
+    payments: dane.payments.filter((w) => grupaWplaty(w, bankKonta) === grupa),
+    tax_payments: (dane.tax_payments ?? []).filter((t) => grupaWplatyPodatku(t) === grupa),
+  };
+}
+
 /** Statusy kwartału (6.5). „zero”: kwartał zakończony, ryczałt 0 zł i brak wpisanej wpłaty. */
 export const STATUSY_KWARTALU = Object.freeze({
   przyszly: { tekst: 'Przyszły', klasa: 'wylaczona' },
@@ -226,7 +257,8 @@ export function zestawienieRoku({ payments, tax_payments: wplatyPodatku = [] }, 
 /**
  * Kwartały wymagające uwagi na pulpicie: zakończone, z ryczałtem > 0 i bez wystarczającej wpłaty.
  * Sprawdza bieżący i poprzedni rok (za IV kwartał płaci się w styczniu), ale nie lata sprzed startu danych.
- * @returns {Array<{ rok, q, status, termin, doZaplatyGr }>} posortowane od najstarszego
+ * Osobno dla każdego licznika (GRUPY_RYCZALTU).
+ * @returns {Array<{ rok, q, grupa, status, termin, doZaplatyGr }>} posortowane od najstarszego
  */
 export function kwartalyDoZaplaty(dane, { dzis, ustawienia }) {
   const rokDzis = Number(dzis.slice(0, 4));
@@ -234,13 +266,15 @@ export function kwartalyDoZaplaty(dane, { dzis, ustawienia }) {
   const wynik = [];
   for (const rok of [rokDzis - 1, rokDzis]) {
     if (rok < rokStartu) continue;
-    for (const k of zestawienieRoku(dane, { rok, dzis, ustawienia }).kwartaly) {
-      if (['do_zaplaty', 'po_terminie', 'niedoplata'].includes(k.status)) {
-        wynik.push({ rok, q: k.q, status: k.status, termin: k.termin, doZaplatyGr: k.doZaplatyGr });
+    for (const g of GRUPY_RYCZALTU) {
+      for (const k of zestawienieRoku(daneGrupy(dane, g.id), { rok, dzis, ustawienia }).kwartaly) {
+        if (['do_zaplaty', 'po_terminie', 'niedoplata'].includes(k.status)) {
+          wynik.push({ rok, q: k.q, grupa: g.id, status: k.status, termin: k.termin, doZaplatyGr: k.doZaplatyGr });
+        }
       }
     }
   }
-  return wynik;
+  return wynik.sort((a, b) => a.rok - b.rok || a.q - b.q);
 }
 
 /**

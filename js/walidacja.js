@@ -575,14 +575,14 @@ export function walidujWypowiedzenie(w, { najmy }) {
 /**
  * Wpłata ryczałtu za kwartał (6.5, tabela tax_payments).
  * @param {object} w pola: paid_on, amount_gr
- * @param {{ rok: number, q: number, dzis: string }} kontekst
+ * @param {{ rok: number, q: number, grupa: string, dzis: string }} kontekst (grupa – licznik ryczałtu)
  */
-export function walidujWplateRyczaltu(w, { rok, q, dzis }) {
+export function walidujWplateRyczaltu(w, { rok, q, grupa = 'pozostale', dzis }) {
   const bledy = {};
   const paid_on = data(w, 'paid_on', bledy, { wymagana: true, etykieta: 'datę wpłaty' });
   if (paid_on && paid_on > dzis) bledy.paid_on = 'Data wpłaty nie może być w przyszłości.';
   const amount_gr = kwota(w, 'amount_gr', bledy, { wymagana: true, nieujemna: true });
-  return { bledy, wiersz: { year: rok, quarter: q, paid_on, amount_gr } };
+  return { bledy, wiersz: { year: rok, quarter: q, grupa, paid_on, amount_gr } };
 }
 
 /**
