@@ -18,7 +18,7 @@ import { grupa, grupaNajmu, menu, pozycja } from './edycja.js';
 import { akcjeAnulowania } from './edycja.js';
 import { promocjaNajmu } from '../promocje.js';
 import { koniecUmowy } from './jednostki.js';
-import { rozliczeniaKlientow, ustawienia } from './wspolne.js';
+import { pokazTerminowosc, rozliczeniaKlientow, ustawienia } from './wspolne.js';
 import { PROGI_TERMINOWOSCI, bezKaucji } from '../config.js';
 import { doCsv } from '../csv.js';
 import { kartoteka, terminowosc } from '../rozliczenia.js';
@@ -368,9 +368,9 @@ function saldo(s, klient, r, najmy, dzien) {
     const data = r.oplaconeDo.get(n.id);
     return `<dt class="mono">${esc(kod)}</dt><dd>${data ? `opłacone do ${formatData(data)}` : '<span class="wyciszony">nic nieopłacone</span>'}</dd>`;
   }).join('');
-  const t = wynikTerminowosci(s, r);
+  const t = pokazTerminowosc() ? wynikTerminowosci(s, r) : null;
   return `${glowna}
-    <p class="maly">Terminowość: <strong>${esc(t.etykieta)}</strong></p>
+    ${t ? `<p class="maly">Terminowość: <strong>${esc(t.etykieta)}</strong></p>` : ''}
     ${oplacone ? `<dl class="opis-pol">${oplacone}</dl>` : ''}
     <p class="podpowiedz">Ostatnia wpłata: ${r.ostatniaWplata ? formatData(r.ostatniaWplata) : 'brak'} ·
       <a href="#/wplaty/gotowka?klient=${encodeURIComponent(klient.id)}">dodaj wpłatę</a>${zalega
@@ -504,6 +504,11 @@ function przyciskArchiwizacji(klient, najmy, r, dzien) {
     : przycisk({ tekst: 'Archiwizuj klienta', akcja: 'archiwizuj', drugi: true })}</div>`;
 }
 
+/**
+ * Karta klienta – kolejność kart na sztywno (prośba 11.11): Saldo i Notatki na górze, potem Najmy, Kontakt (zwarty),
+ * Terminowość (tylko gdy włączona w Ustawieniach), Kaucja, Dokumenty, Kartoteka, Płatnicy.
+ * Pomysł na później: użytkownik sam ustawia kolejność i wielkość kart (zapis w dokumencie „pomysly-na-pozniej”).
+ */
 function karta(s, klient) {
   const dzien = dzisiaj();
   const r = rozliczeniaKlientow(s).get(klient.id);
@@ -511,17 +516,21 @@ function karta(s, klient) {
     .sort((a, b) => (a.end_on != null) - (b.end_on != null) || b.start_on.localeCompare(a.start_on));
   const umowy = [...s.indeksy.umowy.values()].filter((u) => u.client_id === klient.id)
     .sort((a, b) => (b.signed_on ?? '').localeCompare(a.signed_on ?? ''));
-  const kontakt = [
+  // Kontakt: najczęściej potrzebne pola od razu, reszta (NIP, dokument, PESEL, saldo otwarcia) po rozwinięciu.
+  const kontaktGlowny = [
     opis('Telefon', klient.phone && `<a href="tel:${esc(klient.phone.replace(/[^\d+]/g, ''))}">${esc(klient.phone)}</a>`),
     opis('E-mail', klient.email && `<a href="mailto:${esc(klient.email)}">${esc(klient.email)}</a>`),
-    opis('NIP', klient.nip && `<span class="mono">${esc(klient.nip)}</span>`),
     opis('Adres', klient.address && esc(klient.address)),
     opis('Osoba kontaktowa', klient.contact_person && esc(klient.contact_person)),
+  ].join('');
+  const kontaktDodatkowy = [
+    opis('NIP', klient.nip && `<span class="mono">${esc(klient.nip)}</span>`),
     opis(esc(TYPY_DOKUMENTU[klient.doc_type] ?? 'Dokument'), klient.doc_number && `<span class="mono">${esc(klient.doc_number)}</span>`),
     opis('PESEL', klient.pesel && `<span class="mono">${esc(klient.pesel)}</span>`),
     opis(`Saldo otwarcia (${formatData(ustawienia(s).data_start)})`, klient.opening_balance_gr
       ? `<span class="kwota">${formatZl(klient.opening_balance_gr)}</span>` : ''),
   ].join('');
+  const kontakt = kontaktGlowny + kontaktDodatkowy;   // tryb „Edytuj” pokazuje wszystko
   const id = encodeURIComponent(klient.id);
   if (s.ui.edycja) return ustawieniaKlienta(s, klient, { najmy, umowy, kontakt, r, dzien });
 
@@ -535,22 +544,23 @@ function karta(s, klient) {
     ${klient.archived ? '<p class="baner">Klient jest zarchiwizowany.</p>' : ''}
     <div class="siatka">
       <section class="karta" aria-labelledby="k-saldo"><h2 id="k-saldo">Saldo</h2>${ostrzezenieKonta(s, klient, dzien)}${saldo(s, klient, r, najmy, dzien)}</section>
-      ${r ? `<section class="karta" aria-labelledby="k-terminowosc"><h2 id="k-terminowosc">Terminowość</h2>
-        ${sekcjaTerminowosci(wynikTerminowosci(s, r))}</section>` : ''}
-      <section class="karta" aria-labelledby="k-kontakt"><h2 id="k-kontakt">Kontakt</h2>
-        ${kontakt ? `<dl class="opis-pol">${kontakt}</dl>` : '<p class="wyciszony">Brak danych kontaktowych.</p>'}
-        ${klient.note ? `<p class="notatka">${esc(klient.note)}</p>` : ''}</section>
+      <section class="karta" aria-labelledby="k-notatki"><h2 id="k-notatki">Notatki i historia kontaktu</h2>
+        ${sekcjaNotatek(s, klient)}</section>
       <section class="karta" aria-labelledby="k-najmy"><h2 id="k-najmy">Najmy</h2>
         ${najmy.length ? `<ul class="lista">${najmy.map((n) => wierszNajmu(s, n, dzien)).join('')}</ul>`
           : '<p class="wyciszony">Brak najmów.</p>'}</section>
+      <section class="karta zwarta" aria-labelledby="k-kontakt"><h2 id="k-kontakt">Kontakt</h2>
+        ${kontaktGlowny ? `<dl class="opis-pol">${kontaktGlowny}</dl>` : '<p class="wyciszony">Brak danych kontaktowych.</p>'}
+        ${kontaktDodatkowy ? `<details class="wiecej-danych"><summary>Więcej danych</summary><dl class="opis-pol">${kontaktDodatkowy}</dl></details>` : ''}
+        ${klient.note ? `<p class="notatka">${esc(klient.note)}</p>` : ''}</section>
+      ${r && pokazTerminowosc() ? `<section class="karta" aria-labelledby="k-terminowosc"><h2 id="k-terminowosc">Terminowość</h2>
+        ${sekcjaTerminowosci(wynikTerminowosci(s, r))}</section>` : ''}
       <section class="karta" aria-labelledby="k-kaucja"><h2 id="k-kaucja">Kaucja</h2>${kaucje(s, klient, umowy)}</section>
       <section class="karta" aria-labelledby="k-dokumenty"><h2 id="k-dokumenty">Dokumenty</h2>${dokumenty(umowy)}</section>
       ${r ? `<section class="karta szeroka" aria-labelledby="k-kartoteka"><h2 id="k-kartoteka">Kartoteka rozrachunków</h2>
         ${sekcjaKartoteki(s, klient, r)}</section>` : ''}
       <section class="karta" aria-labelledby="k-platnicy"><h2 id="k-platnicy">Płatnicy</h2>${platnicy(s, klient)}</section>
     </div>
-    <section class="karta" aria-labelledby="k-notatki"><h2 id="k-notatki">Notatki i historia kontaktu</h2>
-      ${sekcjaNotatek(s, klient)}</section>
     ${s.ui.edycja ? przyciskArchiwizacji(klient, najmy, r, dzien) : ''}`;
 }
 

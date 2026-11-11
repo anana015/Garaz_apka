@@ -70,6 +70,18 @@ export function opisProgu(p, u) {
     ${pasekPostepu(p.udzial, klasa)}<p class="maly">${opis}</p></div>`;
 }
 
+/**
+ * Karta „Terminowość” na karcie klienta (prośba 11.11: na razie wyłączona, z możliwością włączenia
+ * w Ustawieniach → Karta klienta). Zapamiętane na tym urządzeniu (localStorage), bez migracji bazy.
+ */
+const KLUCZ_TERMINOWOSCI = 'najem.terminowoscKlienta';
+export function pokazTerminowosc() {
+  try { return localStorage.getItem(KLUCZ_TERMINOWOSCI) === '1'; } catch { return false; }
+}
+export function ustawTerminowosc(wlacz) {
+  try { localStorage.setItem(KLUCZ_TERMINOWOSCI, wlacz ? '1' : '0'); } catch { /* tryb prywatny – zostaje domyślnie wyłączona */ }
+}
+
 /** Eksporty CSV (rozdz. 10) – wspólne dla Ustawień i Raportów. rodzaj: klienci | jednostki | wplaty | dluznicy | ryczalt. */
 export const EKSPORTY = Object.freeze({
   klienci: 'Klienci',

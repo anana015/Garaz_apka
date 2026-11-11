@@ -536,6 +536,13 @@ fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 .akcje-pliku { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .plik-btn { position: relative; display: inline-block; }
 .plik-btn:focus-within { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+/* Karta „Kontakt” w wersji zwartej (prośba 11.11) – mniejsze odstępy i tekst. */
+.karta.zwarta { padding-block: 12px; }
+.karta.zwarta h2 { font-size: 1rem; margin-bottom: 6px; }
+.karta.zwarta .opis-pol { gap: 2px 12px; font-size: .9rem; }
+.wiecej-danych { margin-top: 6px; font-size: .9rem; }
+.wiecej-danych summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.wiecej-danych .opis-pol { margin-top: 6px; }
 .notatka { margin-top: 10px; padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface-2); white-space: pre-line; }
 
 /* Znacznik „umowa kończy się” (8.7, Z10) – zawsze z tekstem */

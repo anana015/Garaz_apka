@@ -16,7 +16,7 @@ import {
 } from '../utils.js';
 import { BANKI, walidujKonto, walidujUstawienia } from '../walidacja.js';
 import startowe from './startowe.js';
-import { EKSPORTY, pobierzEksport, ustawienia } from './wspolne.js';
+import { EKSPORTY, pobierzEksport, pokazTerminowosc, ustawienia, ustawTerminowosc } from './wspolne.js';
 
 function sekcjaKarty(id, tytul, tresc, edycja) {
   return `<section class="karta" aria-labelledby="u-${id}">
@@ -135,6 +135,10 @@ function przeglad(s) {
         ['Ostatni okres najmu', ostatni],
         ['Dzień płatności nowych najmów', `${u.default_billing_day ?? 20}.`],
       ]), '#/ustawienia/edycja')}
+      ${sekcjaKarty('karta-klienta', 'Karta klienta', `${pola([['Karta „Terminowość”', pokazTerminowosc() ? 'widoczna' : 'ukryta']])}
+        <div class="pasek-akcji"><button type="button" class="przycisk drugi" data-akcja="terminowosc-klienta">
+          ${pokazTerminowosc() ? 'Ukryj terminowość' : 'Pokaż terminowość'}</button></div>
+        <p class="podpowiedz">Ustawienie dotyczy tego urządzenia.</p>`)}
       ${sekcjaKarty('podatek', 'Podatek', pola([
         ['Wpłaty ryczałtu', u.tax_period === 'miesiac' ? 'miesięcznie' : 'kwartalnie'],
         ['Stawki', `${formatProcentBp(u.tax_rate_low_bp)} / ${formatProcentBp(u.tax_rate_high_bp)}`],
@@ -357,6 +361,12 @@ export default {
   },
 
   akcje: {
+    /** Włącza / wyłącza kartę „Terminowość” na karcie klienta (localStorage, bez bazy). */
+    'terminowosc-klienta'(el, ctx) {
+      ustawTerminowosc(!pokazTerminowosc());
+      ctx.toast(pokazTerminowosc() ? 'Terminowość będzie widoczna na karcie klienta.' : 'Terminowość ukryta na karcie klienta.');
+      ctx.render();
+    },
     kopia: (_el, ctx) => zapiszKopie(ctx),
     eksport: (el, ctx) => pobierzEksport(ctx.state, el.dataset.rodzaj),
     'usun-promocje'(el, ctx) {
