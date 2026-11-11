@@ -14,8 +14,8 @@ function dane() {
   d.units = [{ id: 'j1', code: 'G-03', type: 'garaz', area_m2: 18.5, list_price_gr: 30000 }, { id: 'j2', code: 'B-01', type: 'box_maly' }];
   d.clients = [{ id: 'k1', name: 'Jan Nowak', kind: 'osoba', phone: '600100200', opening_balance_gr: 0 }];
   d.contracts = [{ id: 'c1', client_id: 'k1', valid_until: null }];
-  d.rentals = [{ id: 'r1', contract_id: 'c1', unit_id: 'j1', start_on: '2026-01-15', end_on: null, billing_day: 15, period_months: 1 }];
-  d.rental_rates = [{ id: 's1', rental_id: 'r1', valid_from: '2026-01-15', amount_gr: 30000 }];
+  d.rentals = [{ id: 'r1', contract_id: 'c1', unit_id: 'j1', start_on: '2026-01-01', end_on: null, billing_day: 15, period_months: 1 }];
+  d.rental_rates = [{ id: 's1', rental_id: 'r1', valid_from: '2026-01-01', amount_gr: 30000 }];
   d.bank_accounts = [{ id: 'b1', name: 'Nest – najem', bank: 'nest' }];
   d.payments = [
     { id: 'p1', booked_on: '2026-01-15', amount_gr: 30000, kind: 'czynsz', method: 'przelew', client_id: 'k1', bank_account_id: 'b1', counterparty: 'NOWAK JAN', title: 'czynsz; G-03' },

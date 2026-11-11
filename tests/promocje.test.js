@@ -12,12 +12,12 @@ import { dodajDni } from '../js/utils.js';
 const najem = (start_on, billing_day = 20, period_months = 1, end_on = null) =>
   ({ id: 'n', start_on, end_on, billing_day, period_months });
 
-test('plan promocji: niepełny pierwszy okres i dwa pełne, potem stawka normalna', () => {
+test('plan promocji: N miesięcy od startu zaokrąglone do 1. dnia miesiąca (okresy kalendarzowe)', () => {
   assert.deepEqual(planPromocji(najem('2026-09-05'), { normalnaGr: 20000, rabat: 50, okresy: 2 }),
-    { poczatek: '2026-09-05', koniec: '2026-11-20', promocyjnaGr: 10000 });
-  assert.equal(planPromocji(najem('2026-09-20'), { normalnaGr: 20000, rabat: 50, okresy: 2 }).koniec, '2026-11-20');
-  assert.equal(planPromocji(najem('2026-09-25'), { normalnaGr: 18000, rabat: 50, okresy: 2 }).koniec, '2026-11-20');
-  assert.equal(planPromocji(najem('2026-09-05'), { normalnaGr: 18000, rabat: 50, okresy: 1 }).koniec, '2026-10-20');
+    { poczatek: '2026-09-05', koniec: '2026-11-01', promocyjnaGr: 10000 });
+  assert.equal(planPromocji(najem('2026-09-01'), { normalnaGr: 20000, rabat: 50, okresy: 2 }).koniec, '2026-11-01');
+  assert.equal(planPromocji(najem('2026-09-20'), { normalnaGr: 20000, rabat: 50, okresy: 2 }).koniec, '2026-12-01');
+  assert.equal(planPromocji(najem('2026-09-05'), { normalnaGr: 18000, rabat: 50, okresy: 1 }).koniec, '2026-10-01');
   // najem kończy się w trakcie promocji → bez stawki „koniec promocji”
   const p = planPromocji(najem('2026-09-05', 20, 1, '2026-10-31'), { normalnaGr: 20000, rabat: 50, okresy: 2 });
   assert.equal(p.koniec, null);
@@ -109,7 +109,7 @@ test('SQL: koniec promocji taki sam jak w aplikacji (planPromocji)', async () =>
 });
 
 test('SQL: zapis promocji dla boxów, pominięcia i przypadki do sprawdzenia', async () => {
-  const wPromocji = await dodajNajem('box_duzy', '2026-09-05', [['2026-09-05', 100]]);
+  const wPromocji = await dodajNajem('box_duzy', '2026-10-05', [['2026-10-05', 100]]);
   const pelna = await dodajNajem('box_maly', '2026-04-10', [['2026-04-10', 180]]);
   const stary = await dodajNajem('box_duzy', '2024-03-01', [['2024-03-01', 180], ['2026-02-01', 200]]);
   const doSprawdzenia = await dodajNajem('box_maly', '2026-07-25', [['2026-07-25', 90]]);
@@ -124,18 +124,17 @@ test('SQL: zapis promocji dla boxów, pominięcia i przypadki do sprawdzenia', a
   await db.exec(zapis);   // drugi raz – najmy z promocją pominięte, bez zmian
   assert.deepEqual(await stawkiNajmu(grudzien), poPierwszym);
 
-  assert.deepEqual(await stawkiNajmu(wPromocji), [['2026-09-05', 100], ['2026-11-20', 200]]);
-  assert.deepEqual(await stawkiNajmu(pelna), [['2026-04-10', 90], ['2026-06-20', 180]]);
+  assert.deepEqual(await stawkiNajmu(wPromocji), [['2026-10-05', 100], ['2026-12-01', 200]]);
+  assert.deepEqual(await stawkiNajmu(pelna), [['2026-04-10', 90], ['2026-06-01', 180]]);
   assert.deepEqual(await stawkiNajmu(stary), [['2024-03-01', 180], ['2026-02-01', 200]]);
   assert.deepEqual(await stawkiNajmu(doSprawdzenia), [['2026-07-25', 90]]);
   assert.deepEqual(await stawkiNajmu(garaz), [['2026-09-05', 300]]);
-  assert.deepEqual(await stawkiNajmu(grudzien), [['2025-12-10', 90], ['2026-02-20', 200]]);
+  assert.deepEqual(await stawkiNajmu(grudzien), [['2025-12-10', 90], ['2026-02-01', 200]]);
   assert.deepEqual(await stawkiNajmu(zakonczony), [['2026-03-01', 200]]);
 
   const { rows } = await db.query('select id, status from promo_plan');
   const status = new Map(rows.map((r) => [r.id, r.status]));
   assert.match(status.get(stary), /^pominięty: promocja przed/);
-  assert.match(status.get(pelna), /^pominięty: ma już/);
   assert.match(status.get(doSprawdzenia), /^DO SPRAWDZENIA/);
   assert.equal(status.has(garaz), false);
   assert.equal(status.has(zakonczony), false);

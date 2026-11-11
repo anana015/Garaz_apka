@@ -34,9 +34,52 @@ const FILTRY = {
   wszyscy: { tekst: 'Wszyscy', warunek: () => true },
 };
 
+/** Filtr „Płaci” na liście klientów: według miejsca płatności trwających najmów (decyzja 4). */
+function opcjePlatnosci(s) {
+  const konta = s.dane.bank_accounts.filter((k) => !k.archived).sort((a, b) => a.name.localeCompare(b.name, 'pl'));
+  return [
+    { id: 'wszyscy', tekst: 'Wszyscy', pasuje: () => true },
+    ...konta.map((k) => ({ id: `konto:${k.id}`, tekst: k.name,
+      pasuje: (n) => (n.pay_method ?? 'przelew') === 'przelew' && n.bank_account_id === k.id })),
+    { id: 'nieustalone', tekst: 'Konto nieustalone', pasuje: (n) => (n.pay_method ?? 'przelew') === 'przelew' && !n.bank_account_id },
+    { id: 'gotowka', tekst: 'Gotówka', pasuje: (n) => n.pay_method === 'gotowka' },
+    { id: 'fv', tekst: 'FV', pasuje: (n) => n.pay_method === 'fv' },
+    { id: 'inne-konto', tekst: 'Przelew na inne konto', klient: true },
+  ];
+}
+
+
+/**
+ * Ostatni przelew czynszu (z ostatnich 120 dni) na konto inne niż ustalone przy trwających najmach klienta.
+ * null, gdy klient nie ma ustalonego konta albo wszystko się zgadza.
+ */
+export function przelewNaInneKonto(s, klient, dzien = dzisiaj()) {
+  const najmy = (s.indeksy.najmyKlienta.get(klient.id) ?? []).filter((n) => !najemZakonczony(n, dzien));
+  const ustalone = new Set(najmy.filter((n) => (n.pay_method ?? 'przelew') === 'przelew' && n.bank_account_id)
+    .map((n) => n.bank_account_id));
+  if (!ustalone.size) return null;
+  const od = dodajMiesiace(dzien, -4);
+  const wplata = s.dane.payments
+    .filter((w) => w.client_id === klient.id && w.kind === 'czynsz' && w.method === 'przelew' && w.amount_gr > 0
+      && w.bank_account_id && w.booked_on >= od && !ustalone.has(w.bank_account_id))
+    .sort((a, b) => b.booked_on.localeCompare(a.booked_on))[0];
+  if (!wplata) return null;
+  return { wplata, konto: s.indeksy.konta.get(wplata.bank_account_id),
+    ustalone: [...ustalone].map((id) => s.indeksy.konta.get(id)?.name ?? '?') };
+}
+
 function kodyJednostek(najmy, s, dzien) {
   return najmy.filter((n) => !najemZakonczony(n, dzien))
     .map((n) => s.indeksy.jednostki.get(n.unit_id)?.code).filter(Boolean).sort(porownajKody);
+}
+
+/** Baner na karcie klienta: ostatni przelew przyszedł na inne konto niż ustalone przy najmie. */
+function ostrzezenieKonta(s, klient, dzien) {
+  const x = przelewNaInneKonto(s, klient, dzien);
+  if (!x) return '';
+  return `<p class="baner ostrzezenie">Przelew ${formatZl(x.wplata.amount_gr)} z ${formatData(x.wplata.booked_on)} wpłynął na
+    <strong>${esc(x.konto?.name ?? 'inne konto')}</strong>, a ustalone jest: ${esc(x.ustalone.join(', '))}.
+    Zmień „Gdzie płaci” w trybie „Edytuj”, jeśli klient płaci teraz na to konto.</p>`;
 }
 
 /** Saldo w wierszu listy (8.4): zaległość na czerwono albo „opłacone do” na zielono. */
@@ -59,6 +102,8 @@ function stanSalda(r, s, k) {
 function lista(s) {
   const dzien = dzisiaj();
   const filtr = s.ui.filtry.klienci ?? 'aktywni';
+  const platnosci = opcjePlatnosci(s);
+  const platnosc = platnosci.find((o) => o.id === s.ui.platnoscKlientow) ?? platnosci[0];
   const szukane = normalizujTekst(s.ui.szukaj.klienci);
   const akcje = `<div class="pasek-akcji">${przycisk({ tekst: 'Nowy klient', href: '#/klienci/nowy', ikona: 'plus' })}</div>`;
 
@@ -71,6 +116,11 @@ function lista(s) {
   const wiersze = s.dane.clients
     .map((k) => ({ k, najmy: s.indeksy.najmyKlienta.get(k.id) ?? [], r: rozl.get(k.id) }))
     .filter(({ k, najmy, r }) => FILTRY[filtr].warunek(k, najmy, dzien, r))
+    .filter(({ k, najmy }) => {
+      if (!platnosc || platnosc.id === 'wszyscy') return true;
+      if (platnosc.klient) return Boolean(przelewNaInneKonto(s, k, dzien));
+      return najmy.some((n) => !najemZakonczony(n, dzien) && platnosc.pasuje(n));
+    })
     .map(({ k, najmy, r }) => ({ k, r, kody: kodyJednostek(najmy, s, dzien) }))
     .filter(({ k, kody }) => !szukane || normalizujTekst(
       `${k.name} ${k.phone ?? ''} ${k.nip ?? ''} ${kody.join(' ')}`).includes(szukane))
@@ -97,7 +147,8 @@ function lista(s) {
       <a class="wiersz" href="#/klienci/${encodeURIComponent(k.id)}">
         <div class="glowna"><strong>${esc(k.name)}</strong>
           <span>${kody.length ? kody.map((c) => `<span class="chip">${esc(c)}</span>`).join('') : 'brak aktywnych najmów'}</span></div>
-        <div class="prawa">${stanSalda(r, s, k)}${term && term.etykieta !== 'Za mało danych'
+        <div class="prawa">${stanSalda(r, s, k)}${przelewNaInneKonto(s, k, dzien)
+    ? '<div class="maly"><span class="status czesciowo">przelew na inne konto</span></div>' : ''}${term && term.etykieta !== 'Za mało danych'
     ? `<div class="maly wyciszony">${esc(term.etykieta)}</div>` : ''}</div>
       </a></li>`).join('')}</ul>`;
   }
@@ -105,6 +156,9 @@ function lista(s) {
   return `${akcje}
     ${filtry(Object.entries(FILTRY).map(([id, f]) => ({ id, tekst: f.tekst,
     liczba: id === 'dluznicy' ? liczbaDluznikow : undefined })), filtr, 'Grupa klientów')}
+    <div class="filtry sortowanie" role="group" aria-label="Gdzie płaci">
+      <span class="wyciszony maly">Płaci:</span>${platnosci.map((o) => `<button type="button" data-akcja="platnosc-klienci"
+        data-wartosc="${esc(o.id)}" aria-pressed="${o.id === platnosc.id}">${esc(o.tekst)}</button>`).join('')}</div>
     ${sortowanie}
     ${poleSzukaj('klienci', s.ui.szukaj.klienci, 'Szukaj po nazwie, telefonie, NIP, jednostce')}
     <section class="karta">${tresc}</section>`;
@@ -200,7 +254,8 @@ function kaucje(s, klient, umowy) {
         <strong>${esc(nazwaUmowy(s, u))}</strong>
         ${ruchy.map((d) => `<span class="zawijaj">${{ przyjecie: 'Przyjęto', zwrot: 'Zwrócono', zatrzymanie: 'Zatrzymano' }[d.kind]}
           ${formatZl(d.amount_gr)} ${d.kind !== 'zatrzymanie' ? forma[d.method] ?? '' : ''} · ${formatData(d.on_date)}${
-  d.reason ? ` · ${esc(d.reason)}` : ''}</span>`).join('')}</div>
+  d.reason ? ` · ${esc(d.reason)}` : ''}${s.ui.edycja && d.kind === 'przyjecie' && !d.payment_id
+  ? ` · <a href="#/klienci/${encodeURIComponent(klient.id)}/kaucja?wpis=${encodeURIComponent(d.id)}">popraw / usuń</a>` : ''}</span>`).join('')}</div>
       <div class="prawa"><div class="kwota">${formatZl(k.przyjeta)}</div><div class="maly">${STATUS_KAUCJI(k)}</div></div>
     </div></li>`;
   }).join('');
@@ -216,16 +271,28 @@ function kaucje(s, klient, umowy) {
 /** Formularz „Dodaj kaucję” – przyjęcie kaucji do istniejącej umowy (gotówką albo przelewem). */
 function formularzKaucji(s, klient) {
   const umowy = umowyNaKaucje(s, klient);
+  const poprawiany = kaucjaDoPoprawy(s, klient);
+  if (poprawiany && !umowy.some((u) => u.id === poprawiany.contract_id)) umowy.push(s.indeksy.umowy.get(poprawiany.contract_id));
   const wstecz = `#/klienci/${encodeURIComponent(klient.id)}`;
   if (!umowy.length) {
     return pustyStan('Ten klient nie ma umowy, do której można dopisać kaucję (boxy są bez kaucji).',
       [{ tekst: 'Wróć do klienta', href: wstecz }]);
   }
-  const f = stanFormularza(s, `klienci/${klient.id}/kaucja`, () => ({
-    contract_id: umowy.length === 1 ? umowy[0].id : '', method: 'gotowka', on_date: dzisiaj(),
-  }));
+  const wpis = kaucjaDoPoprawy(s, klient);
+  const f = stanFormularza(s, `klienci/${klient.id}/kaucja?${wpis?.id ?? ''}`, () => (wpis
+    ? { contract_id: wpis.contract_id, method: wpis.method, on_date: wpis.on_date, amount_gr: kwotaDoPola(wpis.amount_gr) }
+    : { contract_id: umowy.length === 1 ? umowy[0].id : '', method: 'gotowka', on_date: dzisiaj() }));
+  const usuwanie = !wpis ? '' : !f.potwierdzUsuniecie
+    ? '<p><button type="button" class="link-btn" data-akcja="usun-kaucje">Usuń ten wpis kaucji</button></p>'
+    : `<section class="karta" role="alert" aria-labelledby="usun-kaucje-tytul">
+      <h2 id="usun-kaucje-tytul">Usunąć wpis kaucji?</h2>
+      <p>Przyjęcie <span class="kwota">${formatZl(wpis.amount_gr)}</span> z ${formatData(wpis.on_date)}. Tego nie da się cofnąć.</p>
+      <div class="pasek-akcji">
+        <button type="button" class="przycisk" data-akcja="usun-kaucje-tak"${f.trwa ? ' disabled' : ''}>Usuń wpis</button>
+        <button type="button" class="przycisk drugi" data-akcja="usun-kaucje-nie">Nie usuwaj</button>
+      </div></section>`;
   return formularz(f, {
-    nazwa: 'kaucja', przycisk: 'Zapisz kaucję', anuluj: wstecz,
+    nazwa: 'kaucja', przycisk: wpis ? 'Zapisz zmiany' : 'Zapisz kaucję', anuluj: wstecz,
     uwaga: 'Kaucja nie jest przychodem (Z26). Kaucję wpłaconą przelewem, który jest już w wyciągu, oznacza się przy przypisaniu przelewu – nie dopisuj jej tu drugi raz.',
     tresc: `
       ${wybor(f, { nazwa: 'contract_id', etykieta: 'Umowa', wymagane: true, pusta: 'Wybierz umowę…',
@@ -236,7 +303,15 @@ function formularzKaucji(s, klient) {
       </div>
       ${opcje(f, { nazwa: 'method', legenda: 'Forma', opcje: [
     { wartosc: 'gotowka', tekst: 'Gotówka' }, { wartosc: 'przelew', tekst: 'Przelew' }] })}`,
-  });
+  }) + usuwanie;
+}
+
+/** Wpis przyjęcia kaucji z adresu ?wpis=<id> – tylko dopisany ręcznie (bez powiązanego przelewu). */
+function kaucjaDoPoprawy(s, klient) {
+  const id = s.ui.zapytanie.wpis;
+  if (!id) return null;
+  const d = s.dane.deposits.find((x) => x.id === id && x.kind === 'przyjecie' && !x.payment_id);
+  return d && s.indeksy.umowy.get(d.contract_id)?.client_id === klient.id ? d : null;
 }
 
 function dokumenty(umowy) {
@@ -444,7 +519,7 @@ function karta(s, klient) {
     </div>
     ${klient.archived ? '<p class="baner">Klient jest zarchiwizowany.</p>' : ''}
     <div class="siatka">
-      <section class="karta" aria-labelledby="k-saldo"><h2 id="k-saldo">Saldo</h2>${saldo(s, klient, r, najmy, dzien)}</section>
+      <section class="karta" aria-labelledby="k-saldo"><h2 id="k-saldo">Saldo</h2>${ostrzezenieKonta(s, klient, dzien)}${saldo(s, klient, r, najmy, dzien)}</section>
       ${r ? `<section class="karta" aria-labelledby="k-terminowosc"><h2 id="k-terminowosc">Terminowość</h2>
         ${sekcjaTerminowosci(wynikTerminowosci(s, r))}</section>` : ''}
       <section class="karta" aria-labelledby="k-kontakt"><h2 id="k-kontakt">Kontakt</h2>
@@ -630,6 +705,29 @@ export default {
   },
 
   akcje: {
+    'usun-kaucje'(_el, ctx) {
+      if (!ctx.state.ui.form) return;
+      ctx.state.ui.form.potwierdzUsuniecie = true;
+      ctx.render();
+      document.getElementById('usun-kaucje-tytul')?.scrollIntoView({ block: 'center' });
+    },
+    'usun-kaucje-nie'(_el, ctx) {
+      if (ctx.state.ui.form) ctx.state.ui.form.potwierdzUsuniecie = false;
+      ctx.render();
+    },
+    async 'usun-kaucje-tak'(_el, ctx) {
+      const s = ctx.state;
+      const klient = s.indeksy.klienci.get(s.ui.parametr);
+      const wpis = klient && kaucjaDoPoprawy(s, klient);
+      if (!wpis) return;
+      await zapisz(ctx, async () => {
+        await ctx.db.usun('deposits', wpis.id);
+        s.dane = { ...s.dane, deposits: s.dane.deposits.filter((d) => d.id !== wpis.id) };
+        ctx.scal({});
+        ctx.toast(`Usunięto wpis kaucji ${formatZl(wpis.amount_gr)}`);
+        ctx.nawiguj(`klienci/${encodeURIComponent(klient.id)}`);
+      });
+    },
     /** Cofnięcie wypowiedzenia (tryb edycji). Zadanie na liście zostaje – można je odhaczyć albo usunąć. */
     async 'cofnij-wypowiedzenie'(el, ctx) {
       const s = ctx.state;
@@ -644,6 +742,10 @@ export default {
       } catch (e) {
         ctx.toast(e.message);
       }
+    },
+    'platnosc-klienci'(el, ctx) {
+      ctx.state.ui.platnoscKlientow = el.dataset.wartosc;
+      ctx.render();
     },
     'sort-klienci'(el, ctx) {
       ctx.state.ui.sortKlienci = el.dataset.wartosc;
@@ -754,11 +856,14 @@ export default {
       const klient = s.indeksy.klienci.get(s.ui.parametr);
       if (!klient) return;
       const w = wartosciFormularza(form);
-      const { bledy, wiersz } = walidujKaucje(w, { umowy: umowyNaKaucje(s, klient), dzis: dzisiaj() });
+      const wpis = kaucjaDoPoprawy(s, klient);
+      const umowy = umowyNaKaucje(s, klient);
+      if (wpis && !umowy.some((u) => u.id === wpis.contract_id)) umowy.push(s.indeksy.umowy.get(wpis.contract_id));
+      const { bledy, wiersz } = walidujKaucje(w, { umowy, dzis: dzisiaj() });
       if (maBledy(ctx, w, bledy)) return;
       await zapisz(ctx, async () => {
-        ctx.scal({ deposits: [await ctx.db.wstaw('deposits', wiersz)] });
-        ctx.toast(`Zapisano kaucję ${formatZl(wiersz.amount_gr)}`);
+        ctx.scal({ deposits: [wpis ? await ctx.db.zmien('deposits', wpis.id, wiersz) : await ctx.db.wstaw('deposits', wiersz)] });
+        ctx.toast(wpis ? 'Zapisano zmiany kaucji' : `Zapisano kaucję ${formatZl(wiersz.amount_gr)}`);
         ctx.nawiguj(`klienci/${encodeURIComponent(klient.id)}`);
       });
     },

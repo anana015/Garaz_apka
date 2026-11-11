@@ -4,12 +4,12 @@
 import { TYPY_JEDNOSTEK } from '../config.js';
 import { biezacyNajem, opisPlatnosci, stawkaNaDzien } from '../dane.js';
 import { formularz, maBledy, obszar, pole, przelacznik, stanFormularza, wartosciFormularza, wybor, zapisz } from '../formularz.js';
-import { filtry, poleSzukaj, przycisk, pustyStan, wPlanie, przyciskEdycji } from '../ui.js';
+import { filtry, poleSzukaj, przycisk, pustyStan, przyciskEdycji } from '../ui.js';
 import { promocjaNajmu } from '../promocje.js';
 import { grupa, grupaNajmu, kartaUstawien, menu, pozycja } from './edycja.js';
 import {
-  esc, dzisiaj, formatData, formatDataKrotka, formatM2, formatZl, kwotaDoPola, nastepnyNumer, normalizujTekst,
-  porownajKody, roznicaDni,
+  esc, dzisiaj, etykietaMiesiaca, formatData, formatDataKrotka, formatM2, formatZl, kluczMiesiaca, kwotaDoPola,
+  MIESIACE_KROTKO, nastepnyNumer, normalizujTekst, porownajKody, roznicaDni, zakresMiesiecy, dodajMiesiace,
 } from '../utils.js';
 import { walidujJednostke } from '../walidacja.js';
 import { rozliczeniaKlientow, ustawienia } from './wspolne.js';
@@ -193,7 +193,38 @@ function szczegoly(s, j) {
           : '<p class="wyciszony">Jednostka nie była jeszcze wynajmowana.</p>'}
       </section>
     </div>
-    ${wPlanie('Przychód z jednostki za 12 miesięcy – krok 1c (rozliczenia wpłat).')}`;
+    <section class="karta" aria-labelledby="j-przychod"><h2 id="j-przychod">Przychód z jednostki – 12 miesięcy</h2>
+      ${przychodJednostki(s, j, dzien)}</section>`;
+}
+
+/**
+ * Przychód z jednostki za ostatnie 12 miesięcy (8.7): opłacone części należności jej najmów, według miesiąca terminu
+ * (jak „Przychód według jednostek” w Raportach). Słupki + suma i średnia.
+ */
+function przychodJednostki(s, j, dzien) {
+  const najmy = new Set((s.indeksy.najmyJednostki.get(j.id) ?? []).map((n) => n.id));
+  const miesiace = zakresMiesiecy(kluczMiesiaca(dodajMiesiace(dzien, -11)), kluczMiesiaca(dzien));
+  const mapa = new Map(miesiace.map((k) => [k, 0]));
+  for (const r of rozliczeniaKlientow(s).values()) {
+    for (const p of r.pozycje) {
+      if (p.otwarcie || !najmy.has(p.najemId) || p.termin > dzien) continue;
+      const k = kluczMiesiaca(p.termin);
+      if (mapa.has(k)) mapa.set(k, mapa.get(k) + Math.min(p.zaplaconoGr, p.kwotaGr));
+    }
+  }
+  const suma = [...mapa.values()].reduce((x, v) => x + v, 0);
+  if (!suma) return '<p class="wyciszony">Brak opłaconych należności w ostatnich 12 miesiącach.</p>';
+  const max = Math.max(1, ...mapa.values());
+  return `<dl class="opis-pol">
+      <dt>Razem</dt><dd class="kwota"><strong>${formatZl(suma)}</strong></dd>
+      <dt>Średnio na miesiąc</dt><dd class="kwota">${formatZl(Math.round(suma / 12))}</dd>
+    </dl>
+    <ul class="slupki" aria-label="Przychód w kolejnych miesiącach">${miesiace.map((k) => `
+      <li title="${esc(`${etykietaMiesiaca(k)}: ${formatZl(mapa.get(k))}`)}">
+        <span class="slupek" style="height:${((mapa.get(k) / max) * 100).toFixed(1)}%"></span>
+        <span class="maly">${MIESIACE_KROTKO[Number(k.slice(5)) - 1]}</span>
+        <span class="sr-only">${formatZl(mapa.get(k))}</span></li>`).join('')}</ul>
+    <p class="podpowiedz">Opłacone należności z terminem w danym miesiącu (wpłaty przypisane do najmów tej jednostki).</p>`;
 }
 
 /** Tryb „Edytuj” jednostki: zwarte ustawienia z rozwijanymi grupami (jak na karcie klienta). */

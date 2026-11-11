@@ -3,11 +3,12 @@
 // Testy: tests/okresy.test.js (testy akceptacyjne 1–3).
 //
 // Zasady:
-//  - Z4  termin = pierwszy dzień okresu (czynsz z góry);
+//  - Z4  (zmiana 11.11.2026) okresy to miesiące kalendarzowe (od 1. dnia), a termin to dzień płatności
+//        (billing_day, wszyscy 20.) w pierwszym miesiącu okresu – płatność z góry za cały bieżący miesiąc;
+//        w niepełnym pierwszym okresie termin nie wcześniej niż start najmu;
 //  - Z5  dzień płatności 29–31 w krótszym miesiącu → ostatni dzień miesiąca;
 //  - Z6  okres 1, 3, 6 albo 12 miesięcy;
-//  - Z7  start w inny dzień niż dzień płatności → pierwszy okres niepełny, od startu do dnia przed
-//        najbliższym dniem płatności; kwota = stawka × dni ÷ dni pełnego okresu kończącego się
+//  - Z7  start w inny dzień niż 1. → pierwszy okres niepełny, od startu do końca miesiąca; kwota = stawka × dni ÷ dni pełnego okresu kończącego się
 //        tego samego dnia, zaokrąglona do pełnego złotego (decyzja z 9.11.2026);
 //  - Z8  okres przerwany końcem najmu: proporcjonalnie do dni, do pełnego złotego, albo pełna kwota;
 //  - Z13 stawka z największym valid_from nie późniejszym niż początek okresu;
@@ -20,6 +21,15 @@ import { dodajDni, dodajMiesiace, dniWMiesiacu, iso, parseData, roznicaDni } fro
 
 export const HORYZONT_MIESIECY = 24;
 const DLUGOSCI_OKRESU = [1, 3, 6, 12];
+/** Dzień, od którego liczą się okresy (miesiąc kalendarzowy). Dzień płatności z najmu to tylko termin. */
+export const POCZATEK_OKRESU = 1;
+
+/** Termin należności okresu: dzień płatności w miesiącu początku okresu, nie wcześniej niż początek (Z4). */
+export function terminOkresu(poczatek, dzienPlatnosci) {
+  const p = parseData(poczatek);
+  const termin = iso(p.y, p.m, Math.min(dzienPlatnosci, dniWMiesiacu(p.y, p.m)));
+  return termin < poczatek ? poczatek : termin;
+}
 
 /** Liczba dni od a do b włącznie. */
 const dniWlacznie = (a, b) => roznicaDni(a, b) + 1;
@@ -60,7 +70,8 @@ function sprawdzNajem(najem) {
  * dnia – potrzebny do proporcji niepełnego pierwszego okresu (Z7).
  */
 function granice(najem, dlugosc, granica) {
-  const { start_on: start, billing_day: dzien } = najem;
+  const { start_on: start } = najem;
+  const dzien = POCZATEK_OKRESU;
   const okresy = [];
   if (start > granica) return okresy;
 
@@ -121,7 +132,7 @@ export function naleznosciNajmu(najem, { stawki = [], korekty = [], dataStart, d
       jednostkaId: najem.unit_id,
       poczatek: okres.poczatek,
       koniec: koniecNajmu && koniecNajmu < okres.koniec ? koniecNajmu : okres.koniec,
-      termin: okres.poczatek,                       // Z4
+      termin: terminOkresu(okres.poczatek, najem.billing_day),   // Z4
       rodzaj,
       dni,
       dniOkresu,
@@ -138,7 +149,7 @@ export function naleznosciNajmu(najem, { stawki = [], korekty = [], dataStart, d
 /**
  * Początek pierwszego okresu najmu, który zaczyna się w dniu `data` lub później (Z13: od niego
  * obowiązuje nowa stawka). null, gdy najem kończy się wcześniej.
- * pierwszyOkresOd({ start_on: '2026-03-15', billing_day: 15, … }, '2026-07-01') → '2026-07-15'
+ * pierwszyOkresOd({ start_on: '2026-03-15', billing_day: 20, … }, '2026-07-02') → '2026-08-01'
  */
 export function pierwszyOkresOd(najem, data) {
   const dlugosc = sprawdzNajem(najem);

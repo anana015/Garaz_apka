@@ -121,7 +121,7 @@ test('zmiana stawki jednego najmu: Z13 – pierwszy okres zaczynający się „o
   const { bledy, wiersz, podglad } = walidujZmianeStawki(
     { valid_from: '2026-07-01', tryb: 'kwota', wartosc: '330', zaokraglij: 'on' }, { najem, stawki: dane.rental_rates });
   assert.deepEqual(bledy, {});
-  assert.equal(podglad.pierwszyOkres, '2026-07-15');
+  assert.equal(podglad.pierwszyOkres, '2026-07-01', 'okresy kalendarzowe (11.11)');
   assert.deepEqual(wiersz, { rental_id: 'r1', valid_from: '2026-07-01', amount_gr: 33000, reason: 'podwyżka' });
   assert.match(walidujZmianeStawki({ valid_from: '2026-03-01', wartosc: '330' }, { najem, stawki: dane.rental_rates }).bledy.valid_from,
     /przed startem/);
@@ -146,7 +146,7 @@ test('podwyżka zbiorcza: tylko zaznaczone najmy, podgląd wszystkich, błąd bl
   const ok = walidujPodwyzke(w, { najmy, stawkiNajmu });
   assert.deepEqual(ok.bledy, {});
   assert.deepEqual(ok.wiersze.map((x) => x.amount_gr), [31500, 15800], '157,50 → 158 zł');
-  assert.deepEqual(ok.pozycje.map((p) => p.pierwszyOkres), ['2027-01-15', '2027-01-01']);
+  assert.deepEqual(ok.pozycje.map((p) => p.pierwszyOkres), ['2027-01-01', '2027-01-01']);
 
   const czesc = walidujPodwyzke({ ...w, najmy: 'r2' }, { najmy, stawkiNajmu });
   assert.equal(czesc.wiersze.length, 1, 'pojedyncza wartość z FormData');
@@ -172,11 +172,11 @@ test('zakończenie najmu: test 3 (176 zł / pełny okres 330 zł), zwrot + zatrz
   const ctx = { najem, umowa: dane.contracts[0], stawki, ustawienia: DOMYSLNE_USTAWIENIA, dzis: DZIS, noweId,
     kaucja: { saldoGr: 50000, metoda: 'gotowka' } };
 
-  const prop = walidujKoniec({ end_on: '2026-09-30', last_period: 'proporcjonalnie' }, ctx);
+  const prop = walidujKoniec({ end_on: '2026-09-15', last_period: 'proporcjonalnie' }, ctx);
   assert.deepEqual(prop.bledy, {});
-  assert.equal(prop.ostatniaNaleznosc.kwotaGr, 17600);
-  assert.deepEqual(prop.pakiet.rentals_end, [{ id: 'r1', end_on: '2026-09-30', last_period: 'proporcjonalnie' }]);
-  assert.equal(walidujKoniec({ end_on: '2026-09-30', last_period: 'pelny' }, ctx).ostatniaNaleznosc.kwotaGr, 33000);
+  assert.equal(prop.ostatniaNaleznosc.kwotaGr, 16500, '330 × 15 ÷ 30 (wrzesień)');
+  assert.deepEqual(prop.pakiet.rentals_end, [{ id: 'r1', end_on: '2026-09-15', last_period: 'proporcjonalnie' }]);
+  assert.equal(walidujKoniec({ end_on: '2026-09-15', last_period: 'pelny' }, ctx).ostatniaNaleznosc.kwotaGr, 33000);
 
   assert.match(walidujKoniec({ end_on: '2026-09-30', zwrot_gr: '400', zatrzymanie_gr: '200', zatrzymanie_powod: 'czynsz' }, ctx)
     .bledy.zwrot_gr, /nie mogą przekroczyć kaucji \(500,00/);
@@ -198,25 +198,25 @@ test('korekta należności: okres z listy, powód wymagany, wynik okresu ≥ 0',
   const najem = dane.rentals[0];
   const naleznosci = naleznosciNajmu(najem, { stawki: dane.rental_rates, dataStart: '2026-01-01', dzis: DZIS });
   assert.ok(walidujKorekte({ period_start: '2026-03-16', amount_gr: '-50', reason: 'x' }, { najem, naleznosci }).bledy.period_start);
-  assert.ok(walidujKorekte({ period_start: '2026-04-15', amount_gr: '-50' }, { najem, naleznosci }).bledy.reason);
-  assert.match(walidujKorekte({ period_start: '2026-04-15', amount_gr: '-301', reason: 'rabat' }, { najem, naleznosci })
+  assert.ok(walidujKorekte({ period_start: '2026-04-01', amount_gr: '-50' }, { najem, naleznosci }).bledy.reason);
+  assert.match(walidujKorekte({ period_start: '2026-04-01', amount_gr: '-301', reason: 'rabat' }, { najem, naleznosci })
     .bledy.amount_gr, /−300,00/);
-  const { bledy, wiersz } = walidujKorekte({ period_start: '2026-04-15', amount_gr: '-50', reason: 'awaria bramy' }, { najem, naleznosci });
+  const { bledy, wiersz } = walidujKorekte({ period_start: '2026-04-01', amount_gr: '-50', reason: 'awaria bramy' }, { najem, naleznosci });
   assert.deepEqual(bledy, {});
-  assert.deepEqual(wiersz, { rental_id: 'r1', period_start: '2026-04-15', amount_gr: -5000, reason: 'awaria bramy' });
+  assert.deepEqual(wiersz, { rental_id: 'r1', period_start: '2026-04-01', amount_gr: -5000, reason: 'awaria bramy' });
 });
 
 test('korekta „ustaw kwotę należności”: różnica do obecnej kwoty, domyślny powód, ta sama kwota = błąd', () => {
   const najem = dane.rentals[0];
   const naleznosci = naleznosciNajmu(najem, { stawki: dane.rental_rates, dataStart: '2026-01-01', dzis: DZIS });
-  const okres = naleznosci.find((n) => n.poczatek === '2026-04-15');
-  const { bledy, wiersz } = walidujKorekte({ tryb: 'kwota', period_start: '2026-04-15', nowa_kwota: '120' }, { najem, naleznosci });
+  const okres = naleznosci.find((n) => n.poczatek === '2026-04-01');
+  const { bledy, wiersz } = walidujKorekte({ tryb: 'kwota', period_start: '2026-04-01', nowa_kwota: '120' }, { najem, naleznosci });
   assert.deepEqual(bledy, {});
   assert.equal(wiersz.amount_gr, 12000 - okres.kwotaGr);
   assert.equal(wiersz.reason, 'Ręczna kwota okresu');
-  assert.ok(walidujKorekte({ tryb: 'kwota', period_start: '2026-04-15', nowa_kwota: String(okres.kwotaGr / 100) },
+  assert.ok(walidujKorekte({ tryb: 'kwota', period_start: '2026-04-01', nowa_kwota: String(okres.kwotaGr / 100) },
     { najem, naleznosci }).bledy.nowa_kwota);
-  assert.ok(walidujKorekte({ tryb: 'kwota', period_start: '2026-04-15', nowa_kwota: '-5' }, { najem, naleznosci }).bledy.nowa_kwota);
+  assert.ok(walidujKorekte({ tryb: 'kwota', period_start: '2026-04-01', nowa_kwota: '-5' }, { najem, naleznosci }).bledy.nowa_kwota);
 });
 
 test('ustawienia i konto bankowe', () => {
@@ -238,7 +238,7 @@ test('ustawienia i konto bankowe', () => {
 
 test('pierwszyOkresOd: okres 3-miesięczny i najem zakończony przed datą', () => {
   const kw = { id: 'q', start_on: '2026-01-10', end_on: null, billing_day: 10, period_months: 3 };
-  assert.equal(pierwszyOkresOd(kw, '2026-02-01'), '2026-04-10');
+  assert.equal(pierwszyOkresOd(kw, '2026-02-02'), '2026-05-01', 'kwartały od 1. dnia miesiąca: 01.02, 01.05…');
   assert.equal(pierwszyOkresOd(kw, '2025-12-01'), '2026-01-10', 'data przed startem → pierwszy okres');
-  assert.equal(pierwszyOkresOd({ ...kw, end_on: '2026-03-31' }, '2026-02-01'), null);
+  assert.equal(pierwszyOkresOd({ ...kw, end_on: '2026-03-31' }, '2026-02-02'), null);
 });

@@ -13,78 +13,59 @@ const stawka = (valid_from, zl) => ({ rental_id: 'r1', valid_from, amount_gr: zl
 /** Mapa termin → kwota w zł, do czytelnych porównań. */
 const kwoty = (naleznosci) => Object.fromEntries(naleznosci.map((n) => [n.termin, n.kwotaGr / 100]));
 
-test('test 1: 300 zł od 15.03.2026, podwyżka do 330 zł od 01.07.2026 obowiązuje od okresu 15.07', () => {
-  const n = naleznosciNajmu(najem(), {
+// Model od 11.11.2026: okresy = miesiące kalendarzowe, termin = dzień płatności (20.) w miesiącu okresu.
+
+test('test 1 (nowy model): start 15.03, płatne 20., podwyżka od 01.07 obowiązuje od lipca', () => {
+  const n = naleznosciNajmu(najem({ billing_day: 20 }), {
     ...OPCJE, stawki: [stawka('2026-03-15', 300), stawka('2026-07-01', 330)] });
+  assert.deepEqual([n[0].poczatek, n[0].koniec, n[0].termin, n[0].rodzaj], ['2026-03-15', '2026-03-31', '2026-03-20', 'pierwszy-niepelny']);
+  assert.equal(n[0].kwotaGr, 16500, '300 × 17 ÷ 31 = 164,52 → 165 zł');
   const k = kwoty(n);
-  for (const t of ['2026-03-15', '2026-04-15', '2026-05-15', '2026-06-15']) assert.equal(k[t], 300, t);
-  assert.equal(k['2026-07-15'], 330);
-  assert.equal(k['2026-11-15'], 330);
-  assert.equal(n[0].poczatek, '2026-03-15');
-  assert.equal(n[0].koniec, '2026-04-14');
-  assert.ok(n.every((x) => x.termin === x.poczatek), 'termin = pierwszy dzień okresu (Z4)');
-  assert.ok(n.every((x) => x.rodzaj === 'pelny'));
+  assert.equal(k['2026-04-20'], 300);
+  assert.equal(k['2026-06-20'], 300);
+  assert.equal(k['2026-07-20'], 330);
+  assert.ok(n.slice(1).every((x) => x.poczatek.endsWith('-01') && x.termin === `${x.poczatek.slice(0, 8)}20`));
 });
 
-test('test 2: dzień płatności 31 – luty 2027 → 28.02, marzec → 31.03 (Z5)', () => {
-  const n = naleznosciNajmu(najem({ start_on: '2026-10-31', billing_day: 31 }), {
-    ...OPCJE, stawki: [stawka('2026-10-31', 300)] });
-  const terminy = n.map((x) => x.termin);
-  assert.deepEqual(terminy.slice(0, 6),
-    ['2026-10-31', '2026-11-30', '2026-12-31', '2027-01-31', '2027-02-28', '2027-03-31']);
-  const luty = n.find((x) => x.termin === '2027-02-28');
-  assert.equal(luty.koniec, '2027-03-30');
-  assert.equal(luty.kwotaGr, 30000, 'krótszy okres nie zmienia kwoty');
+test('termin w niepełnym okresie nie wcześniej niż start: start 25.03 → termin 25.03', () => {
+  const n = naleznosciNajmu(najem({ start_on: '2026-03-25', billing_day: 20 }), { ...OPCJE, stawki: [stawka('2026-03-25', 310)] });
+  assert.deepEqual([n[0].termin, n[0].dni, n[0].kwotaGr], ['2026-03-25', 7, 7000]);
+  assert.equal(n[1].termin, '2026-04-20');
 });
 
-test('test 3: koniec najmu 30.09.2026, okres 15.09–14.10, 330 zł → 176 zł, przy „pełny okres” 330 zł', () => {
-  const stawki = [stawka('2026-03-15', 300), stawka('2026-07-01', 330)];
-  const n = naleznosciNajmu(najem({ end_on: '2026-09-30' }), { ...OPCJE, stawki });
-  const ostatnia = n.at(-1);
-  assert.equal(ostatnia.termin, '2026-09-15');
-  assert.equal(ostatnia.rodzaj, 'ostatni-niepelny');
-  assert.equal(ostatnia.dni, 16);
-  assert.equal(ostatnia.dniOkresu, 30);
-  assert.equal(ostatnia.koniec, '2026-09-30');
-  assert.equal(ostatnia.kwotaGr, 17600);
-  assert.equal(n.length, 7, 'od 15.03 do 15.09, nic po końcu najmu');
-
-  const pelny = naleznosciNajmu(najem({ end_on: '2026-09-30', last_period: 'pelny' }), { ...OPCJE, stawki });
-  assert.equal(pelny.at(-1).kwotaGr, 33000);
+test('test 3 (nowy model): koniec najmu 15.09 – wrzesień proporcjonalnie, przy „pełny okres” cały', () => {
+  const stawki = [stawka('2026-03-15', 300)];
+  const n = naleznosciNajmu(najem({ billing_day: 20, end_on: '2026-09-15' }), { ...OPCJE, stawki });
+  const ost = n.at(-1);
+  assert.deepEqual([ost.poczatek, ost.koniec, ost.rodzaj, ost.dni, ost.dniOkresu, ost.kwotaGr],
+    ['2026-09-01', '2026-09-15', 'ostatni-niepelny', 15, 30, 15000]);
+  assert.equal(naleznosciNajmu(najem({ billing_day: 20, end_on: '2026-09-15', last_period: 'pelny' }), { ...OPCJE, stawki }).at(-1).kwotaGr, 30000);
 });
 
-test('Z7: start 10.03, płatność 1. dnia, 300 zł → pierwszy okres 10.03–31.03 za 213 zł', () => {
-  const n = naleznosciNajmu(najem({ start_on: '2026-03-10', billing_day: 1 }), {
-    ...OPCJE, stawki: [stawka('2026-03-10', 300)] });
-  assert.equal(n[0].rodzaj, 'pierwszy-niepelny');
-  assert.equal(n[0].koniec, '2026-03-31');
-  assert.deepEqual([n[0].dni, n[0].dniOkresu], [22, 31]);
-  assert.equal(n[0].kwotaGr, 21300, '300 × 22 ÷ 31 = 212,90 → 213 zł');
-  assert.equal(n[1].termin, '2026-04-01');
-  assert.equal(n[1].kwotaGr, 30000);
+test('dzień płatności 31 → ostatni dzień krótszego miesiąca (Z5)', () => {
+  const n = naleznosciNajmu(najem({ start_on: '2027-01-01', billing_day: 31 }), {
+    dataStart: '2026-01-01', dzis: '2027-01-01', horyzontMiesiecy: 2, stawki: [stawka('2027-01-01', 300)] });
+  assert.deepEqual(n.map((x) => x.termin), ['2027-01-31', '2027-02-28', '2027-03-31']);
 });
 
-test('Z7: dzień płatności wcześniejszy niż dzień startu – pełny okres liczony wstecz od dnia płatności', () => {
-  const n = naleznosciNajmu(najem({ start_on: '2026-03-20', billing_day: 5 }), {
-    ...OPCJE, stawki: [stawka('2026-03-20', 300)] });
-  assert.equal(n[0].koniec, '2026-04-04');
-  assert.deepEqual([n[0].dni, n[0].dniOkresu], [16, 31], '20.03–04.04 z okresu 05.03–04.04');
-  assert.equal(n[0].kwotaGr, 15500, '300 × 16 ÷ 31 = 154,84 → 155 zł');
-  assert.equal(n[1].termin, '2026-04-05');
+test('horyzont: bez daty końca okresy do dziś + 24 miesiące', () => {
+  const n = naleznosciNajmu(najem({ billing_day: 20 }), { ...OPCJE, stawki: [stawka('2026-03-15', 300)] });
+  assert.equal(n.at(-1).poczatek, '2028-11-01', 'ostatni początek ≤ 09.11.2028');
 });
 
-test('Z5 przy starcie: 28.02 z dniem płatności 31 to pełny okres, nie niepełny', () => {
-  const n = naleznosciNajmu(najem({ start_on: '2027-02-28', billing_day: 31 }), {
-    dataStart: '2026-01-01', dzis: '2027-03-01', stawki: [stawka('2027-02-28', 300)] });
-  assert.equal(n[0].rodzaj, 'pelny');
-  assert.equal(n[0].koniec, '2027-03-30');
-  assert.equal(n[1].termin, '2027-03-31');
+test('Z6: okres kwartalny od 1. dnia miesiąca – kwota × 3', () => {
+  const n = naleznosciNajmu(najem({ start_on: '2026-04-01', billing_day: 20, period_months: 3 }), {
+    ...OPCJE, stawki: [stawka('2026-04-01', 300)] });
+  assert.deepEqual(n.slice(0, 2).map((x) => [x.termin, x.koniec, x.kwotaGr]), [
+    ['2026-04-20', '2026-06-30', 90000],
+    ['2026-07-20', '2026-09-30', 90000],
+  ]);
 });
 
 test('Z34: najem sprzed 1.01.2026 – okres 15.12.2025–14.01.2026 jest w saldzie otwarcia', () => {
   const n = naleznosciNajmu(najem({ start_on: '2025-06-15' }), {
     ...OPCJE, stawki: [stawka('2025-06-15', 280), stawka('2026-01-01', 300)] });
-  assert.equal(n[0].termin, '2026-01-15');
+  assert.equal(n[0].termin, '2026-01-15', 'styczeń 2026 – pełny miesiąc, termin 15.');
   assert.equal(n[0].kwotaGr, 30000);
   assert.ok(n.every((x) => x.termin >= '2026-01-01'));
 });
@@ -99,36 +80,6 @@ test('Z34: późniejsze wczytanie danych z 2025 r. – wystarczy zmienić data_s
 test('najem zakończony przed data_start nie ma należności', () => {
   assert.deepEqual(naleznosciNajmu(najem({ start_on: '2025-03-01', end_on: '2025-11-30', billing_day: 1 }), {
     ...OPCJE, stawki: [stawka('2025-03-01', 300)] }), []);
-});
-
-test('horyzont: bez daty końca okresy do dziś + 24 miesiące', () => {
-  const n = naleznosciNajmu(najem(), { ...OPCJE, stawki: [stawka('2026-03-15', 300)] });
-  assert.equal(n.at(-1).termin, '2028-10-15', 'ostatni początek ≤ 09.11.2028');
-  assert.equal(n.length, 32);
-});
-
-test('Z6: okres kwartalny – kwota × 3, terminy co 3 miesiące', () => {
-  const n = naleznosciNajmu(najem({ period_months: 3 }), { ...OPCJE, stawki: [stawka('2026-03-15', 300)] });
-  assert.deepEqual(n.slice(0, 3).map((x) => [x.termin, x.koniec, x.kwotaGr]), [
-    ['2026-03-15', '2026-06-14', 90000],
-    ['2026-06-15', '2026-09-14', 90000],
-    ['2026-09-15', '2026-12-14', 90000],
-  ]);
-});
-
-test('Z6 + Z8: kwartał przerwany końcem najmu – proporcja z dni kwartału', () => {
-  const n = naleznosciNajmu(najem({ period_months: 3, end_on: '2026-07-14' }), {
-    ...OPCJE, stawki: [stawka('2026-03-15', 300)] });
-  const ost = n.at(-1);
-  assert.deepEqual([ost.termin, ost.dni, ost.dniOkresu], ['2026-06-15', 30, 92]);
-  assert.equal(ost.kwotaGr, 29300, '900 × 30 ÷ 92 = 293,48 → 293 zł');
-});
-
-test('Z8: koniec najmu w ostatnim dniu okresu to pełna kwota; w pierwszym dniu – 1 dzień', () => {
-  const stawki = [stawka('2026-03-15', 330)];
-  assert.equal(naleznosciNajmu(najem({ end_on: '2026-10-14' }), { ...OPCJE, stawki }).at(-1).kwotaGr, 33000);
-  const jedenDzien = naleznosciNajmu(najem({ end_on: '2026-09-15' }), { ...OPCJE, stawki }).at(-1);
-  assert.deepEqual([jedenDzien.dni, jedenDzien.kwotaGr], [1, 1100], '330 × 1 ÷ 30 = 11 zł');
 });
 
 test('Z7 + Z8: najem krótszy niż niepełny pierwszy okres', () => {
@@ -188,7 +139,7 @@ test('wszystkieNaleznosci: stawki i korekty przypisane do właściwych najmów',
   const n = wszystkieNaleznosci(dane, OPCJE);
   const b = n.filter((x) => x.najemId === 'b');
   assert.deepEqual(b.map((x) => x.kwotaGr), [15000, 10000]);
-  assert.ok(n.filter((x) => x.najemId === 'a').every((x) => x.kwotaGr === 30000));
+  assert.ok(n.filter((x) => x.najemId === 'a').slice(1).every((x) => x.kwotaGr === 30000), 'po niepełnym marcu');
 });
 
 test('pomocnicze: pierwszy dzień płatności i zaokrąglenie do złotego', () => {

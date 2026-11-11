@@ -162,7 +162,7 @@ function formularzNowegoNajmu(s) {
         </div>
         <div class="pola-w-rzedzie">
           ${pole(f, { nazwa: 'billing_day', etykieta: 'Dzień płatności', typ: 'number', wymagane: true,
-            podpowiedz: 'Czynsz płatny z góry (Z4). 29–31: w krótszym miesiącu ostatni dzień.', atrybuty: 'min="1" max="31"' })}
+            podpowiedz: 'Termin zapłaty za cały bieżący miesiąc (okresy to miesiące kalendarzowe). 29–31: w krótszym miesiącu ostatni dzień.', atrybuty: 'min="1" max="31"' })}
           ${wybor(f, { nazwa: 'period_months', etykieta: 'Okres rozliczeniowy',
             opcje: OKRESY_ROZLICZENIOWE.map((m) => ({ wartosc: m, tekst: NAZWY_OKRESOW[m] })) })}
         </div>
@@ -641,8 +641,7 @@ function podgladPromocji(promocyjna, okresy, poczatek, normalna, koniec) {
   const zakres = koniec ? `od ${formatData(poczatek)} do ${formatData(dodajDni(koniec, -1))}` : `od ${formatData(poczatek)}`;
   return `<div class="podglad" role="status">
       <strong>${formatZl(promocyjna)} ${zakres}</strong>
-      <span>${koniec ? `potem ${formatZl(normalna)} od ${formatData(koniec)} · ${okresy} ${okresy === 1 ? 'pełny okres' : okresy < 5 ? 'pełne okresy' : 'pełnych okresów'}`
-    + ' (i niepełny pierwszy, jeśli start nie przypada w dzień płatności)' : 'najem kończy się w trakcie promocji'}</span></div>`;
+      <span>${koniec ? `potem ${formatZl(normalna)} od ${formatData(koniec)} (${okresy} mies. od startu, do pełnego miesiąca)` : 'najem kończy się w trakcie promocji'}</span></div>`;
 }
 
 /** Opcje listy promocji (Ustawienia → Promocje). */

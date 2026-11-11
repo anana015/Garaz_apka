@@ -81,7 +81,7 @@ function formularzNowejPromocji(s) {
       <div class="pola-w-rzedzie">
         ${pole(f, { nazwa: 'rabat', etykieta: 'Rabat (%)', wymagane: true, atrybuty: 'inputmode="decimal"' })}
         ${pole(f, { nazwa: 'okresy', etykieta: 'Ile okresów', wymagane: true, atrybuty: 'inputmode="numeric"',
-          podpowiedz: 'Pierwszy niepełny okres (do 20.) jest dodatkowo w promocji.' })}
+          podpowiedz: 'Liczone od startu najmu i zaokrąglane do 1. dnia miesiąca (np. 2 mies. od 05.09 → do 31.10).' })}
       </div>`,
   });
 }
@@ -198,7 +198,7 @@ function formularzUstawien(s) {
         ${pole(f, { nazwa: 'expiring_days', etykieta: 'Ostrzeżenie o końcu umowy (dni wcześniej)', typ: 'number', wymagane: true,
           atrybuty: liczba })}
         ${pole(f, { nazwa: 'default_billing_day', etykieta: 'Dzień płatności nowych najmów', typ: 'number', wymagane: true,
-          podpowiedz: 'Pierwszy, niepełny okres liczy się proporcjonalnie do tego dnia.', atrybuty: 'min="1" max="31" inputmode="numeric"' })}
+          podpowiedz: 'Termin zapłaty za cały bieżący miesiąc. Okresy to miesiące kalendarzowe; niepełny pierwszy miesiąc – proporcjonalnie.', atrybuty: 'min="1" max="31" inputmode="numeric"' })}
         </div>
         ${opcje(f, { nazwa: 'default_last_period', legenda: 'Domyślny ostatni okres nowego najmu (Z8)', opcje: [
           { wartosc: 'proporcjonalnie', tekst: 'Proporcjonalnie do dni' }, { wartosc: 'pelny', tekst: 'Pełny okres' }] })}`)}

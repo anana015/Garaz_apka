@@ -39,8 +39,8 @@ export function czytajWarunki(w, { rabat: poleRabatu = 'rabat', okresy: poleOkre
 
 /**
  * Plan promocji dla najmu: od pierwszego okresu od dnia `od` przez `okresy` okresów.
- * Koniec = pierwszy okres od tego samego dnia płatności `okresy` okresów później, np. start 05.03,
- * dzień płatności 20, 2 okresy → promocja 05.03–19.05 (niepełny okres i dwa pełne), normalnie od 20.05.
+ * Okresy to miesiące kalendarzowe. Koniec = N miesięcy od startu, zaokrąglone do najbliższego 1. dnia miesiąca:
+ * start 01.09 → normalnie od 01.11; start 05.09 → od 01.11; start 20.09 → od 01.12 (zawsze ok. N miesięcy).
  * @returns {{ poczatek, koniec, promocyjnaGr } | null} null – najem kończy się przed `od`;
  *   koniec null – najem kończy się w trakcie promocji.
  */
@@ -49,7 +49,8 @@ export function planPromocji(najem, { normalnaGr, rabat, okresy, od = najem.star
   const poczatek = pierwszyOkresOd(najem, od < najem.start_on ? najem.start_on : od);
   if (!poczatek) return null;
   const dlugosc = najem.period_months ?? 1;
-  const koniec = pierwszyOkresOd(najem, dodajMiesiace(poczatek, okresy * dlugosc, najem.billing_day));
+  // N miesięcy od startu zaokrąglone do najbliższego początku miesiąca: koniec = pierwszy okres od (start + N mies. − 15 dni).
+  const koniec = pierwszyOkresOd(najem, dodajDni(dodajMiesiace(poczatek, okresy * dlugosc), -15));
   return { poczatek, koniec, promocyjnaGr: stawkaPromocyjna(normalnaGr, rabat) };
 }
 
