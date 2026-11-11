@@ -4,7 +4,7 @@
 //   #/najmy/<id>/koniec                          zakończenie najmu z rozliczeniem kaucji
 //   #/najmy/<id>/korekta                         korekta należności (rabat, umorzenie, dopłata)
 //   #/najmy/podwyzka                             zmiana stawek wielu najmów naraz
-//   #/najmy/<id>/promocja                        promocja: rabat % na N pierwszych okresów
+//   #/najmy/<id>/promocja                        promocja: rabat % na N pierwszych okresów (lista: js/promocje.js)
 //   #/najmy/<id>/platnosc                        gdzie płaci: przelew na konto, gotówka albo FV (decyzja 4)
 
 import { TYPY_JEDNOSTEK } from '../config.js';
@@ -13,14 +13,17 @@ import {
   formularz, kwotaPodgladu, maBledy, opcje, plik, pole, przelacznik, sekcja, stanFormularza, wartosciFormularza,
   wybor, zapisz,
 } from '../formularz.js';
-import { naleznosciNajmu, pierwszyOkresOd } from '../okresy.js';
+import { naleznosciNajmu } from '../okresy.js';
+import {
+  czytajWarunki, listaPromocji, nowaPozycja, opisWarunkow, planPromocji, wierszeStawek,
+} from '../promocje.js';
 import { pustyStan } from '../ui.js';
 import {
-  esc, dodajMiesiace, dzisiaj, formatData, formatZl, iso, kwotaDoPola, parseKwota, porownajKody,
+  esc, dodajDni, dodajMiesiace, dzisiaj, formatData, formatZl, iso, kwotaDoPola, parseKwota, porownajKody,
 } from '../utils.js';
 import {
   BANKI, OKRESY_ROZLICZENIOWE, POWODY_ZATRZYMANIA, TRYBY_STAWKI, saldoKaucji, walidujKoniec, walidujKorekte,
-  walidujMiejscePlatnosci, walidujNajem, walidujPdf, walidujPodwyzke, walidujZmianeStawki,
+  walidujMiejscePlatnosci, walidujNajem, walidujPdf, walidujPodwyzke, walidujZmianeStawki, zaznaczone,
 } from '../walidacja.js';
 import { ustawienia } from './wspolne.js';
 
@@ -128,6 +131,7 @@ function wartosciNowegoNajmu(s) {
     client_id: klient, unit_id: jednostka, start_on: dzien, billing_day: String(ustawienia(s).default_billing_day ?? 20),
     amount_gr: kwotaDoPola(cennik), period_months: '1', last_period: ustawienia(s).default_last_period,
     deposit_method: 'gotowka', pay_method: 'przelew', bank_account_id: '',
+    promo: '', promo_rabat: '50', promo_okresy: '2', promo_zapisz: '',
   };
 }
 
@@ -153,8 +157,8 @@ function formularzNowegoNajmu(s) {
           wymagane: true, pusta: 'Wybierz jednostkę…', odswiez: true })}
         <div class="pola-w-rzedzie">
           ${pole(f, { nazwa: 'start_on', etykieta: 'Data startu', typ: 'date', wymagane: true, odswiez: true })}
-          ${pole(f, { nazwa: 'amount_gr', etykieta: 'Stawka (zł / mies.)', typ: 'kwota', wymagane: true,
-            podpowiedz: 'Podpowiedź z cennika jednostki.' })}
+          ${pole(f, { nazwa: 'amount_gr', etykieta: 'Stawka (zł / mies.)', typ: 'kwota', wymagane: true, odswiez: true,
+            podpowiedz: 'Normalna stawka, podpowiedź z cennika jednostki.' })}
         </div>
         <div class="pola-w-rzedzie">
           ${pole(f, { nazwa: 'billing_day', etykieta: 'Dzień płatności', typ: 'number', wymagane: true,
@@ -163,6 +167,7 @@ function formularzNowegoNajmu(s) {
             opcje: OKRESY_ROZLICZENIOWE.map((m) => ({ wartosc: m, tekst: NAZWY_OKRESOW[m] })) })}
         </div>
         ${wybor(f, { nazwa: 'last_period', etykieta: 'Ostatni okres przy końcu najmu', opcje: OSTATNI_OKRES })}`)}
+      ${sekcja('Promocja', polaPromocjiNajmu(f, s))}
       ${sekcja('Płatność', polaPlatnosci(f, s))}
       ${sekcja('Umowa', `
         <div class="pola-w-rzedzie">
@@ -183,6 +188,59 @@ function formularzNowegoNajmu(s) {
         ${opcje(f, { nazwa: 'deposit_method', legenda: 'Forma kaucji', opcje: FORMY })}
         <p class="podpowiedz">Kaucja nie jest przychodem (Z26).</p>`)}`,
   });
+}
+
+/**
+ * Promocja wybrana w nowym najmie: { bledy, wybrana: null | { id, nazwa, rabat, okresy, nowa } }.
+ * '' = bez promocji, 'inna' = własne warunki (opcjonalnie dopisane do listy).
+ */
+function promocjaNowegoNajmu(w, s) {
+  if (!w.promo) return { bledy: {}, wybrana: null };
+  if (w.promo === 'inna') {
+    const { bledy, rabat, okresy } = czytajWarunki(w, { rabat: 'promo_rabat', okresy: 'promo_okresy' });
+    const nazwa = String(w.promo_nazwa ?? '').trim();
+    if (nazwa.length > 60) bledy.promo_nazwa = 'Nazwa do 60 znaków.';
+    if (Object.keys(bledy).length) return { bledy, wybrana: null };
+    const lista = listaPromocji(ustawienia(s));
+    const pozycja = nowaPozycja(lista, { nazwa, rabat, okresy });
+    return { bledy, wybrana: { ...pozycja, nazwa: nazwa || `promocja ${opisWarunkow({ rabat, okresy })}`, nowa: pozycja } };
+  }
+  const p = listaPromocji(ustawienia(s)).find((x) => x.id === w.promo);
+  if (!p) return { bledy: { promo: 'Tej promocji nie ma już na liście. Wybierz inną.' }, wybrana: null };
+  return { bledy: {}, wybrana: { ...p, rabat: Number(p.rabat), okresy: Number(p.okresy), nowa: null } };
+}
+
+/** Najem z pól formularza – do wyliczenia końca promocji przed zapisem. */
+function najemZFormularza(w, s) {
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(w.start_on ?? '') ? w.start_on : null;
+  const dzien = Number(w.billing_day || ustawienia(s).default_billing_day || 20);
+  const okres = Number(w.period_months || 1);
+  if (!start || !Number.isInteger(dzien) || dzien < 1 || dzien > 31 || !OKRESY_ROZLICZENIOWE.includes(okres)) return null;
+  return { id: 'nowy', start_on: start, end_on: null, billing_day: dzien, period_months: okres };
+}
+
+function polaPromocjiNajmu(f, s) {
+  const w = f.wartosci;
+  const opcjeListy = [...opcjePromocji(s), { wartosc: 'inna', tekst: 'Inna…' }];
+  let html = wybor(f, { nazwa: 'promo', etykieta: 'Promocja', opcje: opcjeListy, pusta: 'Bez promocji', odswiez: true,
+    podpowiedz: 'Obniżona stawka na pierwsze okresy, potem stawka z pola „Stawka”. Listę zmienisz w Ustawieniach → Promocje.' });
+  if (w.promo === 'inna') {
+    html += `${pole(f, { nazwa: 'promo_nazwa', etykieta: 'Nazwa promocji', atrybuty: 'maxlength="60"',
+      podpowiedz: 'Np. „Zniżka dla stałego klienta”. Puste = opis z rabatu.' })}
+      <div class="pola-w-rzedzie">
+        ${pole(f, { nazwa: 'promo_rabat', etykieta: 'Rabat (%)', wymagane: true, odswiez: true, atrybuty: 'inputmode="decimal"' })}
+        ${pole(f, { nazwa: 'promo_okresy', etykieta: 'Ile okresów', wymagane: true, odswiez: true, atrybuty: 'inputmode="numeric"' })}
+      </div>
+      ${przelacznik(f, { nazwa: 'promo_zapisz', etykieta: 'Dodaj tę promocję do listy' })}`;
+  }
+  const { wybrana } = promocjaNowegoNajmu(w, s);
+  const najem = najemZFormularza(w, s);
+  const normalna = parseKwota(w.amount_gr);
+  if (wybrana && najem && normalna > 0) {
+    const plan = planPromocji(najem, { normalnaGr: normalna, rabat: wybrana.rabat, okresy: wybrana.okresy });
+    if (plan) html += podgladPromocji(plan.promocyjnaGr, wybrana.okresy, plan.poczatek, normalna, plan.koniec);
+  }
+  return html;
 }
 
 /** Podpowiedzi przy zmianie pól (8.6): stawka z cennika, dzień płatności z daty startu, PDF od razu sprawdzony. */
@@ -209,13 +267,29 @@ async function zapiszNajem(form, ctx) {
   const w = wartosciFormularza(form);
   const umowaPdf = f.pliki.pdf ?? null;
   const wynik = walidujNajem(w, { indeksy: s.indeksy, ustawienia: ustawienia(s), plik: umowaPdf });
-  if (maBledy(ctx, w, wynik.bledy)) return;
+  const promocja = promocjaNowegoNajmu(w, s);
+  if (maBledy(ctx, w, { ...(wynik.bledy ?? {}), ...promocja.bledy })) return;
+  if (promocja.wybrana) {
+    // Stawka startowa → obniżona od startu + normalna od końca promocji (dwa wiersze rental_rates w tym samym pakiecie).
+    const najem = wynik.pakiet.rentals[0];
+    const normalna = wynik.pakiet.rental_rates[0].amount_gr;
+    const plan = planPromocji(najem, { normalnaGr: normalna, rabat: promocja.wybrana.rabat, okresy: promocja.wybrana.okresy });
+    wynik.pakiet.rental_rates = wierszeStawek(najem.id, plan, normalna, promocja.wybrana.nazwa);
+  }
   const jednostka = s.indeksy.jednostki.get(w.unit_id);
   const klientId = w.client_id;
 
   await zapisz(ctx, async () => {
     ctx.scal(await ctx.db.zapiszPakiet(wynik.pakiet));
-    let komunikat = `Dodano najem ${jednostka.code}`;
+    let komunikat = `Dodano najem ${jednostka.code}${promocja.wybrana ? ` z promocją „${promocja.wybrana.nazwa}”` : ''}`;
+    if (promocja.wybrana?.nowa && zaznaczone(w.promo_zapisz)) {
+      try {
+        const lista = [...listaPromocji(ustawienia(s)), promocja.wybrana.nowa];
+        ctx.scal({ settings: await ctx.db.zapiszUstawienia(s.uzytkownik.id, { promotions: lista }) });
+      } catch (e) {
+        komunikat += `, ale promocja nie została dodana do listy (${e.message})`;
+      }
+    }
     // Domyślnie baza zapisuje „przelew, konto nieustalone”; inne miejsce płatności – osobna zmiana najmu.
     if (wynik.platnosc.pay_method !== 'przelew' || wynik.platnosc.bank_account_id) {
       try {
@@ -540,45 +614,58 @@ async function zapiszKorekte(form, ctx) {
 // okresu po promocji. Stawki wpisane w trakcie promocji są usuwane, późniejsze zostają.
 // ---------------------------------------------------------------------
 
+/** Powód stawki: nazwa promocji z listy (gdy warunki się zgadzają) albo „promocja −50% (2 okr.)”. */
+function powodPromocji(s, id, { rabat, okresy }) {
+  const p = listaPromocji(ustawienia(s)).find((x) => x.id === id);
+  return p && Number(p.rabat) === rabat && Number(p.okresy) === okresy ? p.nazwa : `promocja ${opisWarunkow({ rabat, okresy })}`;
+}
+
 /** Wylicza promocję albo zwraca { bledy }. */
 function policzPromocje(w, k) {
-  const bledy = {};
+  const { bledy, rabat, okresy } = czytajWarunki(w);
   const normalna = parseKwota(w.normalna);
   if (normalna == null || normalna <= 0) bledy.normalna = 'Podaj normalną stawkę.';
-  const rabat = Number(String(w.rabat ?? '').replace(',', '.'));
-  if (!(rabat > 0 && rabat < 100)) bledy.rabat = 'Rabat od 1 do 99%.';
-  const okresy = Number(w.okresy);
-  if (!Number.isInteger(okresy) || okresy < 1 || okresy > 24) bledy.okresy = 'Od 1 do 24 okresów.';
   const od = /^\d{4}-\d{2}-\d{2}$/.test(w.od ?? '') ? w.od : null;
   if (!od) bledy.od = 'Podaj datę.';
   else if (od < k.najem.start_on) bledy.od = `Najem zaczyna się ${formatData(k.najem.start_on)}.`;
   if (Object.keys(bledy).length) return { bledy };
 
-  const poczatek = pierwszyOkresOd(k.najem, od);
-  if (!poczatek) return { bledy: { od: 'Najem kończy się przed tą datą.' } };
-  const dlugosc = k.najem.period_months ?? 1;
-  const koniecPromocji = pierwszyOkresOd(k.najem, dodajMiesiace(poczatek, okresy * dlugosc, k.najem.billing_day));
-  const promocyjna = Math.round((normalna * (100 - rabat)) / 100 / 100) * 100;   // do pełnych złotych
-  return { bledy, normalna, rabat, okresy, poczatek, koniecPromocji, promocyjna };
+  const plan = planPromocji(k.najem, { normalnaGr: normalna, rabat, okresy, od });
+  if (!plan) return { bledy: { od: 'Najem kończy się przed tą datą.' } };
+  return { bledy, normalna, rabat, okresy, poczatek: plan.poczatek, koniecPromocji: plan.koniec, promocyjna: plan.promocyjnaGr, plan };
 }
+
+/** Podgląd promocji: „100 zł od 05.11.2026 do 19.01.2027 (niepełny okres i 2 pełne)”, „potem 200 zł od 20.01.2027”. */
+function podgladPromocji(promocyjna, okresy, poczatek, normalna, koniec) {
+  const zakres = koniec ? `od ${formatData(poczatek)} do ${formatData(dodajDni(koniec, -1))}` : `od ${formatData(poczatek)}`;
+  return `<div class="podglad" role="status">
+      <strong>${formatZl(promocyjna)} ${zakres}</strong>
+      <span>${koniec ? `potem ${formatZl(normalna)} od ${formatData(koniec)} · ${okresy} ${okresy === 1 ? 'pełny okres' : okresy < 5 ? 'pełne okresy' : 'pełnych okresów'}`
+    + ' (i niepełny pierwszy, jeśli start nie przypada w dzień płatności)' : 'najem kończy się w trakcie promocji'}</span></div>`;
+}
+
+/** Opcje listy promocji (Ustawienia → Promocje). */
+const opcjePromocji = (s) => listaPromocji(ustawienia(s)).map((p) => ({ wartosc: p.id, tekst: `${p.nazwa} (${opisWarunkow(p)})` }));
 
 function formularzPromocji(s, k) {
   const dzien = dzisiaj();
   const obecna = stawkaNaDzien(k.stawki, najemTrwa(k.najem, dzien) ? dzien : k.najem.start_on);
   const cennik = k.jednostka?.list_price_gr ?? null;
+  const pierwsza = listaPromocji(ustawienia(s))[0];
   const f = stanFormularza(s, `najmy/${k.najem.id}/promocja`, () => ({
-    normalna: kwotaDoPola(Math.max(cennik ?? 0, obecna ?? 0) || null), rabat: '50', okresy: '2', od: k.najem.start_on,
+    szablon: pierwsza?.id ?? '', normalna: kwotaDoPola(Math.max(cennik ?? 0, obecna ?? 0) || null),
+    rabat: String(pierwsza?.rabat ?? 50), okresy: String(pierwsza?.okresy ?? 2), od: k.najem.start_on,
   }));
   const p = policzPromocje(f.wartosci, k);
-  const podglad = p.promocyjna != null ? `<div class="podglad" role="status">
-      <strong>${formatZl(p.promocyjna)} przez ${p.okresy} ${p.okresy === 1 ? 'okres' : p.okresy < 5 ? 'okresy' : 'okresów'} od ${formatData(p.poczatek)}</strong>
-      <span>${p.koniecPromocji ? `potem ${formatZl(p.normalna)} od ${formatData(p.koniecPromocji)}` : 'najem kończy się w trakcie promocji'}</span></div>` : '';
+  const podglad = p.promocyjna != null ? podgladPromocji(p.promocyjna, p.okresy, p.poczatek, p.normalna, p.koniecPromocji) : '';
   return `${naglowekNajmu(s, k)}
     ${formularz(f, {
     nazwa: 'promocja', przycisk: 'Zapisz promocję',
     anuluj: k.klient ? `#/klienci/${encodeURIComponent(k.klient.id)}` : '#/klienci',
     uwaga: 'Promocja zapisze się jako stawki w historii najmu. Stawki wpisane na czas promocji zostaną zastąpione.',
     tresc: `
+      ${wybor(f, { nazwa: 'szablon', etykieta: 'Promocja', opcje: opcjePromocji(s), pusta: 'Własne warunki', odswiez: true,
+    podpowiedz: 'Listę zmienisz w Ustawieniach → Promocje.' })}
       <div class="pola-w-rzedzie">
         ${pole(f, { nazwa: 'normalna', etykieta: 'Normalna stawka (zł)', typ: 'kwota', wymagane: true, odswiez: true,
     podpowiedz: cennik ? `Cena z cennika: ${formatZl(cennik)}` : null })}
@@ -602,11 +689,7 @@ async function zapiszPromocje(form, ctx) {
     // Stawki wpisane w trakcie promocji (po jej początku, przed końcem) – usuwamy, żeby nie nadpisały rabatu.
     const wSrodku = k.stawki.filter((st) => st.valid_from > p.poczatek && (!p.koniecPromocji || st.valid_from < p.koniecPromocji));
     for (const st of wSrodku) await ctx.db.usun('rental_rates', st.id);
-    const powod = `promocja −${p.rabat}% (${p.okresy} ${p.okresy === 1 ? 'okres' : 'okr.'})`;
-    const wiersze = [{ rental_id: k.najem.id, valid_from: p.poczatek, amount_gr: p.promocyjna, reason: powod }];
-    if (p.koniecPromocji) {
-      wiersze.push({ rental_id: k.najem.id, valid_from: p.koniecPromocji, amount_gr: p.normalna, reason: 'koniec promocji' });
-    }
+    const wiersze = wierszeStawek(k.najem.id, p.plan, p.normalna, powodPromocji(s, w.szablon, p));
     const zapisane = await ctx.db.zapiszWiele('rental_rates', wiersze, 'rental_id,valid_from');
     const usuniete = new Set(wSrodku.map((st) => st.id));
     s.dane = { ...s.dane, rental_rates: s.dane.rental_rates.filter((st) => !usuniete.has(st.id)) };
@@ -680,6 +763,12 @@ export default {
 
   przyZmianie: {
     najem: przyZmianieNajmu,
+    /** Wybór promocji z listy wpisuje jej rabat i liczbę okresów. */
+    promocja(nazwa, f, s) {
+      if (nazwa !== 'szablon') return;
+      const p = listaPromocji(ustawienia(s)).find((x) => x.id === f.wartosci.szablon);
+      if (p) Object.assign(f.wartosci, { rabat: String(p.rabat).replace('.', ','), okresy: String(p.okresy) });
+    },
     /** Zmiana typu jednostek w podwyżce zbiorczej: zaznacz wszystkie najmy tego typu, wyczyść podgląd. */
     podwyzka(nazwa, f, s) {
       if (nazwa !== 'typ') return;

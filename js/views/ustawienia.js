@@ -1,13 +1,15 @@
 // Ustawienia (8.8): konta bankowe, rozliczenia, podatek, dane i konto.
 // Adresy: #/ustawienia, #/ustawienia/edycja, #/ustawienia/konto/nowe, #/ustawienia/konto/<id>,
 //         #/ustawienia/dane-startowe (import z szablonów CSV, 7.5 – views/startowe.js),
-//         #/ustawienia/kopia (wczytanie kopii zapasowej JSON, rozdz. 10)
+//         #/ustawienia/kopia (wczytanie kopii zapasowej JSON, rozdz. 10),
+//         #/ustawienia/promocja/nowa (dodanie promocji do listy w nowym najmie)
 
 import { WERSJA, DNI_PRZYPOMNIENIA_KOPII } from '../config.js';
 import {
   formularz, maBledy, opcje, pole, przelacznik, sekcja, stanFormularza, wartosciFormularza, wybor, zapisz,
 } from '../formularz.js';
 import { nazwaPlikuKopii, sprawdzKopie, zbudujKopie } from '../kopia.js';
+import { czytajWarunki, DOMYSLNE_PROMOCJE, listaPromocji, nowaPozycja, opisWarunkow } from '../promocje.js';
 import { pobierzPlik, przycisk, pustyStan } from '../ui.js';
 import {
   esc, dzisiaj, dataZeZnacznika, formatData, formatZl, formatProcentBp, formatRachunek, kwotaDoPola, roznicaDni,
@@ -37,6 +39,71 @@ function kontaBankowe(s) {
   return lista + `<div class="pasek-akcji">${przycisk({ tekst: 'Dodaj konto', href: '#/ustawienia/konto/nowe', drugi: true, ikona: 'plus' })}</div>`;
 }
 
+/** Lista promocji do wyboru w nowym najmie i w formularzu promocji (settings.promotions). */
+function listaPromocjiKarta(s) {
+  const lista = listaPromocji(ustawienia(s));
+  const html = lista.length
+    ? `<ul class="lista">${lista.map((p) => `<li><div class="wiersz"><div class="glowna"><strong>${esc(p.nazwa)}</strong>
+        <span>${esc(opisWarunkow(p))}</span></div>
+        <div class="prawa"><button type="button" class="link-btn" data-akcja="usun-promocje" data-id="${esc(p.id)}"
+          aria-label="Usuń promocję ${esc(p.nazwa)}">Usuń</button></div></div></li>`).join('')}</ul>`
+    : '<p class="wyciszony">Lista jest pusta – w nowym najmie zostaje „Bez promocji” i „Inna…”.</p>';
+  return `${html}<div class="pasek-akcji">
+      ${przycisk({ tekst: 'Dodaj promocję', href: '#/ustawienia/promocja/nowa', drugi: true, ikona: 'plus' })}
+      ${Array.isArray(ustawienia(s).promotions) ? '<button type="button" class="przycisk drugi" data-akcja="domyslne-promocje">Przywróć domyślne</button>' : ''}
+    </div>
+    <p class="podpowiedz">Promocja zapisuje się przy najmie jako obniżona stawka na pierwsze okresy i powrót do normalnej stawki.
+      Usunięcie z listy nie zmienia najmów, które już ją mają.</p>`;
+}
+
+/** Zapis listy promocji (null = lista domyślna). Wymaga migracji 007. */
+async function zapiszListePromocji(ctx, lista, komunikat) {
+  const s = ctx.state;
+  if (s.podglad || s.offline || s.zKopii || !s.uzytkownik) {
+    ctx.toast('Zapis wymaga połączenia z serwerem.');
+    return;
+  }
+  try {
+    ctx.scal({ settings: await ctx.db.zapiszUstawienia(s.uzytkownik.id, { promotions: lista }) });
+    ctx.toast(komunikat);
+  } catch (e) {
+    ctx.toast(`Nie zapisano listy promocji: ${e.message}`);
+  }
+}
+
+function formularzNowejPromocji(s) {
+  const f = stanFormularza(s, 'ustawienia/promocja/nowa', () => ({ nazwa: '', rabat: '50', okresy: '1' }));
+  return formularz(f, {
+    nazwa: 'nowa-promocja', przycisk: 'Dodaj do listy', anuluj: '#/ustawienia',
+    tresc: `
+      ${pole(f, { nazwa: 'nazwa', etykieta: 'Nazwa', wymagane: true, atrybuty: 'maxlength="60"',
+        podpowiedz: 'Tak będzie widoczna na liście i w historii stawek, np. „Zniżka na pierwszy miesiąc”.' })}
+      <div class="pola-w-rzedzie">
+        ${pole(f, { nazwa: 'rabat', etykieta: 'Rabat (%)', wymagane: true, atrybuty: 'inputmode="decimal"' })}
+        ${pole(f, { nazwa: 'okresy', etykieta: 'Ile okresów', wymagane: true, atrybuty: 'inputmode="numeric"',
+          podpowiedz: 'Pierwszy niepełny okres (do 20.) jest dodatkowo w promocji.' })}
+      </div>`,
+  });
+}
+
+async function zapiszNowaPromocje(form, ctx) {
+  const s = ctx.state;
+  const w = wartosciFormularza(form);
+  const { bledy, rabat, okresy } = czytajWarunki(w);
+  const nazwa = String(w.nazwa ?? '').trim();
+  if (!nazwa) bledy.nazwa = 'Podaj nazwę.';
+  else if (nazwa.length > 60) bledy.nazwa = 'Nazwa do 60 znaków.';
+  const lista = listaPromocji(ustawienia(s));
+  if (nazwa && lista.some((p) => p.nazwa.toLowerCase() === nazwa.toLowerCase())) bledy.nazwa = 'Promocja o tej nazwie już jest.';
+  if (maBledy(ctx, w, bledy)) return;
+  await zapisz(ctx, async () => {
+    const pozycja = nowaPozycja(lista, { nazwa, rabat, okresy });
+    ctx.scal({ settings: await ctx.db.zapiszUstawienia(s.uzytkownik.id, { promotions: [...lista, pozycja] }) });
+    ctx.toast(`Dodano promocję „${pozycja.nazwa}”`);
+    ctx.nawiguj('ustawienia');
+  });
+}
+
 /** Pasek „Ostatnia kopia: [data]. Zapisz nową” po 30 dniach (rozdz. 10). */
 function przypomnienieKopii(u) {
   if (!u.last_backup_at) return '<div class="baner ostrzezenie">Nie zapisano jeszcze kopii zapasowej.</div>';
@@ -60,6 +127,7 @@ function przeglad(s) {
           ${przycisk({ tekst: 'Zmień stawki wielu najmów', href: '#/najmy/podwyzka', drugi: true })}
         </div>
         <p class="podpowiedz">Dane pojedynczej jednostki zmienisz w jej szczegółach (Jednostki → jednostka → Edytuj).</p>`)}
+      ${sekcjaKarty('promocje', 'Promocje', listaPromocjiKarta(s))}
       ${sekcjaKarty('rozliczenia', 'Rozliczenia', pola([
         ['Tolerancja terminowości', `${u.tolerance_days} dni`],
         ['Okno terminowości', `${u.punctuality_months} mies.`],
@@ -268,6 +336,7 @@ export default {
     if (parametr === 'konto') return akcja === 'nowe' ? 'Nowe konto' : 'Konto bankowe';
     if (parametr === 'dane-startowe') return startowe.tytul(s);
     if (parametr === 'kopia') return 'Wczytaj kopię';
+    if (parametr === 'promocja') return 'Nowa promocja';
     return 'Ustawienia';
   },
 
@@ -278,6 +347,7 @@ export default {
     if (parametr === 'edycja') return formularzUstawien(s);
     if (parametr === 'dane-startowe') return startowe.render(s);
     if (parametr === 'kopia') return ekranKopii(s);
+    if (parametr === 'promocja') return formularzNowejPromocji(s);
     if (parametr === 'konto') {
       const konto = akcja === 'nowe' ? null : s.indeksy.konta.get(akcja);
       if (akcja !== 'nowe' && !konto) return pustyStan('Nie znaleziono konta.', [{ tekst: 'Ustawienia', href: '#/ustawienia' }]);
@@ -289,6 +359,17 @@ export default {
   akcje: {
     kopia: (_el, ctx) => zapiszKopie(ctx),
     eksport: (el, ctx) => pobierzEksport(ctx.state, el.dataset.rodzaj),
+    'usun-promocje'(el, ctx) {
+      const lista = listaPromocji(ustawienia(ctx.state));
+      const p = lista.find((x) => x.id === el.dataset.id);
+      if (!p) return;
+      el.setAttribute('aria-disabled', 'true');
+      zapiszListePromocji(ctx, lista.filter((x) => x.id !== p.id), `Usunięto promocję „${p.nazwa}” z listy`);
+    },
+    'domyslne-promocje'(el, ctx) {
+      el.setAttribute('aria-disabled', 'true');
+      zapiszListePromocji(ctx, null, `Przywrócono domyślne promocje (${DOMYSLNE_PROMOCJE.length})`);
+    },
     async wyloguj(el, ctx) {
       el.setAttribute('aria-disabled', 'true');
       try {
@@ -319,6 +400,7 @@ export default {
   formularze: {
     ustawienia: zapiszUstawienia,
     konto: zapiszKonto,
+    'nowa-promocja': zapiszNowaPromocje,
     /** Wczytanie kopii: najpierw plik z obecnymi danymi, potem zastąpienie wszystkiego w jednej transakcji. */
     async kopia(form, ctx) {
       const f = ctx.state.ui.form;

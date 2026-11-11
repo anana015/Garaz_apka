@@ -7,7 +7,7 @@ export const CONFIG = Object.freeze({
   supabaseKey: 'sb_publishable_aFlZhbycefQPMj6imB3jFQ_KSLQmZ28',   // klucz publiczny (publishable)
 });
 
-export const WERSJA = '0.9.0';
+export const WERSJA = '0.10.0';
 
 /** Tabele z rozdziału 4 – kolejność nie ma znaczenia, służy do pobierania i kopii zapasowej. */
 export const TABELE = Object.freeze([
@@ -50,6 +50,7 @@ export const DOMYSLNE_USTAWIENIA = Object.freeze({
   tax_account: null,
   data_start: '2026-01-01',
   last_backup_at: null,
+  promotions: null,          // lista promocji (js/promocje.js); null = domyślna, migracja 007
 });
 
 export const TOAST_MS = 2600;           // 12.2

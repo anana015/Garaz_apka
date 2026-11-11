@@ -2,7 +2,7 @@
 
 Aplikacja PWA do śledzenia czynszów za jednostki magazynowe: kto zapłacił, kto zalega, ile wpłynęło i ile ryczałtu zapłacić. Specyfikacja: „Najem magazynów – specyfikacja” v0.1 (projekt „Magazyny – apka, obsługa”).
 
-**Stan (0.9.0):** kroki 1a–1d zaimplementowane – Raporty, ryczałt kwartalny (`js/podatek.js`), eksporty CSV (`js/eksport.js`), kopia zapasowa JSON (`js/kopia.js` + funkcja `wczytaj_kopie`, migracja 004) i tryb offline (kopia ostatnio pobranych danych w IndexedDB, tylko odczyt). „Gdzie płaci” przy najmie i usuwanie wpłaty gotówką (0.7.1); prostszy widok z trybem „Edytuj” i jednostkami w Ustawieniach (0.7.2). Profile wyciągów: Nest Bank, Millennium, PKO BP, Alior; inne banki – ręczne mapowanie kolumn (0.8.0). Ręczny przelew, dzień płatności 20., wypowiedzenie, wpłata za jednostkę, ręczna kwota okresu (0.9.0). Szczegóły: dokument „stan-kodu” w projekcie.
+**Stan (0.10.0):** kroki 1a–1d zaimplementowane – Raporty, ryczałt kwartalny (`js/podatek.js`), eksporty CSV (`js/eksport.js`), kopia zapasowa JSON (`js/kopia.js` + funkcja `wczytaj_kopie`, migracja 004) i tryb offline (kopia ostatnio pobranych danych w IndexedDB, tylko odczyt). „Gdzie płaci” przy najmie i usuwanie wpłaty gotówką (0.7.1); prostszy widok z trybem „Edytuj” i jednostkami w Ustawieniach (0.7.2). Profile wyciągów: Nest Bank, Millennium, PKO BP, Alior; inne banki – ręczne mapowanie kolumn (0.8.0). Ręczny przelew, dzień płatności 20., wypowiedzenie, wpłata za jednostkę, ręczna kwota okresu (0.9.0). Promocje: wybór w nowym najmie, lista w Ustawieniach → Promocje (0.10.0). Szczegóły: dokument „stan-kodu” w projekcie.
 
 ## Uruchomienie lokalne
 
@@ -27,6 +27,7 @@ Otwórz <http://localhost:8080>. Bez konfiguracji Supabase aplikacja działa w *
    | `004_wczytaj_kopie.sql` | funkcja `wczytaj_kopie` – wczytanie kopii zapasowej JSON w jednej transakcji | 0.7.0 – bez niej „Wczytaj kopię” pokaże komunikat o brakującej funkcji |
    | `005_mapowanie_csv.sql` | kolumna `bank_accounts.csv_mapping` – ręczne mapowanie kolumn wyciągu zapamiętane przy koncie | 0.8.0 – bez niej kolumny trzeba wskazywać przy każdym wyciągu |
    | `006_dzien_20_wypowiedzenie_jednostka.sql` | **raz**: wszystkie najmy płatne 20.; `settings.default_billing_day`; wypowiedzenie (`rentals.notice_given_on`, `notice_end_on`); wpłata za jednostkę (`payments.rental_id`) | 0.9.0 – bez niej nie zapiszą się ustawienia, wypowiedzenie ani „Za jednostkę” |
+   | `007_promocje.sql` | lista promocji (`settings.promotions`, null = domyślna) | 0.10.0 – bez niej działa lista domyślna, ale nie da się jej zmienić |
 3. W **Authentication**:
    - wyłącz zakładanie nowych kont (sign-ups) – aplikacja ma jednego użytkownika,
    - dodaj użytkownika (e-mail i hasło) w zakładce **Users**,
@@ -82,6 +83,7 @@ fonts/                 Bricolage Grotesque, Source Sans 3, IBM Plex Mono (OFL 1.
 icons/                 ikony PWA 192, 512, maskable, apple-touch-icon, SVG
 supabase/schema.sql    schemat bazy (stan uruchomiony w Supabase 10.11.2026)
 supabase/migracje/     zmiany schematu po kolei: 001_…, 002_…
+supabase/jednorazowe/  skrypty uruchamiane raz na danych (np. promocja_startowa_boxy.sql – najpierw podgląd)
 tests/                 node --test
 ```
 
