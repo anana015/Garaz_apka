@@ -588,3 +588,42 @@ details.grupa > .jednostki { padding-bottom: 12px; }
 .opcje-edycji .pasek-akcji { margin-bottom: 8px; }
 .opcje-edycji .podpowiedz { margin-top: 0; }
 [data-akcja="tryb-edycji"][aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+
+/* Karta klienta w trybie „Edytuj”: zwarte ustawienia z rozwijanymi grupami (0.11.0) */
+.ustawienia-klienta { max-width: 720px; }
+.ustawienia-klienta .naglowek-grup {
+  margin: 16px 0 4px; font-size: .8rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+}
+.grupa-ustawien { border-top: 1px solid var(--line); }
+.ustawienia-klienta .podpowiedz + .grupa-ustawien, .naglowek-grup + .grupa-ustawien { border-top: 0; }
+.grupa-ustawien > summary {
+  display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 2px;
+  cursor: pointer; list-style: none;
+}
+.grupa-ustawien > summary::-webkit-details-marker { display: none; }
+.grupa-ustawien > summary::after {
+  content: ""; flex: none; width: 8px; height: 8px; margin-right: 6px;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform .15s;
+}
+.grupa-ustawien[open] > summary::after { transform: rotate(45deg); }
+.grupa-ustawien > summary:hover { background: var(--surface-2); }
+.grupa-ustawien > summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.grupa-ustawien > summary .glowna { flex: 1; min-width: 0; }
+.grupa-ustawien > summary .glowna > strong { display: block; font-weight: 600; }
+.grupa-ustawien > summary .glowna > span {
+  display: block; color: var(--muted); font-size: .875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.grupa-ustawien .tresc { padding: 0 2px 14px; }
+.grupa-ustawien .tresc > .opis-pol { margin-bottom: 10px; }
+.menu-ustawien {
+  list-style: none; margin: 0 0 10px; padding: 0; border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden;
+}
+.menu-ustawien > li + li { border-top: 1px solid var(--line); }
+.menu-ustawien .pozycja {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; padding: 8px 12px;
+  border: 0; background: var(--surface); color: var(--accent); font: inherit; font-weight: 600; text-align: left;
+  text-decoration: none; cursor: pointer;
+}
+.menu-ustawien .pozycja:hover { background: var(--surface-2); }
+.menu-ustawien .pozycja .wartosc { color: var(--muted); font-weight: 400; font-size: .875rem; text-align: right; }
+.ustawienia-klienta > .menu-ustawien { margin-top: 8px; }

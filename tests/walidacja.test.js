@@ -4,7 +4,7 @@ import { zbudujIndeksy } from '../js/dane.js';
 import { naleznosciNajmu, pierwszyOkresOd } from '../js/okresy.js';
 import {
   walidujJednostke, walidujKlienta, walidujNajem, kolizjaNajmu, walidujPdf, nowaStawka, walidujZmianeStawki,
-  walidujPodwyzke, saldoKaucji, walidujKoniec, walidujKorekte, walidujUstawienia, walidujKonto,
+  walidujPodwyzke, saldoKaucji, walidujKoniec, walidujKorekte, walidujUstawienia, walidujKonto, walidujKaucje,
 } from '../js/walidacja.js';
 import { DOMYSLNE_USTAWIENIA } from '../js/config.js';
 
@@ -14,6 +14,7 @@ const dane = {
     { id: 'u1', code: 'G-03', type: 'garaz', list_price_gr: 30000 },
     { id: 'u2', code: 'B-12', type: 'box_duzy', list_price_gr: 15000 },
     { id: 'u3', code: 'K-01', type: 'kontener', out_of_service: true },
+    { id: 'u4', code: 'G-07', type: 'garaz', list_price_gr: 15000 },
   ],
   clients: [{ id: 'k1', name: 'Jan Nowak', nip: '5260250274' }, { id: 'k2', name: 'Anna Kowalska' }],
   contracts: [{ id: 'c1', client_id: 'k1', number: 'U/1/2026' }],
@@ -61,7 +62,7 @@ test('najem: jednostka wolna od daty startu, kolizje opisane, wyłączona jednos
 
 test('najem: pakiet z nową umową, stawką od startu, kaucją; dzień płatności z ustawień', () => {
   const { bledy, pakiet } = walidujNajem({
-    client_id: 'k2', unit_id: 'u2', number: 'U/7/2026', signed_on: '2026-11-08', start_on: '2026-11-10',
+    client_id: 'k2', unit_id: 'u4', number: 'U/7/2026', signed_on: '2026-11-08', start_on: '2026-11-10',
     amount_gr: '150', billing_day: '', period_months: '1', deposit_gr: '300', deposit_method: 'gotowka',
   }, { indeksy, ustawienia: DOMYSLNE_USTAWIENIA, noweId });
   assert.deepEqual(bledy, {});
@@ -72,6 +73,23 @@ test('najem: pakiet z nową umową, stawką od startu, kaucją; dzień płatnoś
   assert.equal(najem.last_period, 'proporcjonalnie', 'domyślnie z Ustawień');
   assert.deepEqual(pakiet.rental_rates, [{ rental_id: najem.id, valid_from: '2026-11-10', amount_gr: 15000, reason: 'start' }]);
   assert.deepEqual(pakiet.deposits[0], { contract_id: umowa.id, kind: 'przyjecie', amount_gr: 30000, method: 'gotowka', on_date: '2026-11-08' });
+});
+
+test('najem boxu: bez kaucji, nawet gdy pole kaucji jest wypełnione', () => {
+  const { bledy, pakiet } = walidujNajem({
+    client_id: 'k2', unit_id: 'u2', start_on: '2026-11-10', amount_gr: '150', deposit_gr: 'abc', deposit_method: 'gotowka',
+  }, { indeksy, ustawienia: DOMYSLNE_USTAWIENIA, noweId });
+  assert.deepEqual(bledy, {});
+  assert.deepEqual(pakiet.deposits, []);
+});
+
+test('kaucja dopisana później: umowa, kwota > 0, data nie w przyszłości', () => {
+  const umowy = [{ id: 'c1' }];
+  assert.deepEqual(walidujKaucje({ contract_id: 'c1', amount_gr: '300', on_date: '2026-11-01', method: 'przelew' }, { umowy, dzis: DZIS }),
+    { bledy: {}, wiersz: { contract_id: 'c1', kind: 'przyjecie', amount_gr: 30000, method: 'przelew', on_date: '2026-11-01' } });
+  const zle = walidujKaucje({ contract_id: 'x', amount_gr: '0', on_date: '2026-12-01' }, { umowy, dzis: DZIS });
+  assert.deepEqual(Object.keys(zle.bledy).sort(), ['amount_gr', 'contract_id', 'on_date']);
+  assert.equal(zle.wiersz, null);
 });
 
 test('najem: ten sam numer umowy u klienta dopisuje jednostkę do istniejącej umowy', () => {

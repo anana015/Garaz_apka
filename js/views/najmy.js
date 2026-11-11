@@ -7,7 +7,7 @@
 //   #/najmy/<id>/promocja                        promocja: rabat % na N pierwszych okresów (lista: js/promocje.js)
 //   #/najmy/<id>/platnosc                        gdzie płaci: przelew na konto, gotówka albo FV (decyzja 4)
 
-import { TYPY_JEDNOSTEK } from '../config.js';
+import { TYPY_JEDNOSTEK, bezKaucji } from '../config.js';
 import { biezacyNajem, MIEJSCA_PLATNOSCI, najemTrwa, opisPlatnosci, stawkaNaDzien } from '../dane.js';
 import {
   formularz, kwotaPodgladu, maBledy, opcje, plik, pole, przelacznik, sekcja, stanFormularza, wartosciFormularza,
@@ -180,7 +180,8 @@ function formularzNowegoNajmu(s) {
           ${pole(f, { nazwa: 'notice_period', etykieta: 'Okres wypowiedzenia', podpowiedz: 'Informacyjnie, np. 1 miesiąc.' })}
         </div>
         ${plik(f, { nazwa: 'pdf', etykieta: 'Umowa (PDF, do 10 MB)', akceptuj: 'application/pdf,.pdf' })}`)}
-      ${sekcja('Kaucja', `
+      ${sekcja('Kaucja', bezKaucji(s.indeksy.jednostki.get(f.wartosci.unit_id)?.type)
+    ? '<p class="podpowiedz">Boxy wynajmujemy bez kaucji.</p>' : `
         <div class="pola-w-rzedzie">
           ${pole(f, { nazwa: 'deposit_gr', etykieta: 'Kwota kaucji (zł)', typ: 'kwota', podpowiedz: 'Puste = bez kaucji.' })}
           ${pole(f, { nazwa: 'deposit_on', etykieta: 'Data przyjęcia', typ: 'date', podpowiedz: 'Domyślnie data podpisania albo startu.' })}

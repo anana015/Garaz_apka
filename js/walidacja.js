@@ -3,7 +3,7 @@
 // bledy = { [nazwaPola]: 'komunikat' } – widok pokazuje je pod polami (12.5).
 // Gdy bledy jest pusty, wynik zawiera gotowy wiersz albo pakiet dla db.zapiszPakiet().
 
-import { TYPY_JEDNOSTEK } from './config.js';
+import { TYPY_JEDNOSTEK, bezKaucji } from './config.js';
 import { MIEJSCA_PLATNOSCI, stawkaNaDzien } from './dane.js';
 import { doPelnychZlotych, naleznosciNajmu, pierwszyOkresOd } from './okresy.js';
 import {
@@ -223,7 +223,8 @@ export function walidujNajem(w, { indeksy, ustawienia, plik = null, noweId = los
   if (!OKRESY_ROZLICZENIOWE.includes(okres)) bledy.period_months = 'Wybierz okres rozliczeniowy.';
   const ostatni = ['proporcjonalnie', 'pelny'].includes(w.last_period) ? w.last_period : ustawienia.default_last_period;
 
-  const kaucja = kwota(w, 'deposit_gr', bledy, { dodatnia: true });
+  // Boxy bez kaucji (prośba 11.11) – pola kaucji pomijane, nawet jeśli coś w nich zostało.
+  const kaucja = jednostka && bezKaucji(jednostka.type) ? null : kwota(w, 'deposit_gr', bledy, { dodatnia: true });
   const kaucjaData = kaucja ? (data(w, 'deposit_on', bledy) ?? podpisana ?? start) : null;
   const bladPdf = walidujPdf(plik);
   if (bladPdf) bledy.pdf = bladPdf;
@@ -494,6 +495,26 @@ export function walidujUstawienia(w, { dzis }) {
   }
   if (wiersz.data_start && wiersz.data_start > dzis) bledy.data_start = 'Data startu nie może być w przyszłości.';
   return { bledy, wiersz };
+}
+
+/**
+ * Kaucja dopisana później (karta klienta → Dodaj kaucję): przyjęcie kaucji do umowy.
+ * umowy – umowy klienta, do których można dopisać kaucję (z najmem innym niż box).
+ */
+export function walidujKaucje(w, { umowy = [], dzis }) {
+  const bledy = {};
+  const umowa = umowy.find((u) => u.id === w.contract_id);
+  if (!umowa) bledy.contract_id = 'Wybierz umowę.';
+  const kwotaGr = kwota(w, 'amount_gr', bledy, { wymagana: true, dodatnia: true, etykieta: 'kwotę kaucji' });
+  const dzien = data(w, 'on_date', bledy, { wymagana: true, etykieta: 'datę przyjęcia' });
+  if (dzien && dzien > dzis) bledy.on_date = 'Data nie może być w przyszłości.';
+  return {
+    bledy,
+    wiersz: bezBledow(bledy) ? {
+      contract_id: umowa.id, kind: 'przyjecie', amount_gr: kwotaGr,
+      method: w.method === 'przelew' ? 'przelew' : 'gotowka', on_date: dzien,
+    } : null,
+  };
 }
 
 export function walidujKonto(w, { konta = [], id = null } = {}) {

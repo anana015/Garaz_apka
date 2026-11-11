@@ -1,19 +1,20 @@
 // Klienci (8.4), karta klienta (8.5) i formularz klienta (8.6).
 // Adresy: #/klienci, #/klienci/nowy[?dalej=najem&jednostka=<id>], #/klienci/<id>, #/klienci/<id>/edycja,
-// #/klienci/<id>/notatka[?rodzaj=obietnica]
+// #/klienci/<id>/notatka[?rodzaj=obietnica], #/klienci/<id>/kaucja (dodanie kaucji),
+// #/klienci/<id>/wypowiedzenie. Tryb „Edytuj” na karcie = zwarte „Ustawienia klienta” z rozwijanymi grupami.
 
 import { najemTrwa, najemZakonczony, opisPlatnosci, stawkaNaDzien } from '../dane.js';
 import {
-  formularz, maBledy, obszar, opcje, pole, przelacznik, stanFormularza, wartosciFormularza, zapisz,
+  formularz, maBledy, obszar, opcje, pole, przelacznik, stanFormularza, wartosciFormularza, wybor, zapisz,
 } from '../formularz.js';
-import { filtry, poleSzukaj, przycisk, pustyStan, opcjeEdycji, przyciskEdycji } from '../ui.js';
+import { filtry, poleSzukaj, przycisk, pustyStan, przyciskEdycji } from '../ui.js';
 import {
   dataZeZnacznika, dodajMiesiace, esc, dzisiaj, etykietaMiesiaca, formatData, formatDataKrotka, formatRachunek, formatZl, kwotaDoPola, normalizujTekst, parseKwota, porownajKody,
 } from '../utils.js';
-import { saldoKaucji, walidujKlienta, walidujPdf, walidujWypowiedzenie } from '../walidacja.js';
+import { saldoKaucji, walidujKaucje, walidujKlienta, walidujPdf, walidujWypowiedzenie } from '../walidacja.js';
 import { koniecUmowy } from './jednostki.js';
 import { rozliczeniaKlientow, ustawienia } from './wspolne.js';
-import { PROGI_TERMINOWOSCI } from '../config.js';
+import { PROGI_TERMINOWOSCI, bezKaucji } from '../config.js';
 import { doCsv } from '../csv.js';
 import { kartoteka, terminowosc } from '../rozliczenia.js';
 import { KTO, RODZAJE_NOTATEK } from '../zadania.js';
@@ -169,25 +170,69 @@ const STATUS_KAUCJI = (k) => {
   return `rozliczona w części, zostało ${formatZl(k.saldo)}`;
 };
 
-function kaucje(s, umowy) {
+/** Umowy klienta, do których można dopisać kaucję: niezarchiwizowane, z co najmniej jednym najmem innym niż box. */
+function umowyNaKaucje(s, klient) {
+  const najmy = s.indeksy.najmyKlienta.get(klient.id) ?? [];
+  return [...s.indeksy.umowy.values()].filter((u) => u.client_id === klient.id && !u.archived
+    && najmy.some((n) => n.contract_id === u.id && !bezKaucji(s.indeksy.jednostki.get(n.unit_id)?.type)));
+}
+
+/** „Umowa 12/2026 (G-03, K-01)” */
+function nazwaUmowy(s, u) {
+  const kody = (s.indeksy.najmyKlienta.get(u.client_id) ?? []).filter((n) => n.contract_id === u.id)
+    .map((n) => s.indeksy.jednostki.get(n.unit_id)?.code ?? '?').sort(porownajKody);
+  return `${u.number ? `Umowa ${u.number}` : 'Umowa bez numeru'}${kody.length ? ` (${kody.join(', ')})` : ''}`;
+}
+
+function kaucje(s, klient, umowy) {
+  const forma = { gotowka: 'gotówką', przelew: 'przelewem' };
   const wiersze = umowy.map((u) => {
     const ruchy = s.dane.deposits.filter((d) => d.contract_id === u.id).sort((a, b) => a.on_date.localeCompare(b.on_date));
     if (!ruchy.length) return '';
     const suma = (rodzaj) => ruchy.filter((d) => d.kind === rodzaj).reduce((x, d) => x + d.amount_gr, 0);
     const k = { przyjeta: suma('przyjecie'), zwrocona: suma('zwrot'), zatrzymana: suma('zatrzymanie'),
       saldo: saldoKaucji(ruchy, u.id).saldoGr };
-    const forma = { gotowka: 'gotówką', przelew: 'przelewem' };
     return `<li><div class="wiersz"><div class="glowna">
-        <strong>${u.number ? `Umowa ${esc(u.number)}` : 'Umowa bez numeru'}</strong>
+        <strong>${esc(nazwaUmowy(s, u))}</strong>
         ${ruchy.map((d) => `<span class="zawijaj">${{ przyjecie: 'Przyjęto', zwrot: 'Zwrócono', zatrzymanie: 'Zatrzymano' }[d.kind]}
           ${formatZl(d.amount_gr)} ${d.kind !== 'zatrzymanie' ? forma[d.method] ?? '' : ''} · ${formatData(d.on_date)}${
   d.reason ? ` · ${esc(d.reason)}` : ''}</span>`).join('')}</div>
       <div class="prawa"><div class="kwota">${formatZl(k.przyjeta)}</div><div class="maly">${STATUS_KAUCJI(k)}</div></div>
     </div></li>`;
   }).join('');
-  return wiersze ? `<ul class="lista">${wiersze}</ul>
-    <p class="podpowiedz">Zwrot albo zatrzymanie kaucji wpisujesz przy zakończeniu ostatniego najmu w umowie.</p>`
-    : '<p class="wyciszony">Brak kaucji.</p>';
+  const mozna = umowyNaKaucje(s, klient).length > 0;
+  const dodaj = mozna && !klient.archived ? `<div class="pasek-akcji">${przycisk({ tekst: 'Dodaj kaucję',
+    href: `#/klienci/${encodeURIComponent(klient.id)}/kaucja`, drugi: true, ikona: 'plus' })}</div>` : '';
+  const tylkoBoxy = !mozna && (s.indeksy.najmyKlienta.get(klient.id) ?? []).length > 0;
+  if (!wiersze) return `<p class="wyciszony">${tylkoBoxy ? 'Boxy wynajmujemy bez kaucji.' : 'Brak kaucji.'}</p>${dodaj}`;
+  return `<ul class="lista">${wiersze}</ul>${dodaj}
+    <p class="podpowiedz">Zwrot albo zatrzymanie kaucji wpisujesz przy zakończeniu ostatniego najmu w umowie.</p>`;
+}
+
+/** Formularz „Dodaj kaucję” – przyjęcie kaucji do istniejącej umowy (gotówką albo przelewem). */
+function formularzKaucji(s, klient) {
+  const umowy = umowyNaKaucje(s, klient);
+  const wstecz = `#/klienci/${encodeURIComponent(klient.id)}`;
+  if (!umowy.length) {
+    return pustyStan('Ten klient nie ma umowy, do której można dopisać kaucję (boxy są bez kaucji).',
+      [{ tekst: 'Wróć do klienta', href: wstecz }]);
+  }
+  const f = stanFormularza(s, `klienci/${klient.id}/kaucja`, () => ({
+    contract_id: umowy.length === 1 ? umowy[0].id : '', method: 'gotowka', on_date: dzisiaj(),
+  }));
+  return formularz(f, {
+    nazwa: 'kaucja', przycisk: 'Zapisz kaucję', anuluj: wstecz,
+    uwaga: 'Kaucja nie jest przychodem (Z26). Kaucję wpłaconą przelewem, który jest już w wyciągu, oznacza się przy przypisaniu przelewu – nie dopisuj jej tu drugi raz.',
+    tresc: `
+      ${wybor(f, { nazwa: 'contract_id', etykieta: 'Umowa', wymagane: true, pusta: 'Wybierz umowę…',
+    opcje: umowy.map((u) => ({ wartosc: u.id, tekst: nazwaUmowy(s, u) })) })}
+      <div class="pola-w-rzedzie">
+        ${pole(f, { nazwa: 'amount_gr', etykieta: 'Kwota kaucji (zł)', typ: 'kwota', wymagane: true })}
+        ${pole(f, { nazwa: 'on_date', etykieta: 'Data przyjęcia', typ: 'date', wymagane: true })}
+      </div>
+      ${opcje(f, { nazwa: 'method', legenda: 'Forma', opcje: [
+    { wartosc: 'gotowka', tekst: 'Gotówka' }, { wartosc: 'przelew', tekst: 'Przelew' }] })}`,
+  });
 }
 
 function dokumenty(umowy) {
@@ -383,6 +428,7 @@ function karta(s, klient) {
       ? `<span class="kwota">${formatZl(klient.opening_balance_gr)}</span>` : ''),
   ].join('');
   const id = encodeURIComponent(klient.id);
+  if (s.ui.edycja) return ustawieniaKlienta(s, klient, { najmy, umowy, kontakt, r, dzien });
 
   return `
     <div class="pasek-akcji">
@@ -392,12 +438,6 @@ function karta(s, klient) {
     ? przycisk({ tekst: 'Wypowiedz umowę', href: `#/klienci/${id}/wypowiedzenie`, drugi: true }) : ''}
       ${przyciskEdycji(s)}
     </div>
-    ${s.ui.edycja ? opcjeEdycji(`<p class="podpowiedz">Tryb edycji: przy najmach są zmiana stawki, promocja, korekta,
-      miejsce płatności i zakończenie; na dole archiwizacja.</p>
-      <div class="pasek-akcji">
-        ${przycisk({ tekst: 'Edytuj dane klienta', href: `#/klienci/${id}/edycja`, drugi: true })}
-        ${przycisk({ tekst: 'Nowy najem', href: `#/najmy/nowy?klient=${id}`, drugi: true, ikona: 'plus' })}
-      </div>`) : ''}
     ${klient.archived ? '<p class="baner">Klient jest zarchiwizowany.</p>' : ''}
     <div class="siatka">
       <section class="karta" aria-labelledby="k-saldo"><h2 id="k-saldo">Saldo</h2>${saldo(s, klient, r, najmy, dzien)}</section>
@@ -409,7 +449,7 @@ function karta(s, klient) {
       <section class="karta" aria-labelledby="k-najmy"><h2 id="k-najmy">Najmy</h2>
         ${najmy.length ? `<ul class="lista">${najmy.map((n) => wierszNajmu(s, n, dzien)).join('')}</ul>`
           : '<p class="wyciszony">Brak najmów.</p>'}</section>
-      <section class="karta" aria-labelledby="k-kaucja"><h2 id="k-kaucja">Kaucja</h2>${kaucje(s, umowy)}</section>
+      <section class="karta" aria-labelledby="k-kaucja"><h2 id="k-kaucja">Kaucja</h2>${kaucje(s, klient, umowy)}</section>
       <section class="karta" aria-labelledby="k-dokumenty"><h2 id="k-dokumenty">Dokumenty</h2>${dokumenty(umowy)}</section>
       ${r ? `<section class="karta szeroka" aria-labelledby="k-kartoteka"><h2 id="k-kartoteka">Kartoteka rozrachunków</h2>
         ${sekcjaKartoteki(s, klient, r)}</section>` : ''}
@@ -418,6 +458,83 @@ function karta(s, klient) {
     <section class="karta" aria-labelledby="k-notatki"><h2 id="k-notatki">Notatki i historia kontaktu</h2>
       ${sekcjaNotatek(s, klient)}</section>
     ${s.ui.edycja ? przyciskArchiwizacji(klient, najmy, r, dzien) : ''}`;
+}
+
+// ---------------------------------------------------------------------
+// Tryb „Edytuj”: zwarte „Ustawienia klienta” (prośba 11.11) – rozwijane grupy zamiast pełnej karty.
+// Saldo, terminowość, kartoteka i notatki są tylko w zwykłym widoku.
+// ---------------------------------------------------------------------
+
+/** Rozwijana grupa ustawień: tytuł, jednolinijkowy opis stanu, treść po rozwinięciu. */
+const grupa = (tytul, opisStanu, tresc, { mono = false } = {}) => `<details class="grupa-ustawien">
+    <summary><span class="glowna"><strong${mono ? ' class="mono"' : ''}>${tytul}</strong>${opisStanu ? `<span>${opisStanu}</span>` : ''}</span></summary>
+    <div class="tresc">${tresc}</div></details>`;
+
+/** Pozycja menu ustawień: link albo przycisk akcji, z opcjonalną wartością po prawej. */
+const pozycja = ({ tekst, href, akcja, id, wartosc = '' }) => `<li>${href
+  ? `<a class="pozycja" href="${href}"><span>${tekst}</span><span class="wartosc">${wartosc}</span></a>`
+  : `<button type="button" class="pozycja" data-akcja="${akcja}"${id ? ` data-id="${esc(id)}"` : ''}><span>${tekst}</span>
+      <span class="wartosc">${wartosc}</span></button>`}</li>`;
+
+const menu = (pozycje) => `<ul class="menu-ustawien">${pozycje.filter(Boolean).join('')}</ul>`;
+
+function grupaNajmu(s, n, dzien) {
+  const j = s.indeksy.jednostki.get(n.unit_id);
+  const stawki = [...(s.indeksy.stawkiNajmu.get(n.id) ?? [])].sort((a, b) => a.valid_from.localeCompare(b.valid_from));
+  const stawka = stawkaNaDzien(stawki, najemTrwa(n, dzien) ? dzien : n.end_on ?? n.start_on);
+  const trwa = !najemZakonczony(n, dzien);
+  const id = encodeURIComponent(n.id);
+  const platnosc = opisPlatnosci(n, s.indeksy.konta);
+  const stan = [stawka != null ? formatZl(stawka) : null, `${formatData(n.start_on)} – ${n.end_on ? formatData(n.end_on) : 'trwa'}`,
+    trwa && n.notice_end_on ? `wypowiedziana do ${formatData(n.notice_end_on)}` : null].filter(Boolean).join(' · ');
+  const historia = stawki.length ? `<details class="historia-stawek"><summary>Historia stawek (${stawki.length})</summary>
+      <ul>${stawki.map((st) => `<li><span>od ${formatData(st.valid_from)}${st.reason ? ` · ${esc(st.reason)}` : ''}</span>
+        <span class="kwota">${formatZl(st.amount_gr)}</span></li>`).join('')}</ul></details>` : '';
+  return grupa(esc(j?.code ?? '?'), stan, `${menu([
+    pozycja({ tekst: 'Zmień stawkę', href: `#/najmy/${id}/stawka`, wartosc: stawka != null ? formatZl(stawka) : '' }),
+    pozycja({ tekst: 'Promocja', href: `#/najmy/${id}/promocja` }),
+    pozycja({ tekst: 'Kwota 1. okresu', href: `#/najmy/${id}/korekta?tryb=kwota` }),
+    pozycja({ tekst: 'Korekta należności', href: `#/najmy/${id}/korekta` }),
+    pozycja({ tekst: 'Gdzie płaci', href: `#/najmy/${id}/platnosc`, wartosc: esc(platnosc) }),
+    trwa && n.notice_end_on ? pozycja({ tekst: 'Cofnij wypowiedzenie', akcja: 'cofnij-wypowiedzenie', id: n.id,
+      wartosc: formatData(n.notice_end_on) }) : null,
+    trwa ? pozycja({ tekst: 'Zakończ najem', href: `#/najmy/${id}/koniec` }) : null,
+  ])}${historia}`, { mono: true });
+}
+
+function ustawieniaKlienta(s, klient, { najmy, umowy, kontakt, r, dzien }) {
+  const id = encodeURIComponent(klient.id);
+  const daneStan = [klient.phone, klient.email, klient.nip ? `NIP ${klient.nip}` : null].filter(Boolean).map(esc).join(' · ')
+    || 'brak danych kontaktowych';
+  const trwajace = najmy.filter((n) => !najemZakonczony(n, dzien));
+  const doWypowiedzenia = najmy.some((n) => najemTrwa(n, dzien) && !n.end_on && !n.notice_end_on);
+  const ruchyKaucji = s.dane.deposits.filter((d) => umowy.some((u) => u.id === d.contract_id)).length;
+  const zPdf = umowy.filter((u) => u.pdf_path).length;
+  const platnicyKlienta = s.dane.payers.filter((p) => p.client_id === klient.id).length;
+
+  return `
+    <div class="pasek-akcji">${przyciskEdycji(s)}</div>
+    ${klient.archived ? '<p class="baner">Klient jest zarchiwizowany.</p>' : ''}
+    <section class="karta ustawienia-klienta" aria-labelledby="k-ustawienia">
+      <h2 id="k-ustawienia">Ustawienia klienta</h2>
+      <p class="podpowiedz">Rozwiń grupę, żeby coś zmienić. „Gotowe” wraca do zwykłego widoku.</p>
+      ${grupa('Dane klienta', daneStan, `${kontakt ? `<dl class="opis-pol">${kontakt}</dl>` : ''}
+        ${klient.note ? `<p class="notatka">${esc(klient.note)}</p>` : ''}
+        ${menu([pozycja({ tekst: 'Edytuj dane klienta', href: `#/klienci/${id}/edycja` })])}`)}
+      <h3 class="naglowek-grup">Najmy</h3>
+      ${najmy.map((n) => grupaNajmu(s, n, dzien)).join('')}
+      ${menu([
+    klient.archived ? null : pozycja({ tekst: '+ Nowy najem', href: `#/najmy/nowy?klient=${id}` }),
+    doWypowiedzenia ? pozycja({ tekst: 'Wypowiedz umowę', href: `#/klienci/${id}/wypowiedzenie` }) : null,
+  ])}
+      <h3 class="naglowek-grup">Pozostałe</h3>
+      ${grupa('Kaucja', ruchyKaucji ? `${ruchyKaucji} ${ruchyKaucji === 1 ? 'wpis' : ruchyKaucji < 5 ? 'wpisy' : 'wpisów'}`
+    : umowyNaKaucje(s, klient).length ? 'brak' : 'boxy bez kaucji', kaucje(s, klient, umowy))}
+      ${grupa('Dokumenty', umowy.length ? `umowy: ${umowy.length} · z PDF: ${zPdf}` : 'brak umów', dokumenty(umowy))}
+      ${grupa('Płatnicy', platnicyKlienta ? `zapamiętani: ${platnicyKlienta}` : 'brak', platnicy(s, klient))}
+      ${grupa(klient.archived ? 'Przywróć klienta' : 'Archiwizacja', klient.archived ? 'zarchiwizowany'
+    : trwajace.length ? 'niedostępna – trwa najem' : 'możliwa przy saldzie 0', przyciskArchiwizacji(klient, najmy, r, dzien))}
+    </section>`;
 }
 
 // ---------------------------------------------------------------------
@@ -521,13 +638,14 @@ export default {
     const nazwa = s.indeksy.klienci.get(parametr)?.name ?? 'Klient';
     if (akcja === 'notatka') return `Notatka: ${nazwa}`;
     if (akcja === 'wypowiedzenie') return `Wypowiedzenie: ${nazwa}`;
+    if (akcja === 'kaucja') return `Kaucja: ${nazwa}`;
     return akcja === 'edycja' ? `Edycja: ${nazwa}` : nazwa;
   },
 
   wstecz(s) {
     const { parametr, akcja } = s.ui;
     if (!parametr) return null;
-    if (['edycja', 'notatka', 'wypowiedzenie'].includes(akcja)) return { href: `#/klienci/${encodeURIComponent(parametr)}`, tekst: s.indeksy.klienci.get(parametr)?.name ?? 'Klient' };
+    if (['edycja', 'notatka', 'wypowiedzenie', 'kaucja'].includes(akcja)) return { href: `#/klienci/${encodeURIComponent(parametr)}`, tekst: s.indeksy.klienci.get(parametr)?.name ?? 'Klient' };
     if (parametr === 'nowy' && s.ui.zapytanie.dalej === 'najem') return { href: '#/najmy/nowy', tekst: 'Nowy najem' };
     return { href: '#/klienci', tekst: 'Klienci' };
   },
@@ -540,6 +658,7 @@ export default {
     if (!klient) return pustyStan('Nie znaleziono klienta.', [{ tekst: 'Wróć do listy', href: '#/klienci' }]);
     if (akcja === 'notatka') return formularzNotatki(s, klient);
     if (akcja === 'wypowiedzenie') return formularzWypowiedzenia(s, klient);
+    if (akcja === 'kaucja') return formularzKaucji(s, klient);
     return akcja === 'edycja' ? formularzKlienta(s, klient) : karta(s, klient);
   },
 
@@ -663,6 +782,20 @@ export default {
   },
 
   formularze: {
+    async kaucja(form, ctx) {
+      const s = ctx.state;
+      const klient = s.indeksy.klienci.get(s.ui.parametr);
+      if (!klient) return;
+      const w = wartosciFormularza(form);
+      const { bledy, wiersz } = walidujKaucje(w, { umowy: umowyNaKaucje(s, klient), dzis: dzisiaj() });
+      if (maBledy(ctx, w, bledy)) return;
+      await zapisz(ctx, async () => {
+        ctx.scal({ deposits: [await ctx.db.wstaw('deposits', wiersz)] });
+        ctx.toast(`Zapisano kaucję ${formatZl(wiersz.amount_gr)}`);
+        ctx.nawiguj(`klienci/${encodeURIComponent(klient.id)}`);
+      });
+    },
+
     async wypowiedzenie(form, ctx) {
       const s = ctx.state;
       const klient = s.indeksy.klienci.get(s.ui.parametr);

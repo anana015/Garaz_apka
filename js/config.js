@@ -7,7 +7,7 @@ export const CONFIG = Object.freeze({
   supabaseKey: 'sb_publishable_aFlZhbycefQPMj6imB3jFQ_KSLQmZ28',   // klucz publiczny (publishable)
 });
 
-export const WERSJA = '0.10.0';
+export const WERSJA = '0.11.0';
 
 /** Tabele z rozdziału 4 – kolejność nie ma znaczenia, służy do pobierania i kopii zapasowej. */
 export const TABELE = Object.freeze([
@@ -34,6 +34,10 @@ export const TYPY_JEDNOSTEK = Object.freeze({
   box_duzy: { nazwa: 'Duży box', mnoga: 'Duże boxy' },
   box_maly: { nazwa: 'Mały box', mnoga: 'Małe boxy' },
 });
+
+/** Typy jednostek wynajmowane bez kaucji (prośba 11.11: boxy nie mają kaucji). */
+export const TYPY_BEZ_KAUCJI = Object.freeze(['box_duzy', 'box_maly']);
+export const bezKaucji = (typ) => TYPY_BEZ_KAUCJI.includes(typ);
 
 /** Wartości domyślne ustawień – takie same jak w supabase/schema.sql (tabela settings). */
 export const DOMYSLNE_USTAWIENIA = Object.freeze({
