@@ -32,6 +32,8 @@ test('boxy: numer z kodu, rozmiar z typu', () => {
   assert.equal(miejsceJednostki({ code: 'B07', type: 'box_duzy' }), 'BD-7');
   assert.equal(miejsceJednostki({ code: 'B4', type: 'box_maly' }), 'BM-4');
   assert.equal(miejsceJednostki({ code: 'BOX', type: 'box_maly' }), null);
+  assert.equal(miejsceJednostki({ code: 'B01XS', type: 'box_duzy' }), 'BM-1');   // końcówka ważniejsza niż typ
+  assert.equal(miejsceJednostki({ code: 'b02xl', type: 'box_maly' }), 'BD-2');
 });
 
 test('rozmieszczenie: poza mapą, duplikaty, archiwum pominięte', () => {

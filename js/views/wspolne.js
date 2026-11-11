@@ -2,7 +2,7 @@
 
 import { DOMYSLNE_USTAWIENIA } from '../config.js';
 import { doCsv } from '../csv.js';
-import { eksportDluznikow, eksportJednostek, eksportKlientow, eksportWplat } from '../eksport.js';
+import { eksportDluznikow, eksportJednostek, eksportKlientow, eksportKosztow, eksportWplat } from '../eksport.js';
 import { daneGrupy, GRUPY_RYCZALTU, NAGLOWEK_CSV, wierszeCsv, zestawienieRoku } from '../podatek.js';
 import { rozliczenia } from '../rozliczenia.js';
 import { pobierzPlik } from '../ui.js';
@@ -76,10 +76,11 @@ export const EKSPORTY = Object.freeze({
   jednostki: 'Jednostki',
   wplaty: 'Wpłaty',
   dluznicy: 'Dłużnicy',
+  koszty: 'Koszty',
   ryczalt: 'Ryczałt (PIT-28)',
 });
 
-export function pobierzEksport(s, rodzaj, { rok } = {}) {
+export function pobierzEksport(s, rodzaj, { rok, od, do: doDnia } = {}) {
   const dzis = dzisiaj();
   const u = ustawienia(s);
   const o = { dzis, ustawienia: u };
@@ -90,6 +91,9 @@ export function pobierzEksport(s, rodzaj, { rok } = {}) {
   else if (rodzaj === 'wplaty') {
     wynik = eksportWplat(s.dane, rok ? { od: `${rok}-01-01`, do: `${rok}-12-31` } : {});
     nazwa = rok ? `wplaty_${rok}` : 'wplaty';
+  } else if (rodzaj === 'koszty') {
+    wynik = eksportKosztow(s.dane, { od, do: doDnia });
+    nazwa = od && doDnia ? `koszty_${od}_${doDnia}` : 'koszty';
   } else if (rodzaj === 'dluznicy') [wynik, nazwa] = [eksportDluznikow(s.dane, o), 'dluznicy'];
   else if (rodzaj === 'ryczalt') {
     const r = rok ?? Number(dzis.slice(0, 4));

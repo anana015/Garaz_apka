@@ -7,7 +7,7 @@ export const CONFIG = Object.freeze({
   supabaseKey: 'sb_publishable_aFlZhbycefQPMj6imB3jFQ_KSLQmZ28',   // klucz publiczny (publishable)
 });
 
-export const WERSJA = '0.16.0';
+export const WERSJA = '0.16.1';
 
 /** Tabele z rozdziału 4 – kolejność nie ma znaczenia, służy do pobierania i kopii zapasowej. */
 export const TABELE = Object.freeze([
@@ -34,8 +34,8 @@ export const PROGI_TERMINOWOSCI = Object.freeze({
 export const TYPY_JEDNOSTEK = Object.freeze({
   garaz: { nazwa: 'Garaż', mnoga: 'Garaże' },
   kontener: { nazwa: 'Kontener', mnoga: 'Kontenery' },
-  box_duzy: { nazwa: 'Duży box', mnoga: 'Duże boxy' },
-  box_maly: { nazwa: 'Mały box', mnoga: 'Małe boxy' },
+  box_duzy: { nazwa: 'Box XL (duży)', mnoga: 'Boxy XL (duże)' },
+  box_maly: { nazwa: 'Box XS (mały)', mnoga: 'Boxy XS (małe)' },
 });
 
 /** Typy jednostek wynajmowane bez kaucji (prośba 11.11: boxy nie mają kaucji). */

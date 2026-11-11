@@ -3,7 +3,8 @@
 //
 // Numeracja z mapki użytkownika: w każdym rzędzie numery rosną od wjazdu (południe) na północ;
 // najpierw prawa strona alejki (od 1), potem lewa (dalsze numery). Kod garażu: G05R1 = garaż 5 w rzędzie 1
-// (K zamiast G – kontener). Boxy: osobna numeracja dużych (4 m²) i małych (3 m²), rozpoznawane po typie.
+// (K zamiast G – kontener). Boxy: osobna numeracja XL (duże, 4 m²) i XS (małe, 3 m²), kod B01XS / B02XL;
+// bez końcówki XS/XL rozmiar bierzemy z typu jednostki.
 
 /** Wymiary w jednostkach SVG: viewBox 0 GORA SZEROKOSC (WYSOKOSC − GORA). Nad GORA nic nie ma. */
 export const SZEROKOSC = 700;
@@ -11,7 +12,7 @@ export const WYSOKOSC = 290;
 export const GORA = 52;
 const DOL = 250;                 // linia wjazdu – tu zaczyna się numeracja każdej kolumny
 const G_SZER = 30, G_WYS = 17;   // garaż / kontener
-const B_SZER = 24;               // box
+const B_SZER = 26;               // box
 
 /**
  * Kolumny placu z zachodu na wschód. x – lewa krawędź, od – pierwszy numer (przy wjeździe), ile – liczba jednostek.
@@ -53,19 +54,19 @@ function zbudujMiejsca() {
     const duzy = i < 6;
     const nr = duzy ? i + 1 : i - 5;
     m.push({ klucz: kluczBoxu(duzy, nr), x: kolX, y: DOL - (i + 1) * kolH, w: B_SZER, h: kolH,
-      etykieta: duzy ? String(nr) : `M${nr}`, opis: `${duzy ? 'Duży' : 'Mały'} box ${nr}`, typ: duzy ? 'box_duzy' : 'box_maly' });
+      etykieta: `${duzy ? 'XL' : 'XS'}${nr}`, opis: `Box ${duzy ? 'XL' : 'XS'} nr ${nr}`, typ: duzy ? 'box_duzy' : 'box_maly' });
   }
   // Boxy w kształcie L: poziomo duże 7–15 (z zachodu na wschód), pionowo nad pierwszym małe 4–6 (od dołu).
   const lX = 450, lY = 160, lH = 20, pionH = 17;
   for (let i = 0; i < 9; i++) {
     const nr = 7 + i;
     m.push({ klucz: kluczBoxu(true, nr), x: lX + i * B_SZER, y: lY, w: B_SZER, h: lH,
-      etykieta: String(nr), opis: `Duży box ${nr}`, typ: 'box_duzy' });
+      etykieta: `XL${nr}`, opis: `Box XL nr ${nr}`, typ: 'box_duzy' });
   }
   for (let i = 0; i < 3; i++) {
     const nr = 4 + i;
     m.push({ klucz: kluczBoxu(false, nr), x: lX, y: lY - (i + 1) * pionH, w: B_SZER, h: pionH,
-      etykieta: `M${nr}`, opis: `Mały box ${nr}`, typ: 'box_maly' });
+      etykieta: `XS${nr}`, opis: `Box XS nr ${nr}`, typ: 'box_maly' });
   }
   return Object.freeze(m.map(Object.freeze));
 }
@@ -73,16 +74,27 @@ function zbudujMiejsca() {
 export const MIEJSCA = zbudujMiejsca();
 export const LINIA_WJAZDU = DOL;
 
+/**
+ * Miejsca, na których jednostka stoi, ale jest wyłączona z najmu (prośba 11.11: G18R1).
+ * Gdy jej jeszcze nie ma w aplikacji, mapa i tak pokazuje ją jako wyłączoną (a nie „brak w aplikacji”);
+ * dopisanie do bazy: supabase/jednorazowe/g18r1_wylaczona.sql.
+ */
+export const WYLACZONE_MIEJSCA = Object.freeze(new Set(['R1-18']));
+
+const WZOR_BOXU = /^B\s*-?\s*0*(\d{1,3})\s*-?\s*(XS|XL)$/i;
 const WZOR_RZEDU = /^[GK]\s*-?\s*0*(\d{1,3})\s*[-/ ]?\s*R\s*-?\s*0*(\d)$/i;
 
 /**
  * Klucz miejsca dla jednostki albo null, gdy nie da się jej umieścić na mapie.
- * „G05R1”, „g5r1”, „K-12-R3” → 'R1-5' / 'R3-12'; box: typ box_duzy / box_maly + pierwsza liczba w kodzie.
+ * „G05R1”, „g5r1”, „K-12-R3” → 'R1-5' / 'R3-12'; „B01XS” → 'BM-1', „B02XL” → 'BD-2';
+ * box bez końcówki: typ box_duzy / box_maly + pierwsza liczba w kodzie.
  */
 export function miejsceJednostki(j) {
   const kod = String(j?.code ?? '').trim();
   const r = WZOR_RZEDU.exec(kod);
   if (r) return kluczRzedu(Number(r[2]), Number(r[1]));
+  const b = WZOR_BOXU.exec(kod);
+  if (b) return kluczBoxu(b[2].toUpperCase() === 'XL', Number(b[1]));
   if (j?.type === 'box_duzy' || j?.type === 'box_maly') {
     const nr = /(\d+)/.exec(kod);
     if (nr) return kluczBoxu(j.type === 'box_duzy', Number(nr[1]));

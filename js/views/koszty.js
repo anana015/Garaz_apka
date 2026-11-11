@@ -9,7 +9,7 @@ import { KATEGORIE, kosztyZakresu, nazwaKategorii, POMINIETY } from '../koszty.j
 import { zakresOkresu } from '../statystyki.js';
 import { filtry, przycisk, pustyStan } from '../ui.js';
 import { esc, dzisiaj, formatData, formatZl, kwotaDoPola, parseKwota, porownajKody } from '../utils.js';
-import { pokazWybranyMiesiac, wyborMiesiaca } from './wspolne.js';
+import { pobierzEksport, pokazWybranyMiesiac, wyborMiesiaca } from './wspolne.js';
 
 const OKRESY = [
   { id: 'miesiac', tekst: 'Miesiąc' }, { id: 'kwartal', tekst: 'Kwartał' }, { id: 'rok', tekst: 'Rok' },
@@ -60,6 +60,8 @@ function lista(s) {
       ${przycisk({ tekst: 'Dodaj koszt', href: '#/koszty/nowy', ikona: 'plus' })}
       ${przycisk({ tekst: 'Reguły importu', href: '#/koszty/reguly', drugi: true })}
       ${przycisk({ tekst: 'Wczytaj wyciąg', href: '#/import', drugi: true })}
+      <button type="button" class="przycisk drugi" data-akcja="eksport-kosztow" data-od="${z.od}" data-do="${z.do}"
+        ${koszty.length ? '' : 'disabled'}>Eksport okresu (CSV)</button>
     </div>
     ${filtry(OKRESY, okres, 'Okres')}
     ${okres !== '12m' ? wyborMiesiaca(s) : ''}
@@ -180,6 +182,10 @@ export default {
   },
 
   akcje: {
+    /** Koszty z wybranego okresu do CSV (Excel, księgowa) – bez pominiętych wypływów. */
+    'eksport-kosztow'(el, ctx) {
+      pobierzEksport(ctx.state, 'koszty', { od: el.dataset.od, do: el.dataset.do });
+    },
     'kategoria-kosztow'(el, ctx) {
       ctx.state.ui.kategoriaKosztow = el.dataset.wartosc;
       ctx.render();

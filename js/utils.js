@@ -274,9 +274,11 @@ export function odmiana(n, [jeden, kilka, wiele]) {
 
 /** Kolejny numer jednostki do podpowiedzi: "G-03" → "G-04", "B9" → "B10", "BOX" → "". */
 export function nastepnyNumer(kod) {
-  const m = /^(.*?)(\d+)$/.exec(String(kod ?? ''));
+  const tekst = String(kod ?? '');
+  // Kod z rzędem (G05R1 → G06R1): numer jednostki to pierwsza liczba; inaczej ostatnia (B9 → B10, B01XS → B02XS).
+  const m = /^([GK]\D*?)(\d+)(\D*R\d+)$/i.exec(tekst) ?? /^(.*?)(\d+)(\D*)$/.exec(tekst);
   if (!m) return '';
-  return m[1] + String(Number(m[2]) + 1).padStart(m[2].length, '0');
+  return m[1] + String(Number(m[2]) + 1).padStart(m[2].length, '0') + m[3];
 }
 
 /** Porównanie numerów jednostek „naturalnie”: G-2 < G-10. */

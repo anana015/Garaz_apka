@@ -154,6 +154,8 @@ test('nastepnyNumer: podpowiedź numeru przy dodawaniu kolejnych jednostek', () 
   assert.equal(nastepnyNumer('B9'), 'B10');
   assert.equal(nastepnyNumer('K-099'), 'K-100');
   assert.equal(nastepnyNumer('BOX'), '');
+  assert.equal(nastepnyNumer('B01XS'), 'B02XS');
+  assert.equal(nastepnyNumer('G09R1'), 'G10R1');
 });
 
 test('odmiana: 1 najem, 2–4 najmy, 5+ najmów, 12–14 najmów, 22 najmy', () => {

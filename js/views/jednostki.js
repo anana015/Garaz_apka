@@ -6,7 +6,7 @@ import { biezacyNajem, opisPlatnosci, planowanyKoniec, stawkaNaDzien } from '../
 import { formularz, maBledy, obszar, pole, przelacznik, stanFormularza, wartosciFormularza, wybor, zapisz } from '../formularz.js';
 import { filtry, poleSzukaj, przycisk, pustyStan, przyciskEdycji } from '../ui.js';
 import { promocjaNajmu } from '../promocje.js';
-import { ALEJKI, GORA, LINIA_WJAZDU, MIEJSCA, SZEROKOSC, WYSOKOSC, miejsceJednostki, rozmiescJednostki } from '../mapa.js';
+import { ALEJKI, GORA, LINIA_WJAZDU, MIEJSCA, SZEROKOSC, WYLACZONE_MIEJSCA, WYSOKOSC, miejsceJednostki, rozmiescJednostki } from '../mapa.js';
 import { grupa, grupaNajmu, kartaUstawien, menu, pozycja } from './edycja.js';
 import { akcjeAnulowania } from './edycja.js';
 import {
@@ -117,6 +117,24 @@ function przelacznikWidoku(widok) {
 }
 
 /**
+ * Statusy na mapie (prośba 11.11) – prostsze niż na kafelkach: bez podziału na opłacone i zaległe.
+ * Kolejność ważności: wyłączona → w trakcie wypowiedzenia → zajęta → wolna.
+ */
+const STATUS_MAPY = {
+  wolna: 'Wolna',
+  zajeta: 'Zajęta',
+  wypowiedzenie: 'W trakcie wypowiedzenia',
+  wylaczona: 'Wyłączona',
+  brak: 'Brak w aplikacji',
+};
+
+function statusNaMapie(o) {
+  if (o.status === 'wylaczona') return 'wylaczona';
+  if (o.najem && o.wypowiedzenie) return 'wypowiedzenie';
+  return o.najem ? 'zajeta' : 'wolna';
+}
+
+/**
  * Plan placu w SVG. Miejsca bez jednostki w aplikacji – przerywana ramka.
  * Przy filtrze albo wyszukiwaniu miejsca spoza wyniku są przygaszone.
  */
@@ -131,15 +149,18 @@ function mapa(s, opisy, widoczne, zawezone) {
     const ksztalt = `<rect x="${m.x + 1}" y="${m.y + 1}" width="${m.w - 2}" height="${m.h - 2}" rx="2"/>`;
     const j = naMapie.get(m.klucz);
     const o = j && poId.get(j.id);
+    if (!o && WYLACZONE_MIEJSCA.has(m.klucz)) {
+      return `<g class="m-miejsce wylaczona${zawezone ? ' przygaszone' : ''}"><title>${esc(m.opis)} – wyłączona (jeszcze nie ma jej w aplikacji)</title>${ksztalt}${napis}</g>`;
+    }
     if (!o) {
       brakow += 1;
       return `<g class="m-miejsce brak${zawezone ? ' przygaszone' : ''}"><title>${esc(m.opis)} – nie ma takiej jednostki w aplikacji</title>${ksztalt}${napis}</g>`;
     }
-    const opis = [o.j.code, tekstStatusu(o), o.klient?.name,
-      o.wypowiedzenie ? `${o.najem.notice_end_on ? 'wypowiedziana' : 'najem'} do ${formatDataKrotka(o.wypowiedzenie)}` : '']
+    const st = statusNaMapie(o);
+    const opis = [o.j.code, STATUS_MAPY[st], o.klient?.name,
+      st === 'wypowiedzenie' ? `koniec najmu ${formatDataKrotka(o.wypowiedzenie)}` : '']
       .filter(Boolean).join(' · ');
-    const klasy = ['m-miejsce', STATUS[o.status].klasa, o.wypowiedzenie ? 'wypowiedziana' : '',
-      zawezone && !wynik.has(o.j.id) ? 'przygaszone' : ''].filter(Boolean).join(' ');
+    const klasy = ['m-miejsce', st, zawezone && !wynik.has(o.j.id) ? 'przygaszone' : ''].filter(Boolean).join(' ');
     return `<a class="${klasy}" href="#/jednostki/${encodeURIComponent(o.j.id)}" aria-label="${esc(opis)}"><title>${esc(opis)}</title>${ksztalt}${napis}</a>`;
   }).join('');
 
@@ -147,13 +168,12 @@ function mapa(s, opisy, widoczne, zawezone) {
   const droga = `<rect class="m-droga" x="10" y="${LINIA_WJAZDU + 10}" width="${SZEROKOSC - 20}" height="22" rx="4"/>
     <text class="m-opis" x="${SZEROKOSC / 2}" y="${LINIA_WJAZDU + 21}">Droga dojazdowa · wjazd do alejek od południa</text>`;
 
-  const legenda = [['wolna', 'Wolna'], ['ok', 'Opłacona'], ['zalega', 'Zalega'], ['wylaczona', 'Wyłączona'], ['brak', 'Brak w aplikacji']]
-    .map(([k, t]) => `<li><span class="m-probka ${k}" aria-hidden="true"></span>${t}</li>`).join('')
-    + '<li><span class="m-probka ok wypowiedziana" aria-hidden="true"></span>Wypowiedziana</li>';
+  const legenda = Object.entries(STATUS_MAPY)
+    .map(([k, t]) => `<li><span class="m-probka ${k}" aria-hidden="true"></span>${t}</li>`).join('');
 
   const nieumieszczone = [...pozaMapa, ...duplikaty].sort((a, b) => porownajKody(a.code, b.code));
   const poza = nieumieszczone.length ? `<details class="m-poza"><summary>Poza mapą: ${nieumieszczone.length}</summary>
-      <p class="wyciszony maly">Kod garażu i kontenera powinien mieć postać G05R1 / K05R1 (numer i rząd), box – typ „Duży box” albo „Mały box” i numer w kodzie.
+      <p class="wyciszony maly">Kod garażu i kontenera powinien mieć postać G05R1 / K05R1 (numer i rząd), boxu – B01XS (mały) albo B02XL (duży).
       ${duplikaty.length ? 'Część jednostek wskazuje to samo miejsce co inna.' : ''}</p>
       <p>${nieumieszczone.map((j) => `<a class="mono" href="#/jednostki/${encodeURIComponent(j.id)}">${esc(j.code)}</a>`).join(', ')}</p></details>` : '';
 
@@ -163,7 +183,7 @@ function mapa(s, opisy, widoczne, zawezone) {
       </div>
       <figcaption>
         <ul class="m-legenda">${legenda}</ul>
-        <p class="wyciszony maly">Numery rosną od wjazdu<span class="m-przewin"> · na telefonie przesuń plan w bok</span>. Boxy: liczba = duży box (4 m²), M = mały box (3 m²).
+        <p class="wyciszony maly">Numery rosną od wjazdu<span class="m-przewin"> · na telefonie przesuń plan w bok</span>. Boxy: XL = duży (4 m²), XS = mały (3 m²).
           Na mapie ${naMapie.size} z ${naMapie.size + nieumieszczone.length} jednostek${brakow ? ` · ${brakow} miejsc bez jednostki w aplikacji` : ''}.</p>
       </figcaption>
     </figure>${poza}`;

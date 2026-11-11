@@ -1,10 +1,11 @@
-// Eksporty CSV dla Excela i księgowej (rozdz. 10): klienci, jednostki, wpłaty, dłużnicy.
+// Eksporty CSV dla Excela i księgowej (rozdz. 10): klienci, jednostki, wpłaty, dłużnicy, koszty (0.16.0).
 // Czyste funkcje: dane + ustawienia → { naglowek, wiersze }. Plik składa csv.doCsv (średnik, UTF-8 z BOM).
 // Kwoty w złotych z przecinkiem dziesiętnym, daty RRRR-MM-DD (rozdz. 10).
 
 import { PROGI_TERMINOWOSCI, TYPY_JEDNOSTEK } from './config.js';
 import { biezacyNajem, najemZakonczony, stawkaNaDzien } from './dane.js';
 import { rozliczenia, terminowosc } from './rozliczenia.js';
+import { nazwaKategorii } from './koszty.js';
 import { porownajKody, roznicaDni } from './utils.js';
 
 export const zlCsv = (gr) => (gr == null ? '' : (gr / 100).toFixed(2).replace('.', ','));
@@ -93,6 +94,23 @@ export function eksportWplat(dane, { od = '0000-01-01', do: doDnia = '9999-12-31
         w.client_id ? (ix.klienci.get(w.client_id)?.name ?? '') : (w.kind === 'czynsz' ? 'do przypisania' : ''),
         konto ? `${konto.name} (${BANKI_CSV[konto.bank] ?? konto.bank})` : '', w.counterparty ?? '', w.payer_account ?? '',
         w.title ?? '', w.note ?? ''];
+    });
+  return { naglowek, wiersze };
+}
+
+/** Koszty (etap 2) w zakresie dat, od najstarszego; pominięte wypływy (nie koszt) tylko gdy pominiete = true. */
+export function eksportKosztow(dane, { od = '0000-01-01', do: doDnia = '9999-12-31', pominiete = false } = {}) {
+  const ix = indeksy(dane);
+  const jednostki = new Map((dane.units ?? []).map((j) => [j.id, j]));
+  const naglowek = ['data', 'kwota', 'kategoria', 'jednostka', 'zrodlo', 'konto', 'odbiorca', 'tytul', 'notatka'];
+  const wiersze = (dane.expenses ?? [])
+    .filter((e) => e.spent_on >= od && e.spent_on <= doDnia && (pominiete || e.category !== 'pominiety'))
+    .sort((a, b) => a.spent_on.localeCompare(b.spent_on) || String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')))
+    .map((e) => {
+      const konto = e.bank_account_id ? ix.konta.get(e.bank_account_id) : null;
+      return [e.spent_on, zlCsv(e.amount_gr), nazwaKategorii(e.category), e.unit_id ? (jednostki.get(e.unit_id)?.code ?? '') : 'wspólny',
+        e.source === 'import' ? 'wyciąg' : 'ręcznie', konto ? `${konto.name} (${BANKI_CSV[konto.bank] ?? konto.bank})` : '',
+        e.counterparty ?? '', e.title ?? '', e.note ?? ''];
     });
   return { naglowek, wiersze };
 }
