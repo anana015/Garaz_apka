@@ -54,3 +54,59 @@ export function sprawdzKopie(tekst) {
   const tables = Object.fromEntries(TABELE.map((t) => [t, k.tables[t] ?? []]));
   return { blad: null, kopia: { ...k, tables }, liczby };
 }
+
+// ---------------------------------------------------------------------
+// Kopia z dokumentami (ZIP): JSON + PDF-y umów + wzory umów (.docx)
+// ---------------------------------------------------------------------
+
+/** Nazwa pliku JSON wewnątrz ZIP-a. */
+export const JSON_W_ZIP = 'kopia.json';
+
+/** najem_kopia_dokumenty_2026-11-11_0815.zip */
+export const nazwaPlikuZip = (teraz) => nazwaPlikuKopii(teraz).replace('najem_kopia_', 'najem_kopia_dokumenty_').replace(/\.json$/, '.zip');
+
+/** Ścieżka wzoru umowy w buckecie „umowy” (migracja 011). */
+export const sciezkaWzoru = (userId, wzorId) => `${userId}/wzory/${wzorId}.docx`;
+
+/**
+ * Pliki do dołączenia do ZIP-a: PDF-y umów (contracts.pdf_path) i wzory (settings.contract_templates).
+ * @returns {Array<{ sciezka: string, wZip: string }>} sciezka – w buckecie, wZip – nazwa w archiwum
+ */
+export function plikiDokumentow(dane, userId) {
+  const pliki = [];
+  for (const u of dane.contracts ?? []) {
+    if (u.pdf_path) pliki.push({ sciezka: u.pdf_path, wZip: `umowy/${u.id}.pdf` });
+  }
+  for (const w of dane.settings?.contract_templates ?? []) {
+    if (w?.id) pliki.push({ sciezka: sciezkaWzoru(userId, w.id), wZip: `wzory/${w.id}.docx` });
+  }
+  return pliki;
+}
+
+/**
+ * Po odczytaniu ZIP-a: które pliki wgrać z powrotem i gdzie, oraz kopia z poprawionymi ścieżkami PDF
+ * (kopia mogła pochodzić z innego konta – ścieżka zawiera id użytkownika).
+ * @param {object} kopia wynik sprawdzKopie().kopia
+ * @param {string[]} nazwy nazwy plików w archiwum
+ * @param {string} userId
+ * @returns {{ kopia, doWgrania: Array<{ wZip, sciezka, typ }> }}
+ */
+export function planPrzywracania(kopia, nazwy, userId) {
+  const zbior = new Set(nazwy);
+  const doWgrania = [];
+  const contracts = kopia.tables.contracts.map((u) => {
+    const wZip = `umowy/${u.id}.pdf`;
+    if (!zbior.has(wZip)) return u;
+    const sciezka = `${userId}/${u.id}.pdf`;
+    doWgrania.push({ wZip, sciezka, typ: 'application/pdf' });
+    return { ...u, pdf_path: sciezka };
+  });
+  for (const w of kopia.tables.settings[0]?.contract_templates ?? []) {
+    const wZip = `wzory/${w?.id}.docx`;
+    if (w?.id && zbior.has(wZip)) {
+      doWgrania.push({ wZip, sciezka: sciezkaWzoru(userId, w.id),
+        typ: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    }
+  }
+  return { kopia: { ...kopia, tables: { ...kopia.tables, contracts } }, doWgrania };
+}

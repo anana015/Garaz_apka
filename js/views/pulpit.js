@@ -5,6 +5,8 @@ import { DNI_BEZ_IMPORTU, TYPY_JEDNOSTEK } from '../config.js';
 import { koniecUmowy } from './jednostki.js';
 import { biezacyNajem, doPrzypisania, najemTrwa, planowanyKoniec } from '../dane.js';
 import { pilneZadania } from '../zadania.js';
+import { nazwaKategorii, zyskZakresu } from '../koszty.js';
+import { bramyDoZrobienia } from '../bramy.js';
 import { limityVat, PROGI_VAT } from '../statystyki.js';
 import {
   daneGrupy, datyKwartalu, etykietaKwartalu, GRUPY_RYCZALTU, kwartalDaty, kwartalyDoZaplaty, nazwaGrupy, progRoku,
@@ -12,7 +14,7 @@ import {
 } from '../podatek.js';
 import { pustyStan } from '../ui.js';
 import {
-  esc, dzisiaj, formatZl, formatData, kluczMiesiaca, MIESIACE_W, odmiana, porownajKody, roznicaDni,
+  esc, dzisiaj, etykietaMiesiaca, formatZl, formatData, kluczMiesiaca, MIESIACE_W, odmiana, porownajKody, roznicaDni,
 } from '../utils.js';
 import { opisProgu, rozliczeniaKlientow, ustawienia, wyborMiesiaca, pokazWybranyMiesiac } from './wspolne.js';
 
@@ -34,6 +36,16 @@ function paskiOstrzezen(s) {
   if (z) {
     paski.push(`<button type="button" class="baner ostrzezenie pelny-wiersz" data-akcja="idz"
       data-ekran="zadania" data-filtr="do-zrobienia">${odmiana(z, ['zadanie', 'zadania', 'zadań'])} na dziś i po terminie ›</button>`);
+  }
+  // Bramy GSM: numery do usunięcia (po końcu najmu + 3 dni) i do przypisania.
+  if (s.dane.gates?.length) {
+    const b = bramyDoZrobienia(s, dzisiaj());
+    if (b.doUsuniecia.length) {
+      paski.push(`<a class="baner blad pelny-wiersz" href="#/bramy">Bramy: ${odmiana(b.doUsuniecia.length, ['numer', 'numery', 'numerów'])} do usunięcia ›</a>`);
+    }
+    if (b.doPrzypisania.length) {
+      paski.push(`<a class="baner ostrzezenie pelny-wiersz" href="#/bramy">Bramy: ${odmiana(b.doPrzypisania.length, ['numer czeka', 'numery czekają', 'numerów czeka'])} na przypisanie ›</a>`);
+    }
   }
   // Umowy na czas określony kończące się w ciągu settings.expiring_days dni albo już wygasłe (Z10).
   const dzis = dzisiaj();
@@ -204,6 +216,38 @@ function konczaceNajmy(s, dzis) {
   }).join('')}</ul>`;
 }
 
+/**
+ * Karta „Zysk” (etap 2): wybrany miesiąc i rok narastająco do końca tego miesiąca (albo do dziś).
+ * Zysk = przychód kasowy − koszty − ryczałt szacunkowy (koszty.zyskZakresu).
+ */
+function kartaZysku(s, dzis) {
+  const u = ustawienia(s);
+  const m = s.ui.miesiac;
+  const [y, mm] = m.split('-').map(Number);
+  const koniec = `${m}-${String(new Date(Date.UTC(y, mm, 0)).getUTCDate()).padStart(2, '0')}`;
+  const doDnia = koniec < dzis ? koniec : dzis;
+  const miesiac = zyskZakresu(s.dane, { od: `${m}-01`, do: doDnia, ustawienia: u });
+  const rok = zyskZakresu(s.dane, { od: `${y}-01-01`, do: doDnia, ustawienia: u });
+  const zl = (gr) => formatZl(gr, { grosze: false });
+  const kwotaZysku = (gr) => (gr < 0 ? `<span class="status zalega">${zl(gr)}</span>` : zl(gr));
+  const kategorie = miesiac.wgKategorii.length
+    ? `<p class="maly wyciszony">Koszty w miesiącu: ${miesiac.wgKategorii.map((k) => `${esc(nazwaKategorii(k.kategoria))} ${zl(k.gr)}`).join(' · ')}</p>`
+    : '';
+  return `<div class="tabela-przewijana"><table class="tabela">
+      <thead><tr><th scope="col"></th><th scope="col" class="kwota">${esc(etykietaMiesiaca(m))}</th>
+        <th scope="col" class="kwota">Od początku ${y}</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Przychód</th><td class="kwota">${zl(miesiac.przychodGr)}</td><td class="kwota">${zl(rok.przychodGr)}</td></tr>
+        <tr><th scope="row">Koszty</th><td class="kwota">− ${zl(miesiac.kosztyGr)}</td><td class="kwota">− ${zl(rok.kosztyGr)}</td></tr>
+        <tr><th scope="row">Ryczałt (szac.)</th><td class="kwota">− ${zl(miesiac.ryczaltGr)}</td><td class="kwota">− ${zl(rok.ryczaltGr)}</td></tr>
+        <tr><th scope="row"><strong>Zysk</strong></th><td class="kwota"><strong>${kwotaZysku(miesiac.zyskGr)}</strong></td>
+          <td class="kwota"><strong>${kwotaZysku(rok.zyskGr)}</strong></td></tr>
+      </tbody></table></div>
+    ${kategorie}
+    ${!s.dane.expenses?.length ? '<p class="maly wyciszony">Nie ma jeszcze kosztów – wczytaj wyciąg z wypływami albo dodaj koszt ręcznie.</p>' : ''}
+    <p><a class="link-btn" href="#/koszty">Koszty ›</a> · <button type="button" class="link-btn" data-akcja="idz" data-ekran="raporty">Zysk według jednostek ›</button></p>`;
+}
+
 /** Karta „Ryczałt” (8.1 nr 9): bieżący kwartał osobno dla każdego licznika – przychód, ryczałt, próg 100 000 zł. */
 function kartaRyczaltu(s, dzis) {
   const u = ustawienia(s);
@@ -259,6 +303,8 @@ export default {
           ${oblozenie(s, p.dzis)}</section>
         <section class="karta" aria-labelledby="k-konczace"><h2 id="k-konczace">Kończące się najmy</h2>
           ${konczaceNajmy(s, p.dzis)}</section>
+        <section class="karta" aria-labelledby="k-zysk"><h2 id="k-zysk">Zysk</h2>
+          ${kartaZysku(s, p.dzis)}</section>
         <section class="karta" aria-labelledby="k-ryczalt"><h2 id="k-ryczalt">Ryczałt</h2>
           ${kartaRyczaltu(s, p.dzis)}</section>
       </div>`;

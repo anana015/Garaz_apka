@@ -1,7 +1,7 @@
 // Klienci (8.4), karta klienta (8.5) i formularz klienta (8.6).
 // Adresy: #/klienci, #/klienci/nowy[?dalej=najem&jednostka=<id>], #/klienci/<id>, #/klienci/<id>/edycja,
 // #/klienci/<id>/notatka[?rodzaj=obietnica], #/klienci/<id>/kaucja (dodanie kaucji),
-// #/klienci/<id>/wypowiedzenie. Tryb „Edytuj” na karcie = zwarte „Ustawienia klienta” z rozwijanymi grupami.
+// #/klienci/<id>/wypowiedzenie, #/klienci/<id>/umowa[?najem=<id>] (umowa do podpisania z wzoru – views/umowy.js). Tryb „Edytuj” na karcie = zwarte „Ustawienia klienta” z rozwijanymi grupami.
 
 import { najemTrwa, najemZakonczony, opisPlatnosci, stawkaNaDzien } from '../dane.js';
 import {
@@ -23,6 +23,10 @@ import { PROGI_TERMINOWOSCI, bezKaucji } from '../config.js';
 import { doCsv } from '../csv.js';
 import { kartoteka, terminowosc } from '../rozliczenia.js';
 import { KTO, RODZAJE_NOTATEK } from '../zadania.js';
+import { formularzeUmowy, formularzUmowy, najmyDoUmowy } from './umowy.js';
+import { kartaBramKlienta } from './bramy.js';
+import { bramaJednostki } from '../bramy.js';
+import { akcjePrzypomnienia, formularzeprzypomnienia, przypomnienie } from './przypomnienie.js';
 
 /** Klient aktywny: niezarchiwizowany i bez najmów albo z najmem, który się nie skończył. */
 function czyAktywny(klient, najmy, dzien) {
@@ -374,7 +378,8 @@ function saldo(s, klient, r, najmy, dzien) {
     ${oplacone ? `<dl class="opis-pol">${oplacone}</dl>` : ''}
     <p class="podpowiedz">Ostatnia wpłata: ${r.ostatniaWplata ? formatData(r.ostatniaWplata) : 'brak'} ·
       <a href="#/wplaty/gotowka?klient=${encodeURIComponent(klient.id)}">dodaj wpłatę</a>${zalega
-    ? ` · <a href="#/klienci/${encodeURIComponent(klient.id)}/notatka?rodzaj=obietnica">zapisz obietnicę zapłaty</a>` : ''}</p>`;
+    ? ` · <a href="#/klienci/${encodeURIComponent(klient.id)}/notatka?rodzaj=obietnica">zapisz obietnicę zapłaty</a>
+      · <a href="#/klienci/${encodeURIComponent(klient.id)}/przypomnienie">przypomnienie o płatności</a>` : ''}</p>`;
 }
 
 // ---------------------------------------------------------------------
@@ -504,6 +509,23 @@ function przyciskArchiwizacji(klient, najmy, r, dzien) {
     : przycisk({ tekst: 'Archiwizuj klienta', akcja: 'archiwizuj', drugi: true })}</div>`;
 }
 
+/** Po zapisie nowego najmu (?nowy=<id najmu>): następne kroki – umowa do podpisania i brama. */
+function dalejPoNowymNajmie(s, klient) {
+  const najem = s.dane.rentals.find((n) => n.id === s.ui.zapytanie.nowy);
+  if (!najem) return '';
+  const id = encodeURIComponent(klient.id);
+  const kod = s.indeksy.jednostki.get(najem.unit_id)?.code ?? '';
+  const numer = bramaJednostki(s.indeksy.jednostki.get(najem.unit_id));
+  const maDostep = (s.dane.gate_access ?? []).some((d) => d.client_id === klient.id && !d.removed_on
+    && s.dane.gates?.find((b) => b.id === d.gate_id)?.numer === numer);
+  const kroki = [
+    `<a class="przycisk" href="#/klienci/${id}/umowa?najem=${encodeURIComponent(najem.id)}">Umowa do podpisania</a>`,
+    s.dane.gates?.length && !maDostep ? `<a class="przycisk drugi" href="#/bramy/${id}?brama=${numer}">Przypisz do bramy ${numer}</a>` : '',
+  ].filter(Boolean).join('');
+  return `<section class="karta wyrozniona" aria-labelledby="k-dalej"><h2 id="k-dalej">Najem ${esc(kod)} zapisany – dalej</h2>
+    <div class="pasek-akcji">${kroki}</div></section>`;
+}
+
 /**
  * Karta klienta – kolejność kart na sztywno (prośba 11.11): Saldo i Notatki na górze, potem Najmy, Kontakt (zwarty),
  * Terminowość (tylko gdy włączona w Ustawieniach), Kaucja, Dokumenty, Kartoteka, Płatnicy.
@@ -537,11 +559,13 @@ function karta(s, klient) {
   return `
     <div class="pasek-akcji">
       ${przycisk({ tekst: 'Wpłata', href: `#/wplaty/gotowka?klient=${id}`, ikona: 'plus' })}
+      ${najmyDoUmowy(s, klient.id, dzien).length ? przycisk({ tekst: 'Umowa do podpisania', href: `#/klienci/${id}/umowa`, drugi: true }) : ''}
       ${najmy.some((n) => najemTrwa(n, dzien) && !n.end_on && !n.notice_end_on)
     ? przycisk({ tekst: 'Wypowiedz umowę', href: `#/klienci/${id}/wypowiedzenie`, drugi: true }) : ''}
       ${przyciskEdycji(s)}
     </div>
     ${klient.archived ? '<p class="baner">Klient jest zarchiwizowany.</p>' : ''}
+    ${dalejPoNowymNajmie(s, klient)}
     <div class="siatka">
       <section class="karta" aria-labelledby="k-saldo"><h2 id="k-saldo">Saldo</h2>${ostrzezenieKonta(s, klient, dzien)}${saldo(s, klient, r, najmy, dzien)}</section>
       <section class="karta" aria-labelledby="k-notatki"><h2 id="k-notatki">Notatki i historia kontaktu</h2>
@@ -549,6 +573,7 @@ function karta(s, klient) {
       <section class="karta" aria-labelledby="k-najmy"><h2 id="k-najmy">Najmy</h2>
         ${najmy.length ? `<ul class="lista">${najmy.map((n) => wierszNajmu(s, n, dzien)).join('')}</ul>`
           : '<p class="wyciszony">Brak najmów.</p>'}</section>
+      ${kartaBramKlienta(s, klient)}
       <section class="karta zwarta" aria-labelledby="k-kontakt"><h2 id="k-kontakt">Kontakt</h2>
         ${kontaktGlowny ? `<dl class="opis-pol">${kontaktGlowny}</dl>` : '<p class="wyciszony">Brak danych kontaktowych.</p>'}
         ${kontaktDodatkowy ? `<details class="wiecej-danych"><summary>Więcej danych</summary><dl class="opis-pol">${kontaktDodatkowy}</dl></details>` : ''}
@@ -714,13 +739,15 @@ export default {
     if (akcja === 'notatka') return `Notatka: ${nazwa}`;
     if (akcja === 'wypowiedzenie') return `Wypowiedzenie: ${nazwa}`;
     if (akcja === 'kaucja') return `Kaucja: ${nazwa}`;
+    if (akcja === 'umowa') return `Umowa: ${nazwa}`;
+    if (akcja === 'przypomnienie') return `Przypomnienie: ${nazwa}`;
     return akcja === 'edycja' ? `Edycja: ${nazwa}` : nazwa;
   },
 
   wstecz(s) {
     const { parametr, akcja } = s.ui;
     if (!parametr) return null;
-    if (['edycja', 'notatka', 'wypowiedzenie', 'kaucja'].includes(akcja)) return { href: `#/klienci/${encodeURIComponent(parametr)}`, tekst: s.indeksy.klienci.get(parametr)?.name ?? 'Klient' };
+    if (['edycja', 'notatka', 'wypowiedzenie', 'kaucja', 'umowa', 'przypomnienie'].includes(akcja)) return { href: `#/klienci/${encodeURIComponent(parametr)}`, tekst: s.indeksy.klienci.get(parametr)?.name ?? 'Klient' };
     if (parametr === 'nowy' && s.ui.zapytanie.dalej === 'najem') return { href: '#/najmy/nowy', tekst: 'Nowy najem' };
     return { href: '#/klienci', tekst: 'Klienci' };
   },
@@ -734,11 +761,14 @@ export default {
     if (akcja === 'notatka') return formularzNotatki(s, klient);
     if (akcja === 'wypowiedzenie') return formularzWypowiedzenia(s, klient);
     if (akcja === 'kaucja') return formularzKaucji(s, klient);
+    if (akcja === 'umowa') return formularzUmowy(s, klient);
+    if (akcja === 'przypomnienie') return przypomnienie(s, klient);
     return akcja === 'edycja' ? formularzKlienta(s, klient) : karta(s, klient);
   },
 
   akcje: {
     ...akcjeAnulowania,
+    ...akcjePrzypomnienia,
     'usun-kaucje'(_el, ctx) {
       if (!ctx.state.ui.form) return;
       ctx.state.ui.form.potwierdzUsuniecie = true;
@@ -885,6 +915,8 @@ export default {
   },
 
   formularze: {
+    ...formularzeUmowy,
+    ...formularzeprzypomnienia,
     async kaucja(form, ctx) {
       const s = ctx.state;
       const klient = s.indeksy.klienci.get(s.ui.parametr);

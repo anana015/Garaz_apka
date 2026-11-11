@@ -226,6 +226,48 @@ export async function linkDoUmowy(sciezka) {
   return data.signedUrl;
 }
 
+/** Pobiera plik z bucketu „umowy” (kopia z dokumentami, wzory umów). Zwraca Blob. */
+export async function pobierzZMagazynu(sciezka) {
+  const { data, error } = await (await polacz()).storage.from(BUCKET).download(sciezka);
+  if (error) throw new Error(`Nie udało się pobrać pliku ${sciezka}: ${error.message}`);
+  return data;
+}
+
+/** Wgrywa plik do bucketu „umowy” (nadpisuje). typ – MIME (PDF albo .docx, migracja 011). */
+export async function wgrajDoMagazynu(sciezka, plik, typ) {
+  const { error } = await (await polacz()).storage.from(BUCKET).upload(sciezka, plik, { upsert: true, contentType: typ });
+  if (error) {
+    if (/mime|type/i.test(error.message) && /wordprocessing|docx/.test(typ)) {
+      throw new Error('Baza nie przyjmuje jeszcze plików Word. Uruchom w Supabase plik supabase/migracje/011_wzory_umow.sql.');
+    }
+    throw new Error(/size|too large|413/i.test(error.message) ? 'Plik jest za duży (limit 10 MB).'
+      : `Nie udało się wgrać pliku: ${error.message}`);
+  }
+  return sciezka;
+}
+
+/** Usuwa plik z bucketu „umowy” (np. usunięty wzór umowy). Brak pliku nie jest błędem. */
+export async function usunZMagazynu(sciezka) {
+  const { error } = await (await polacz()).storage.from(BUCKET).remove([sciezka]);
+  if (error) throw new Error(`Nie udało się usunąć pliku: ${error.message}`);
+}
+
+const SKRYPT_JSZIP = 'js/vendor/jszip-3.10.1.min.js';
+
+/** Biblioteka JSZip (kopia ZIP, wypełnianie wzorów .docx) – ładowana dopiero przy pierwszym użyciu. */
+export async function jszip() {
+  if (!window.JSZip) {
+    await new Promise((ok, blad) => {
+      const s = document.createElement('script');
+      s.src = SKRYPT_JSZIP;
+      s.onload = ok;
+      s.onerror = () => blad(new Error('Nie udało się wczytać biblioteki ZIP.'));
+      document.head.append(s);
+    });
+  }
+  return window.JSZip;
+}
+
 /** Usuwa wiersz o danym id (np. wiersz importu, gdy zapis wpłat się nie udał). */
 export async function usun(tabela, id) {
   sprawdz(await (await polacz()).from(tabela).delete().eq('id', id));

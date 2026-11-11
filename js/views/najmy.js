@@ -432,7 +432,8 @@ async function zapiszNajem(form, ctx) {
       }
     }
     ctx.toast(komunikat);
-    ctx.nawiguj(`klienci/${encodeURIComponent(klientId)}`);
+    // Karta klienta z paskiem „Dalej: umowa do podpisania · brama”.
+    ctx.nawiguj(`klienci/${encodeURIComponent(klientId)}?nowy=${encodeURIComponent(wynik.najemId)}`);
   });
 }
 

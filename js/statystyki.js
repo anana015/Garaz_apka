@@ -106,3 +106,121 @@ export function wiekowanie(rozliczenia, dzis) {
   }
   return przedzialy;
 }
+
+// ---------------------------------------------------------------------
+// Brakujące wpłaty – tabela miesięcy (5.6, karta 4 w rozdz. 9)
+// ---------------------------------------------------------------------
+
+/**
+ * Dla każdego miesiąca: klienci z należnością z terminem w tym miesiącu (oczekiwane przelewy) podzieleni na
+ * zapłacone w terminie (wszystko do terminu + tolerancja), spóźnione (zapłacone później) i brakujące (coś nieopłacone).
+ * Liczymy klientów, nie należności – klient z dwiema jednostkami robi zwykle jeden przelew.
+ * @param {Map} rozliczenia wynik rozliczenia.rozliczenia(): clientId → { pozycje }
+ * @param {string[]} miesiace klucze 'RRRR-MM' (miesiące po bieżącym są pomijane)
+ * @returns {Array<{klucz, oczekiwane, terminowo, spoznione, brakujace, przedTerminem, brakGr, naleznoGr, pokryteGr, sciagalnosc}>}
+ */
+export function brakujaceWplatyMiesiecy(rozliczenia, miesiace, { dzis, tolerancja = 0 }) {
+  const biezacy = kluczMiesiaca(dzis);
+  const wynik = new Map(miesiace.filter((k) => k <= biezacy).map((k) => [k, {
+    klucz: k, oczekiwane: 0, terminowo: 0, spoznione: 0, brakujace: 0, przedTerminem: 0, brakGr: 0, naleznoGr: 0, pokryteGr: 0,
+  }]));
+  for (const r of rozliczenia.values()) {
+    const wgMiesiaca = new Map();
+    for (const p of r.pozycje) {
+      if (p.otwarcie || !p.kwotaGr) continue;
+      const k = kluczMiesiaca(p.termin);
+      if (!wynik.has(k)) continue;
+      if (!wgMiesiaca.has(k)) wgMiesiaca.set(k, []);
+      wgMiesiaca.get(k).push(p);
+    }
+    for (const [k, poz] of wgMiesiaca) {
+      const m = wynik.get(k);
+      m.oczekiwane += 1;
+      m.naleznoGr += poz.reduce((x, p) => x + p.kwotaGr, 0);
+      m.pokryteGr += poz.reduce((x, p) => x + Math.min(p.zaplaconoGr, p.kwotaGr), 0);
+      const niezaplacone = poz.filter((p) => p.zaplaconoGr < p.kwotaGr);
+      if (niezaplacone.length) {
+        m.brakujace += 1;
+        m.brakGr += niezaplacone.reduce((x, p) => x + p.kwotaGr - p.zaplaconoGr, 0);
+        if (niezaplacone.every((p) => p.termin >= dzis)) m.przedTerminem += 1;
+      } else if (poz.every((p) => !p.zaplaconoDnia || roznicaDni(p.termin, p.zaplaconoDnia) <= tolerancja)) {
+        m.terminowo += 1;
+      } else m.spoznione += 1;
+    }
+  }
+  return [...wynik.values()].map((m) => ({ ...m, sciagalnosc: m.naleznoGr ? m.pokryteGr / m.naleznoGr : null }));
+}
+
+// ---------------------------------------------------------------------
+// Porównanie lat (karta 8 w rozdz. 9)
+// ---------------------------------------------------------------------
+
+const ostatniDzienMiesiaca = (klucz) => {
+  const [y, m] = klucz.split('-').map(Number);
+  return `${klucz}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
+};
+
+/** Lata do porównania: od roku najstarszej wpłaty albo daty startu danych do bieżącego roku. */
+export function lataDanych(dane, { dataStart, dzis }) {
+  let od = Number(dataStart.slice(0, 4));
+  for (const w of dane.payments) od = Math.min(od, Number(w.booked_on.slice(0, 4)));
+  for (const n of dane.rentals) od = Math.min(od, Number(n.start_on.slice(0, 4)));
+  const doRoku = Number(dzis.slice(0, 4));
+  const lata = [];
+  for (let r = Math.max(od, doRoku - 9); r <= doRoku; r++) lata.push(r);
+  return lata;
+}
+
+/**
+ * Wskaźniki roku: przychód kasowy, średnio na miesiąc, ściągalność, terminowość, obłożenie (średnia z końców miesięcy),
+ * koszty i zysk. Bieżący rok – do dziś. Należności liczą się od daty startu danych, więc dla lat wcześniejszych
+ * ściągalność i terminowość są puste (null), dopóki data startu nie zostanie przesunięta.
+ * @param {object} dane state.dane
+ * @param {Map} rozliczenia clientId → { pozycje }
+ * @param {{ lata: number[], dzis, tolerancja, zysk: (od, do) => {kosztyGr, ryczaltGr, zyskGr} }} o
+ */
+export function porownanieLat(dane, rozliczenia, { lata, dzis, tolerancja = 0, zysk }) {
+  const pozycje = [...rozliczenia.values()].flatMap((r) => r.pozycje).filter((p) => !p.otwarcie && p.kwotaGr);
+  const jednostki = dane.units.filter((j) => !j.archived && !j.out_of_service);
+  const idJednostek = new Set(jednostki.map((j) => j.id));
+  const najmy = dane.rentals.filter((n) => idJednostek.has(n.unit_id));
+  const pierwszaWplata = dane.payments.reduce((m, w) => (PRZYCHOD.has(w.kind) && (!m || w.booked_on < m) ? w.booked_on : m), null);
+
+  return lata.map((rok) => {
+    const od = `${rok}-01-01`;
+    const doDnia = `${rok}-12-31` < dzis ? `${rok}-12-31` : dzis;
+    const przychodGr = przychodKasowy(dane.payments, od, doDnia);
+    // Miesiące z danymi: od pierwszej wpłaty (gdy wypada w tym roku) do grudnia albo bieżącego miesiąca.
+    const odMiesiaca = pierwszaWplata && pierwszaWplata > od ? kluczMiesiaca(pierwszaWplata) : `${rok}-01`;
+    const miesiace = odMiesiaca <= kluczMiesiaca(doDnia) ? zakresMiesiecy(odMiesiaca, kluczMiesiaca(doDnia)) : [];
+
+    const wRoku = pozycje.filter((p) => p.termin >= od && p.termin <= doDnia);
+    const naleznoGr = wRoku.reduce((x, p) => x + p.kwotaGr, 0);
+    const pokryteGr = wRoku.reduce((x, p) => x + Math.min(p.zaplaconoGr, p.kwotaGr), 0);
+    let ocenione = 0;
+    let terminowe = 0;
+    for (const p of wRoku) {
+      const zaplacona = p.zaplaconoGr >= p.kwotaGr && p.zaplaconoDnia;
+      if (!zaplacona && roznicaDni(p.termin, dzis) <= tolerancja) continue;   // jeszcze w tolerancji
+      ocenione += 1;
+      if (zaplacona && roznicaDni(p.termin, p.zaplaconoDnia) <= tolerancja) terminowe += 1;
+    }
+
+    const stany = zakresMiesiecy(`${rok}-01`, kluczMiesiaca(doDnia)).map((k) => {
+      const d = ostatniDzienMiesiaca(k) < dzis ? ostatniDzienMiesiaca(k) : dzis;
+      return najmy.filter((n) => n.start_on <= d && (n.end_on == null || n.end_on >= d)).length;
+    });
+    const oblozenie = jednostki.length && najmy.some((n) => n.start_on <= doDnia && (n.end_on == null || n.end_on >= od))
+      ? stany.reduce((x, z) => x + z, 0) / stany.length / jednostki.length : null;
+
+    const z = zysk ? zysk(od, doDnia) : null;
+    return {
+      rok, czesciowy: doDnia < `${rok}-12-31`, doDnia, miesiecy: miesiace.length,
+      przychodGr, srednioGr: miesiace.length ? Math.round(przychodGr / miesiace.length) : null,
+      naleznoGr, sciagalnosc: naleznoGr ? pokryteGr / naleznoGr : null,
+      terminowosc: ocenione ? terminowe / ocenione : null,
+      oblozenie,
+      kosztyGr: z?.kosztyGr ?? null, ryczaltGr: z?.ryczaltGr ?? null, zyskGr: z?.zyskGr ?? null,
+    };
+  });
+}

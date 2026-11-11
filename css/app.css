@@ -587,6 +587,9 @@ fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 .kwadrat.brak-zaplaty { background: var(--st-late); }
 .kwadrat.czeka { background: transparent; box-shadow: inset 0 0 0 2px var(--line); }
 .karta.szeroka { grid-column: 1 / -1; }
+.karta.wyrozniona { border-left: 4px solid var(--accent); margin-bottom: 12px; }
+.kroki-sms { display: grid; gap: 8px; margin: 8px 0 12px; }
+.kroki-sms p { margin: 6px 0 0; }
 .tabela .kwota { text-align: right; white-space: nowrap; }
 .tekst-notatki { display: block; color: var(--text); white-space: pre-wrap; margin-top: 2px; }
 

@@ -8,7 +8,7 @@
 // Po dodaniu pliku do aplikacji dopisz go do PLIKI (pilnuje tego tests/pwa.test.js)
 // i podnieś WERSJA, żeby stara pamięć podręczna została usunięta.
 
-const WERSJA = 'najem-0.16.2';
+const WERSJA = 'najem-0.18.2';
 const LIMIT_SIECI_MS = 4000;   // słaby zasięg: po 4 s pokaż kopię, jeśli jest
 
 const PLIKI = [
@@ -20,6 +20,7 @@ const PLIKI = [
   'js/config.js',
   'js/csv.js',
   'js/banki.js',
+  'js/bramy.js',
   'js/rozpoznanie.js',
   'js/rozliczenia.js',
   'js/zadania.js',
@@ -37,8 +38,10 @@ const PLIKI = [
   'js/startowe.js',
   'js/state.js',
   'js/ui.js',
+  'js/umowy.js',
   'js/utils.js',
   'js/walidacja.js',
+  'js/views/bramy.js',
   'js/views/edycja.js',
   'js/views/import.js',
   'js/views/jednostki.js',
@@ -46,14 +49,17 @@ const PLIKI = [
   'js/views/koszty.js',
   'js/views/logowanie.js',
   'js/views/najmy.js',
+  'js/views/przypomnienie.js',
   'js/views/pulpit.js',
   'js/views/raporty.js',
   'js/views/zadania.js',
   'js/views/startowe.js',
+  'js/views/umowy.js',
   'js/views/ustawienia.js',
   'js/views/wplaty.js',
   'js/views/wspolne.js',
   'js/vendor/supabase-2.119.0.js',
+  'js/vendor/jszip-3.10.1.min.js',
   'icons/icon.svg',
   'icons/icon-192.png',
   'icons/icon-512.png',

@@ -1,7 +1,8 @@
 // Raporty (rozdz. 9): wybór okresu u góry i karty. Liczby z rozliczenia klientów, statystyki.js i podatek.js.
 // Adresy: #/raporty, #/raporty/ryczalt/RRRR-K (wpłata ryczałtu za kwartał, 6.5).
 
-import { TYPY_JEDNOSTEK } from '../config.js';
+import { PROGI_TERMINOWOSCI, TYPY_JEDNOSTEK } from '../config.js';
+import { terminowosc } from '../rozliczenia.js';
 import { najemTrwa, pelneMiesiaceWplat } from '../dane.js';
 import { formularz, maBledy, pole, stanFormularza, wartosciFormularza, zapisz } from '../formularz.js';
 import {
@@ -10,12 +11,20 @@ import {
 } from '../podatek.js';
 import { filtry, pustyStan } from '../ui.js';
 import {
-  esc, dzisiaj, etykietaMiesiaca, formatData, formatRachunek, formatZl, kwotaDoPola, MIESIACE_KROTKO, porownajKody,
+  esc, dzisiaj, etykietaMiesiaca, formatData, formatRachunek, formatZl, kluczMiesiaca, kwotaDoPola, MIESIACE_KROTKO,
+  porownajKody, zakresMiesiecy,
 } from '../utils.js';
 import { zyskZakresu, nazwaKategorii } from '../koszty.js';
-import { limityVat, przychodKasowy, przychodMiesiecznie, PROGI_VAT, wiekowanie, zakresOkresu } from '../statystyki.js';
+import {
+  brakujaceWplatyMiesiecy, lataDanych, limityVat, porownanieLat, przychodKasowy, przychodMiesiecznie, PROGI_VAT, wiekowanie,
+  zakresOkresu,
+} from '../statystyki.js';
+import { doCsv } from '../csv.js';
+import { pobierzPlik } from '../ui.js';
 import { walidujWplateRyczaltu } from '../walidacja.js';
-import { opisProgu, pobierzEksport, rozliczeniaKlientow, ustawienia, wyborMiesiaca, pokazWybranyMiesiac } from './wspolne.js';
+import {
+  opisProgu, pobierzEksport, pokazTerminowosc, rozliczeniaKlientow, ustawienia, wyborMiesiaca, pokazWybranyMiesiac,
+} from './wspolne.js';
 
 const MIN_PELNYCH_MIESIECY = 2;   // 9 i 12.3
 
@@ -142,27 +151,28 @@ function kartaZysku(s, z) {
   const doDnia = z.do < dzis ? z.do : dzis;
   const pozycje = [...rozliczeniaKlientow(s).values()].flatMap((r) => r.pozycje);
   const w = zyskZakresu(s.dane, { od: z.od, do: doDnia, ustawienia: ustawienia(s), pozycje });
-  const kl = (gr) => (gr < 0 ? ' class="kwota status zalega"' : ' class="kwota"');
+  const kl = () => ' class="kwota"';
+  const ujemna = (html, gr) => (gr < 0 ? `<span class="status zalega">${html}</span>` : html);
   const typy = Object.entries(TYPY_JEDNOSTEK).map(([typ, t]) => {
     const wiersze = w.naJednostke.filter((x) => s.indeksy.jednostki.get(x.jednostkaId)?.type === typ);
     if (!wiersze.length) return '';
     const suma = (k) => wiersze.reduce((x, y) => x + y[k], 0);
     return `<tr><td>${esc(t.mnoga)}</td><td class="kwota">${formatZl(suma('przychodGr'), { grosze: false })}</td>
       <td class="kwota">${formatZl(suma('kosztyGr') + suma('wspolneGr'), { grosze: false })}</td>
-      <td${kl(suma('zyskGr'))}>${formatZl(suma('zyskGr'), { grosze: false })}</td></tr>`;
+      <td${kl()}>${ujemna(formatZl(suma('zyskGr'), { grosze: false }), suma('zyskGr'))}</td></tr>`;
   }).join('');
   const jednostki = [...w.naJednostke].map((x) => ({ ...x, j: s.indeksy.jednostki.get(x.jednostkaId) })).filter((x) => x.j)
     .sort((a, b) => a.zyskGr - b.zyskGr || porownajKody(a.j.code, b.j.code));
   const wierszJ = (x) => `<tr><td><a class="mono" href="#/jednostki/${encodeURIComponent(x.j.id)}">${esc(x.j.code)}</a></td>
     <td class="kwota">${formatZl(x.przychodGr, { grosze: false })}</td>
     <td class="kwota">${formatZl(x.kosztyGr, { grosze: false })}${x.wspolneGr ? ` <span class="wyciszony maly">+${formatZl(x.wspolneGr, { grosze: false })}</span>` : ''}</td>
-    <td${kl(x.zyskGr)}>${formatZl(x.zyskGr, { grosze: false })}</td></tr>`;
+    <td${kl()}>${ujemna(formatZl(x.zyskGr, { grosze: false }), x.zyskGr)}</td></tr>`;
   return `<dl class="opis-pol">
       <dt>Przychód (wpłaty)</dt><dd class="kwota">${formatZl(w.przychodGr)}</dd>
       <dt>Koszty</dt><dd class="kwota">− ${formatZl(w.kosztyGr)}</dd>
       ${w.wgKategorii.map((k) => `<dt class="wyciszony">&nbsp;&nbsp;${esc(nazwaKategorii(k.kategoria))}</dt><dd class="kwota wyciszony">${formatZl(k.gr)}</dd>`).join('')}
       <dt>Ryczałt (szacunkowo)</dt><dd class="kwota">− ${formatZl(w.ryczaltGr)}</dd>
-      <dt><strong>Zysk</strong></dt><dd${kl(w.zyskGr)}><strong>${formatZl(w.zyskGr)}</strong></dd>
+      <dt><strong>Zysk</strong></dt><dd${kl()}><strong>${ujemna(formatZl(w.zyskGr), w.zyskGr)}</strong></dd>
     </dl>
     ${typy ? `<div class="tabela-przewijana"><table class="tabela"><thead><tr><th scope="col">Typ</th><th scope="col" class="kwota">Przychód</th>
       <th scope="col" class="kwota">Koszty</th><th scope="col" class="kwota">Zysk</th></tr></thead><tbody>${typy}</tbody></table></div>` : ''}
@@ -174,6 +184,158 @@ function kartaZysku(s, z) {
     <p class="podpowiedz">Zysk = przychód − koszty − ryczałt. Przy ryczałcie koszty nie zmniejszają podatku – to wskaźnik do
       zarządzania, nie do rozliczeń z urzędem. Na jednostkę: opłacone należności z terminem w okresie; koszty wspólne i ryczałt
       rozłożone proporcjonalnie do przychodu jednostki.</p>`;
+}
+
+/** Miesiące tabeli „Brakujące wpłaty”: przy okresie „Miesiąc” – 12 miesięcy do wybranego, inaczej miesiące okresu. */
+function miesiaceBrakujacych(s, okres, z) {
+  const start = kluczMiesiaca(ustawienia(s).data_start);
+  let od = kluczMiesiaca(z.od);
+  const doM = kluczMiesiaca(z.do);
+  if (okres === 'miesiac') {
+    const [y, m] = doM.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 12, 1));
+    od = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+  if (od < start) od = start;
+  return od <= doM ? zakresMiesiecy(od, doM).reverse() : [];
+}
+
+function wierszeBrakujacych(s, okres, z) {
+  const u = ustawienia(s);
+  return brakujaceWplatyMiesiecy(rozliczeniaKlientow(s), miesiaceBrakujacych(s, okres, z),
+    { dzis: dzisiaj(), tolerancja: u.tolerance_days });
+}
+
+/** Karta 4 (rozdz. 9, wzór 5.6): oczekiwane przelewy, w terminie, spóźnione, brakujące – po miesiącach. */
+function kartaBrakujacych(s, okres, z) {
+  const wiersze = wierszeBrakujacych(s, okres, z);
+  if (!wiersze.some((w) => w.oczekiwane)) return '<p class="wyciszony">Brak należności w tym okresie.</p>';
+  const u = ustawienia(s);
+  return `<div class="tabela-przewijana"><table class="tabela">
+      <thead><tr><th scope="col">Miesiąc</th><th scope="col" class="kwota">Oczekiwane</th>
+        <th scope="col" class="kwota">W terminie</th><th scope="col" class="kwota">Spóźnione</th>
+        <th scope="col" class="kwota">Brakujące</th><th scope="col" class="kwota">Brakuje</th><th scope="col" class="kwota">Ściągalność</th></tr></thead>
+      <tbody>${wiersze.map((w) => `<tr>
+        <th scope="row">${esc(etykietaMiesiaca(w.klucz))}</th>
+        <td class="kwota">${w.oczekiwane}</td>
+        <td class="kwota">${w.terminowo}</td>
+        <td class="kwota">${w.spoznione ? `<span class="status czesciowo">${w.spoznione}</span>` : '0'}</td>
+        <td class="kwota">${w.brakujace ? `<span class="status ${w.brakujace > w.przedTerminem ? 'zalega' : 'wyciszony'}">${w.brakujace}</span>${
+    w.przedTerminem ? `<br><span class="wyciszony maly">${w.przedTerminem} przed terminem</span>` : ''}` : '0'}</td>
+        <td class="kwota">${w.brakGr ? formatZl(w.brakGr, { grosze: false }) : '—'}</td>
+        <td class="kwota">${w.sciagalnosc == null ? '—' : procent(w.sciagalnosc)}</td></tr>`).join('')}</tbody></table></div>
+    <p><button type="button" class="przycisk drugi" data-akcja="eksport-tabeli" data-rodzaj="brakujace">Brakujące wpłaty (CSV)</button></p>
+    <p class="podpowiedz">Liczba klientów z należnością z terminem w miesiącu (klient z kilkoma jednostkami = jeden przelew).
+      „W terminie” – wszystko zapłacone najpóźniej ${u.tolerance_days} dni po terminie (tolerancja z Ustawień).
+      ${okres === 'miesiac' ? '12 miesięcy do wybranego, od najnowszego.' : 'Miesiące wybranego okresu, od najnowszego.'}</p>`;
+}
+
+function wierszeLat(s) {
+  const u = ustawienia(s);
+  const dzis = dzisiaj();
+  const lata = lataDanych(s.dane, { dataStart: u.data_start, dzis });
+  return porownanieLat(s.dane, rozliczeniaKlientow(s), {
+    lata, dzis, tolerancja: u.tolerance_days,
+    zysk: (od, doDnia) => zyskZakresu(s.dane, { od, do: doDnia, ustawienia: u }),
+  });
+}
+
+/** „+12%” / „−3 pp.” – zmiana ostatniego roku względem poprzedniego. */
+function zmiana(a, b, { pp = false } = {}) {
+  if (a == null || b == null) return '';
+  const r = pp ? Math.round((a - b) * 100) : b ? Math.round(((a - b) / Math.abs(b)) * 100) : null;
+  if (r == null) return '';
+  const klasa = r > 0 ? 'ok' : r < 0 ? 'zalega' : 'wyciszony';
+  return `<span class="status ${klasa}">${r > 0 ? '+' : r < 0 ? '−' : '±'}${Math.abs(r)}${pp ? ' pp.' : '%'}</span>`;
+}
+
+/** Karta 8 (rozdz. 9): wskaźniki rok do roku. Kolumny = lata (najnowszy z prawej). */
+function kartaLat(s) {
+  const lata = wierszeLat(s);
+  const u = ustawienia(s);
+  const ost = lata.at(-1);
+  const prz = lata.at(-2);
+  const kol = (fn) => lata.map((r) => `<td class="kwota">${fn(r)}</td>`).join('');
+  const zl = (gr) => (gr == null ? '—' : formatZl(gr, { grosze: false }));
+  const pr = (x) => (x == null ? '—' : procent(x));
+  const wiersz = (nazwa, fn, zm) => `<tr><th scope="row">${nazwa}</th>${kol(fn)}${lata.length > 1 ? `<td>${zm}</td>` : ''}</tr>`;
+  return `<div class="tabela-przewijana"><table class="tabela">
+      <thead><tr><th scope="col">Wskaźnik</th>${lata.map((r) => `<th scope="col" class="kwota">${r.rok}${
+    r.czesciowy ? '<br><span class="wyciszony maly">do dziś</span>' : ''}</th>`).join('')}${
+    lata.length > 1 ? `<th scope="col">${ost.rok} / ${prz.rok}</th>` : ''}</tr></thead>
+      <tbody>
+        ${wiersz('Przychód', (r) => zl(r.przychodGr), '')}
+        ${wiersz('Średnio na miesiąc', (r) => zl(r.srednioGr), lata.length > 1 ? zmiana(ost.srednioGr, prz.srednioGr) : '')}
+        ${wiersz('Ściągalność', (r) => pr(r.sciagalnosc), lata.length > 1 ? zmiana(ost.sciagalnosc, prz.sciagalnosc, { pp: true }) : '')}
+        ${wiersz('Terminowość', (r) => pr(r.terminowosc), lata.length > 1 ? zmiana(ost.terminowosc, prz.terminowosc, { pp: true }) : '')}
+        ${wiersz('Obłożenie (średnio)', (r) => pr(r.oblozenie), lata.length > 1 ? zmiana(ost.oblozenie, prz.oblozenie, { pp: true }) : '')}
+        ${wiersz('Koszty', (r) => zl(r.kosztyGr), '')}
+        ${wiersz('Ryczałt (szac.)', (r) => zl(r.ryczaltGr), '')}
+        ${wiersz('<strong>Zysk</strong>', (r) => `<strong>${zl(r.zyskGr)}</strong>`, '')}
+      </tbody></table></div>
+    ${lata.length < 2 ? `<p class="baner">Porównanie pojawi się, gdy w aplikacji będą dane z co najmniej dwóch lat.
+      Dane z ubiegłych lat: przesuń datę startu danych w Ustawieniach (teraz ${formatData(u.data_start)}) i wczytaj wcześniejsze
+      wyciągi oraz najmy.</p>` : ''}
+    <p><button type="button" class="przycisk drugi" data-akcja="eksport-tabeli" data-rodzaj="lata">Porównanie lat (CSV)</button></p>
+    <p class="podpowiedz">Bieżący rok do dziś – porównuj „średnio na miesiąc” i wskaźniki procentowe, nie sumy.
+      Ściągalność i terminowość liczą się od daty startu danych (${formatData(u.data_start)}); wcześniejsze lata mają tylko
+      przychód. Obłożenie – średnia ze stanu na koniec każdego miesiąca, względem obecnej listy jednostek (bez wyłączonych).
+      Zmiana: procenty dla kwot, punkty procentowe (pp.) dla wskaźników.</p>`;
+}
+
+/** CSV tabel z tej karty: brakujące wpłaty i porównanie lat. */
+function eksportTabeli(s, rodzaj) {
+  const dzis = dzisiaj();
+  const zlCsv = (gr) => (gr == null ? '' : (gr / 100).toFixed(2).replace('.', ','));
+  const prCsv = (x) => (x == null ? '' : String(Math.round(x * 1000) / 10).replace('.', ','));
+  if (rodzaj === 'brakujace') {
+    const okres = s.ui.filtry.raporty ?? 'miesiac';
+    const z = zakresOkresu(okres, s.ui.miesiac, dzis);
+    const w = wierszeBrakujacych(s, okres, z);
+    pobierzPlik(`brakujace_wplaty_${dzis}.csv`, doCsv(
+      ['miesiac', 'oczekiwane', 'w_terminie', 'spoznione', 'brakujace', 'przed_terminem', 'brakuje_zl', 'nalezne_zl', 'sciagalnosc_proc'],
+      w.map((x) => [x.klucz, x.oczekiwane, x.terminowo, x.spoznione, x.brakujace, x.przedTerminem, zlCsv(x.brakGr), zlCsv(x.naleznoGr),
+        prCsv(x.sciagalnosc)])));
+  } else if (rodzaj === 'lata') {
+    const w = wierszeLat(s);
+    pobierzPlik(`porownanie_lat_${dzis}.csv`, doCsv(
+      ['rok', 'do_dnia', 'przychod_zl', 'srednio_na_miesiac_zl', 'sciagalnosc_proc', 'terminowosc_proc', 'oblozenie_proc', 'koszty_zl',
+        'ryczalt_zl', 'zysk_zl'],
+      w.map((x) => [x.rok, x.doDnia, zlCsv(x.przychodGr), zlCsv(x.srednioGr), prCsv(x.sciagalnosc), prCsv(x.terminowosc),
+        prCsv(x.oblozenie), zlCsv(x.kosztyGr), zlCsv(x.ryczaltGr), zlCsv(x.zyskGr)])));
+  }
+}
+
+/** Karta 2 (rozdz. 9, wzór 5.5): terminowość ogółem i rankingi klientów z okna terminowości (domyślnie 12 mies.). */
+function kartaTerminowosci(s) {
+  const u = ustawienia(s);
+  const dzis = dzisiaj();
+  const wyniki = [...rozliczeniaKlientow(s).entries()]
+    .map(([id, r]) => ({ k: s.indeksy.klienci.get(id),
+      t: terminowosc(r.pozycje, { dzis, tolerancja: u.tolerance_days, miesiecy: u.punctuality_months, progi: PROGI_TERMINOWOSCI }) }))
+    .filter((x) => x.k && !x.k.archived && x.t.liczba >= PROGI_TERMINOWOSCI.minNaleznosci);
+  if (!wyniki.length) return '<p class="wyciszony">Za mało danych – ranking pojawi się, gdy klienci będą mieli co najmniej '
+    + `${PROGI_TERMINOWOSCI.minNaleznosci} rozliczone należności.</p>`;
+  const ocenione = wyniki.reduce((x, w) => x + w.t.liczba, 0);
+  const terminowe = wyniki.reduce((x, w) => x + Math.round(w.t.procent * w.t.liczba), 0);
+  const najlepsi = [...wyniki].sort((a, b) => b.t.procent - a.t.procent || b.t.liczba - a.t.liczba
+    || a.k.name.localeCompare(b.k.name, 'pl')).slice(0, 10);
+  const spoznieni = wyniki.filter((w) => w.t.procent < 1).sort((a, b) => a.t.procent - b.t.procent
+    || b.t.srednieOpoznienie - a.t.srednieOpoznienie).slice(0, 10);
+  const wiersz = ({ k, t }) => `<tr><td><a href="#/klienci/${encodeURIComponent(k.id)}">${esc(k.name)}</a>
+    <br><span class="wyciszony maly">${t.liczba} należności</span></td>
+    <td class="kwota">${procent(t.procent)}</td><td class="kwota">${t.srednieOpoznienie ? `${t.srednieOpoznienie} dni` : '—'}</td></tr>`;
+  const tabela = (lista) => `<div class="tabela-przewijana"><table class="tabela"><thead><tr><th scope="col">Klient</th>
+    <th scope="col" class="kwota">W terminie</th><th scope="col" class="kwota">Śr. spóźn.</th></tr></thead>
+    <tbody>${lista.map(wiersz).join('')}</tbody></table></div>`;
+  const etykiety = ['Wzorowy', 'Terminowy', 'Zdarza się spóźnić', 'Spóźnia się']
+    .map((e) => `${e}: <strong>${wyniki.filter((w) => w.t.etykieta === e).length}</strong>`).join(' · ');
+  return `<p>Terminowo zapłacone: <strong>${procent(terminowe / ocenione)}</strong> z ${ocenione} należności
+      (${wyniki.length} klientów, ostatnie ${u.punctuality_months} mies.)</p>
+    <p class="maly">${etykiety}</p>
+    <h3 class="maly">Najbardziej terminowi</h3>${tabela(najlepsi)}
+    <h3 class="maly">Najczęściej spóźnieni</h3>${spoznieni.length ? tabela(spoznieni) : '<p class="wyciszony">Nikt się nie spóźnia.</p>'}
+    <p class="podpowiedz">Terminowo = zapłacone najpóźniej ${u.tolerance_days} dni po terminie. Stan na dziś, niezależnie od okresu u góry.</p>`;
 }
 
 /** Ryczałt roku (6.2–6.5) osobno dla każdego licznika: Millennium, pozostałe konta, gotówka. */
@@ -311,10 +473,13 @@ export default {
         ${karta('przychod', 'Przychód', kartaPrzychodu(s, z))}
         ${karta('zysk', 'Koszty i zysk', kartaZysku(s, z))}
         ${karta('vat', `Limity zwolnienia z VAT ${rok}`, kartaVat(s, rok))}
+        ${karta('brakujace', 'Brakujące wpłaty', kartaBrakujacych(s, okres, z), 'szeroka')}
+        ${pokazTerminowosc() ? karta('terminowosc', 'Terminowość', kartaTerminowosci(s)) : ''}
         ${karta('dluznicy', 'Dłużnicy (stan na dziś)', kartaDluznikow(s))}
         ${karta('jednostki', 'Przychód według jednostek', kartaJednostek(s, z))}
         ${karta('oblozenie', 'Obłożenie (dziś)', kartaOblozenia(s))}
         ${karta('podatek', `Ryczałt ${rok}`, kartaRyczaltu(s, rok), 'szeroka')}
+        ${karta('lata', 'Porównanie lat', kartaLat(s), 'szeroka')}
       </div>`;
   },
 
@@ -326,6 +491,7 @@ export default {
     eksport(el, ctx) {
       pobierzEksport(ctx.state, el.dataset.rodzaj, { rok: el.dataset.rok ? Number(el.dataset.rok) : undefined });
     },
+    'eksport-tabeli': (el, ctx) => eksportTabeli(ctx.state, el.dataset.rodzaj),
     async 'usun-ryczalt'(el, ctx) {
       const s = ctx.state;
       const kw = kwartalZAdresu(s);
