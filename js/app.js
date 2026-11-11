@@ -66,7 +66,10 @@ function nawiguj(sciezka) {
 function poZmianieAdresu() {
   const zmiana = location.hash !== state.ui.adres;
   Object.assign(state.ui, czytajAdres(), { adres: location.hash });
-  if (zmiana) state.ui.form = null;   // formularz zaczyna od nowa po każdym wejściu
+  if (zmiana) {
+    state.ui.form = null;      // formularz zaczyna od nowa po każdym wejściu
+    state.ui.edycja = false;   // tryb edycji dotyczy jednego ekranu
+  }
   render();
   if (zmiana) {
     window.scrollTo(0, 0);
@@ -189,6 +192,12 @@ function aktywnyWidok() {
 /** Akcje wspólne dla wszystkich widoków. */
 const AKCJE_WSPOLNE = {
   'zadanie-zrobione': (el) => oznaczZadanie(el, ctx),
+  /** „Edytuj” / „Gotowe”: pokazuje albo chowa rzadziej używane opcje ekranu. */
+  'tryb-edycji'() {
+    state.ui.edycja = !state.ui.edycja;
+    render();
+    document.querySelector('#widok [data-akcja="tryb-edycji"]')?.focus();
+  },
   filtr(el) {
     state.ui.filtry[state.ui.ekran] = el.dataset.wartosc;
     render();
@@ -226,6 +235,7 @@ function poKliknieciu(ev) {
     const id = zakladka.dataset.zakladka;
     delete state.ui.filtry[id];
     delete state.ui.szukaj[id];
+    state.ui.edycja = false;
     if (location.hash === `#/${id}`) {
       ev.preventDefault();
       render();

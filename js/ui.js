@@ -93,3 +93,17 @@ export function pobierzPlik(nazwa, tresc, typ = 'text/csv;charset=utf-8') {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/**
+ * Przełącznik trybu edycji („Edytuj” ↔ „Gotowe”). Rzadziej używane opcje ekranu rysują się tylko,
+ * gdy state.ui.edycja = true; app.js zeruje tryb przy zmianie adresu.
+ */
+export function przyciskEdycji(s) {
+  return `<button type="button" class="przycisk drugi" data-akcja="tryb-edycji" aria-pressed="${Boolean(s.ui.edycja)}">${
+    s.ui.edycja ? 'Gotowe' : 'Edytuj'}</button>`;
+}
+
+/** Ramka z opcjami trybu edycji. */
+export function opcjeEdycji(tresc) {
+  return `<div class="opcje-edycji" role="group" aria-label="Opcje edycji">${tresc}</div>`;
+}

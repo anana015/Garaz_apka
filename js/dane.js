@@ -106,3 +106,15 @@ export function ostatniaWplataNaKoncie(wplaty) {
   }
   return wynik;
 }
+
+/** Gdzie klient płaci za najem (decyzja 4, migracja 002): rentals.pay_method + bank_account_id. */
+export const MIEJSCA_PLATNOSCI = Object.freeze({ przelew: 'Przelew', gotowka: 'Gotówka', fv: 'Faktura (FV)' });
+
+/** „przelew · Nest – najem”, „przelew · konto nieustalone”, „gotówka”, „FV”. konta: Map(id → konto). */
+export function opisPlatnosci(najem, konta = new Map()) {
+  const m = najem?.pay_method ?? 'przelew';
+  if (m === 'gotowka') return 'gotówka';
+  if (m === 'fv') return 'FV';
+  const konto = najem?.bank_account_id ? konta.get(najem.bank_account_id) : null;
+  return `przelew · ${konto ? konto.name : 'konto nieustalone'}`;
+}

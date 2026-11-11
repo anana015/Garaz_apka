@@ -2,9 +2,9 @@
 // Adresy: #/jednostki, #/jednostki/nowa, #/jednostki/<id>, #/jednostki/<id>/edycja
 
 import { TYPY_JEDNOSTEK } from '../config.js';
-import { biezacyNajem, stawkaNaDzien } from '../dane.js';
+import { biezacyNajem, opisPlatnosci, stawkaNaDzien } from '../dane.js';
 import { formularz, maBledy, obszar, pole, przelacznik, stanFormularza, wartosciFormularza, wybor, zapisz } from '../formularz.js';
-import { filtry, poleSzukaj, przycisk, pustyStan, wPlanie } from '../ui.js';
+import { filtry, poleSzukaj, przycisk, pustyStan, wPlanie, opcjeEdycji, przyciskEdycji } from '../ui.js';
 import {
   esc, dzisiaj, formatData, formatDataKrotka, formatM2, formatZl, kwotaDoPola, nastepnyNumer, normalizujTekst,
   porownajKody, roznicaDni,
@@ -79,11 +79,10 @@ function kafelek(o, s) {
 function lista(s) {
   const dzien = dzisiaj();
   const aktywne = s.dane.units.filter((j) => !j.archived);
-  const akcje = `<div class="pasek-akcji">
-    ${przycisk({ tekst: 'Dodaj jednostkę', href: '#/jednostki/nowa', ikona: 'plus' })}
-    ${aktywne.length ? przycisk({ tekst: 'Zmień stawki', href: '#/najmy/podwyzka', drugi: true }) : ''}</div>`;
+  // Dodawanie jednostek i zmiana stawek wielu najmów – rzadko, więc w Ustawieniach (karta „Jednostki i stawki”).
   if (!aktywne.length) {
-    return akcje + pustyStan('Nie ma jeszcze jednostek. Dodaj pierwszą albo wczytaj dane startowe.', [
+    return pustyStan('Nie ma jeszcze jednostek. Dodaj je w Ustawieniach albo wczytaj dane startowe.', [
+      { tekst: 'Dodaj jednostkę', href: '#/jednostki/nowa' },
       { tekst: 'Wczytaj dane startowe', href: '#/ustawienia/dane-startowe', drugi: true }]);
   }
 
@@ -122,7 +121,7 @@ function lista(s) {
   const opcje = Object.entries(FILTRY).map(([id, f]) => ({
     id, tekst: f.tekst, liczba: id === 'wolne' ? liczbaWolnych : id === 'zalegle' ? liczbaZaleglych : undefined }));
 
-  return `${akcje}
+  return `
     ${filtry(opcje, filtr, 'Status jednostek')}
     ${poleSzukaj('jednostki', s.ui.szukaj.jednostki, 'Szukaj po numerze albo kliencie')}
     ${tresc}`;
@@ -141,13 +140,17 @@ function szczegoly(s, j) {
 
   const akcje = [
     o.status === 'wolna' ? przycisk({ tekst: 'Wynajmij', href: `#/najmy/nowy?jednostka=${encodeURIComponent(j.id)}`, ikona: 'plus' }) : '',
-    przycisk({ tekst: 'Edytuj', href: `#/jednostki/${encodeURIComponent(j.id)}/edycja`, drugi: true }),
-    !o.najem ? `<button type="button" class="przycisk drugi" data-akcja="wylacz" data-id="${esc(j.id)}">${
-      j.out_of_service ? 'Przywróć do najmu' : 'Wyłącz z najmu'}</button>` : '',
+    przyciskEdycji(s),
   ].join('');
+  const edycja = s.ui.edycja ? opcjeEdycji(`<div class="pasek-akcji">
+    ${przycisk({ tekst: 'Edytuj dane jednostki', href: `#/jednostki/${encodeURIComponent(j.id)}/edycja`, drugi: true })}
+    ${!o.najem ? `<button type="button" class="przycisk drugi" data-akcja="wylacz" data-id="${esc(j.id)}">${
+    j.out_of_service ? 'Przywróć do najmu' : 'Wyłącz z najmu'}</button>` : ''}
+    ${o.najem ? przycisk({ tekst: 'Gdzie płaci', href: `#/najmy/${encodeURIComponent(o.najem.id)}/platnosc`, drugi: true }) : ''}
+  </div>`) : '';
 
   return `
-    <div class="pasek-akcji">${akcje}</div>
+    <div class="pasek-akcji">${akcje}</div>${edycja}
     <div class="siatka">
       <section class="karta" aria-labelledby="j-dane"><h2 id="j-dane">Dane</h2>
         <dl class="opis-pol">
@@ -164,6 +167,7 @@ function szczegoly(s, j) {
           <dt>Klient</dt><dd>${o.klient ? `<a href="#/klienci/${encodeURIComponent(o.klient.id)}">${esc(o.klient.name)}</a>` : '—'}</dd>
           <dt>Od</dt><dd>${formatData(o.najem.start_on)}</dd>
           <dt>Stawka</dt><dd class="kwota">${o.stawka != null ? formatZl(o.stawka) : '—'}</dd>
+          <dt>Płaci</dt><dd>${esc(opisPlatnosci(o.najem, s.indeksy.konta))}</dd>
           ${o.umowa?.valid_until ? `<dt>Umowa do</dt><dd>${formatData(o.umowa.valid_until)}${umowa
             ? ` <span class="znacznik${umowa.wygasla ? ' pilne' : ''}">${umowa.wygasla ? 'wygasła' : 'kończy się'}</span>` : ''}</dd>` : ''}
         </dl>` : `<p class="wyciszony">${j.out_of_service ? 'Jednostka jest wyłączona z najmu.' : 'Jednostka jest wolna.'}</p>`}
@@ -206,7 +210,7 @@ function formularzJednostki(s, j) {
     nazwa: 'jednostka',
     przycisk: j ? 'Zapisz zmiany' : 'Dodaj jednostkę',
     drugiPrzycisk: j ? null : { tekst: 'Dodaj i wpisz kolejną', wartosc: 'kolejna' },
-    anuluj: j ? `#/jednostki/${encodeURIComponent(j.id)}` : '#/jednostki',
+    anuluj: j ? `#/jednostki/${encodeURIComponent(j.id)}` : '#/ustawienia',
     tresc: `
       <div class="pola-w-rzedzie">
         ${pole(f, { nazwa: 'code', etykieta: 'Numer', wymagane: true, podpowiedz: 'Np. G-03, do 12 znaków.',
@@ -248,6 +252,7 @@ export default {
   wstecz(s) {
     const { parametr, akcja } = s.ui;
     if (!parametr) return null;
+    if (parametr === 'nowa') return { href: '#/ustawienia', tekst: 'Ustawienia' };
     if (akcja === 'edycja') {
       return { href: `#/jednostki/${encodeURIComponent(parametr)}`, tekst: s.indeksy.jednostki.get(parametr)?.code ?? 'Jednostka' };
     }

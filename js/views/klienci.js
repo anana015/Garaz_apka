@@ -2,11 +2,11 @@
 // Adresy: #/klienci, #/klienci/nowy[?dalej=najem&jednostka=<id>], #/klienci/<id>, #/klienci/<id>/edycja,
 // #/klienci/<id>/notatka[?rodzaj=obietnica]
 
-import { najemTrwa, najemZakonczony, stawkaNaDzien } from '../dane.js';
+import { najemTrwa, najemZakonczony, opisPlatnosci, stawkaNaDzien } from '../dane.js';
 import {
   formularz, maBledy, obszar, opcje, pole, stanFormularza, wartosciFormularza, zapisz,
 } from '../formularz.js';
-import { filtry, poleSzukaj, przycisk, pustyStan } from '../ui.js';
+import { filtry, poleSzukaj, przycisk, pustyStan, opcjeEdycji, przyciskEdycji } from '../ui.js';
 import {
   dataZeZnacznika, esc, dzisiaj, etykietaMiesiaca, formatData, formatDataKrotka, formatRachunek, formatZl, kwotaDoPola, normalizujTekst, parseKwota, porownajKody,
 } from '../utils.js';
@@ -130,12 +130,16 @@ function wierszNajmu(s, n, dzien) {
     umowa?.number ? `umowa ${esc(umowa.number)}` : null,
     umowa?.valid_until ? `do ${formatData(umowa.valid_until)}` : 'czas nieokreślony',
   ].filter(Boolean).join(' · ');
+  const platnosc = opisPlatnosci(n, s.indeksy.konta);
+  const edycja = s.ui.edycja;
 
   return `<li class="najem">
     <div class="wiersz">
       <div class="glowna"><strong class="mono"><a href="#/jednostki/${encodeURIComponent(n.unit_id)}">${esc(j?.code ?? '?')}</a></strong>
         <span>${formatData(n.start_on)} – ${n.end_on ? formatData(n.end_on) : 'trwa'}</span>
         <span class="zawijaj">${szczegoly}</span>
+        <span class="zawijaj">płaci: ${esc(platnosc)}${edycja && trwa && platnosc.endsWith('nieustalone')
+    ? ` <a class="maly" href="#/najmy/${id}/platnosc">ustal</a>` : ''}</span>
         ${koniec ? `<span class="znacznik${koniec.wygasla ? ' pilne' : ''}">${esc(koniec.wygasla
           ? `Umowa wygasła ${formatData(umowa.valid_until)}: przedłuż albo zakończ najem` : koniec.tekst)}</span>` : ''}</div>
       <div class="prawa kwota">${stawka != null ? formatZl(stawka) : '—'}</div>
@@ -143,12 +147,13 @@ function wierszNajmu(s, n, dzien) {
     ${stawki.length > 1 ? `<details class="historia-stawek"><summary>Historia stawek (${stawki.length})</summary>
       <ul>${stawki.map((st) => `<li><span>od ${formatData(st.valid_from)}${st.reason ? ` · ${esc(st.reason)}` : ''}</span>
         <span class="kwota">${formatZl(st.amount_gr)}</span></li>`).join('')}</ul></details>` : ''}
-    <div class="akcje-wiersza">
+    ${edycja ? `<div class="akcje-wiersza">
       <a href="#/najmy/${id}/stawka">Zmień stawkę</a>
       <a href="#/najmy/${id}/promocja">Promocja</a>
       <a href="#/najmy/${id}/korekta">Korekta należności</a>
+      <a href="#/najmy/${id}/platnosc">Gdzie płaci</a>
       ${trwa ? `<a href="#/najmy/${id}/koniec">Zakończ najem</a>` : ''}
-    </div>
+    </div>` : ''}
   </li>`;
 }
 
@@ -202,8 +207,8 @@ function platnicy(s, klient) {
   return `<ul class="lista">${lista.map((p) => `<li><div class="wiersz">
     <div class="glowna"><strong class="${p.account ? 'mono' : ''}">${esc(p.account ? formatRachunek(p.account) : p.name_key)}</strong>
       <span>${p.account ? 'rachunek' : 'nazwa nadawcy'}${p.label ? ` · ${esc(p.label)}` : ''}</span></div>
-    <div class="prawa"><button type="button" class="link-btn" data-akcja="usun-platnika" data-id="${esc(p.id)}"
-      aria-label="Usuń płatnika ${esc(p.account ? `rachunek …${p.account.slice(-4)}` : p.name_key)}">Usuń</button></div>
+    ${s.ui.edycja ? `<div class="prawa"><button type="button" class="link-btn" data-akcja="usun-platnika" data-id="${esc(p.id)}"
+      aria-label="Usuń płatnika ${esc(p.account ? `rachunek …${p.account.slice(-4)}` : p.name_key)}">Usuń</button></div>` : ''}
   </div></li>`).join('')}</ul>`;
 }
 
@@ -376,10 +381,15 @@ function karta(s, klient) {
 
   return `
     <div class="pasek-akcji">
-      ${przycisk({ tekst: 'Nowy najem', href: `#/najmy/nowy?klient=${id}`, ikona: 'plus' })}
-      ${przycisk({ tekst: 'Wpłata gotówką', href: `#/wplaty/gotowka?klient=${id}`, drugi: true })}
-      ${przycisk({ tekst: 'Edytuj dane', href: `#/klienci/${id}/edycja`, drugi: true })}
+      ${przycisk({ tekst: 'Wpłata gotówką', href: `#/wplaty/gotowka?klient=${id}`, ikona: 'plus' })}
+      ${przyciskEdycji(s)}
     </div>
+    ${s.ui.edycja ? opcjeEdycji(`<p class="podpowiedz">Tryb edycji: przy najmach są zmiana stawki, promocja, korekta,
+      miejsce płatności i zakończenie; na dole archiwizacja.</p>
+      <div class="pasek-akcji">
+        ${przycisk({ tekst: 'Edytuj dane klienta', href: `#/klienci/${id}/edycja`, drugi: true })}
+        ${przycisk({ tekst: 'Nowy najem', href: `#/najmy/nowy?klient=${id}`, drugi: true, ikona: 'plus' })}
+      </div>`) : ''}
     ${klient.archived ? '<p class="baner">Klient jest zarchiwizowany.</p>' : ''}
     <div class="siatka">
       <section class="karta" aria-labelledby="k-saldo"><h2 id="k-saldo">Saldo</h2>${saldo(s, klient, r, najmy, dzien)}</section>
@@ -399,7 +409,7 @@ function karta(s, klient) {
     </div>
     <section class="karta" aria-labelledby="k-notatki"><h2 id="k-notatki">Notatki i historia kontaktu</h2>
       ${sekcjaNotatek(s, klient)}</section>
-    ${przyciskArchiwizacji(klient, najmy, r, dzien)}`;
+    ${s.ui.edycja ? przyciskArchiwizacji(klient, najmy, r, dzien) : ''}`;
 }
 
 // ---------------------------------------------------------------------

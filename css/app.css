@@ -582,3 +582,9 @@ details.grupa > .jednostki { padding-bottom: 12px; }
 .ranking { padding-left: 1.4em; margin: 6px 0; }
 .ranking li { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
 .ranking li > a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Tryb edycji („Edytuj” → „Gotowe”): rzadziej używane opcje ekranu w wyróżnionej ramce. */
+.opcje-edycji { border: 1px dashed var(--accent); border-radius: var(--r); padding: 10px 12px 2px; margin-bottom: var(--pad); background: var(--surface); }
+.opcje-edycji .pasek-akcji { margin-bottom: 8px; }
+.opcje-edycji .podpowiedz { margin-top: 0; }
+[data-akcja="tryb-edycji"][aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }

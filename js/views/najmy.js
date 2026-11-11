@@ -5,9 +5,10 @@
 //   #/najmy/<id>/korekta                         korekta należności (rabat, umorzenie, dopłata)
 //   #/najmy/podwyzka                             zmiana stawek wielu najmów naraz
 //   #/najmy/<id>/promocja                        promocja: rabat % na N pierwszych okresów
+//   #/najmy/<id>/platnosc                        gdzie płaci: przelew na konto, gotówka albo FV (decyzja 4)
 
 import { TYPY_JEDNOSTEK } from '../config.js';
-import { biezacyNajem, najemTrwa, stawkaNaDzien } from '../dane.js';
+import { biezacyNajem, MIEJSCA_PLATNOSCI, najemTrwa, opisPlatnosci, stawkaNaDzien } from '../dane.js';
 import {
   formularz, kwotaPodgladu, maBledy, opcje, plik, pole, przelacznik, sekcja, stanFormularza, wartosciFormularza,
   wybor, zapisz,
@@ -18,8 +19,8 @@ import {
   esc, dodajMiesiace, dzisiaj, formatData, formatZl, iso, kwotaDoPola, parseKwota, porownajKody,
 } from '../utils.js';
 import {
-  OKRESY_ROZLICZENIOWE, POWODY_ZATRZYMANIA, TRYBY_STAWKI, saldoKaucji, walidujKoniec, walidujKorekte,
-  walidujNajem, walidujPdf, walidujPodwyzke, walidujZmianeStawki,
+  BANKI, OKRESY_ROZLICZENIOWE, POWODY_ZATRZYMANIA, TRYBY_STAWKI, saldoKaucji, walidujKoniec, walidujKorekte,
+  walidujMiejscePlatnosci, walidujNajem, walidujPdf, walidujPodwyzke, walidujZmianeStawki,
 } from '../walidacja.js';
 import { ustawienia } from './wspolne.js';
 
@@ -59,7 +60,48 @@ function naglowekNajmu(s, k) {
     <dt>Klient</dt><dd>${esc(k.klient?.name ?? '—')}</dd>
     <dt>Najem</dt><dd>${formatData(k.najem.start_on)} – ${k.najem.end_on ? formatData(k.najem.end_on) : 'trwa'}</dd>
     <dt>Stawka</dt><dd class="kwota">${stawka != null ? formatZl(stawka) : '—'}</dd>
+    <dt>Płaci</dt><dd>${esc(opisPlatnosci(k.najem, s.indeksy.konta))}</dd>
   </dl></section>`;
+}
+
+/** Pola „Gdzie płaci” (decyzja 4): sposób i – przy przelewie – konto. Wspólne dla nowego najmu i zmiany. */
+function polaPlatnosci(f, s) {
+  const konta = s.dane.bank_accounts.filter((k) => !k.archived || k.id === f.wartosci.bank_account_id)
+    .sort((a, b) => a.name.localeCompare(b.name, 'pl'))
+    .map((k) => ({ wartosc: k.id, tekst: `${k.name} (${BANKI[k.bank] ?? k.bank})` }));
+  return `${opcje(f, { nazwa: 'pay_method', legenda: 'Gdzie płaci', odswiez: true,
+    opcje: Object.entries(MIEJSCA_PLATNOSCI).map(([wartosc, tekst]) => ({ wartosc, tekst })) })}
+    ${(f.wartosci.pay_method ?? 'przelew') === 'przelew' ? (konta.length
+    ? wybor(f, { nazwa: 'bank_account_id', etykieta: 'Na które konto', opcje: konta, pusta: '— jeszcze nie wiem —' })
+    : '<p class="podpowiedz">Brak kont bankowych – dodasz je w Ustawieniach.</p>') : ''}`;
+}
+
+function formularzPlatnosci(s, k) {
+  const f = stanFormularza(s, `najmy/${k.najem.id}/platnosc`, () => ({
+    pay_method: k.najem.pay_method ?? 'przelew', bank_account_id: k.najem.bank_account_id ?? '',
+  }));
+  return `${naglowekNajmu(s, k)}${formularz(f, {
+    nazwa: 'platnosc',
+    uwaga: '',
+    przycisk: 'Zapisz',
+    anuluj: k.klient ? `#/klienci/${encodeURIComponent(k.klient.id)}` : '#/klienci',
+    tresc: polaPlatnosci(f, s),
+  })}`;
+}
+
+async function zapiszPlatnosc(form, ctx) {
+  const s = ctx.state;
+  const k = kontekstNajmu(s, s.ui.parametr);
+  if (!k) return;
+  const w = wartosciFormularza(form);
+  const { bledy, wiersz } = walidujMiejscePlatnosci(w, { konta: s.indeksy.konta });
+  if (maBledy(ctx, w, bledy)) return;
+  await zapisz(ctx, async () => {
+    const najem = await ctx.db.zmien('rentals', k.najem.id, wiersz);
+    ctx.scal({ rentals: [najem] });
+    ctx.toast(`${k.jednostka?.code ?? 'Najem'}: ${opisPlatnosci(najem, s.indeksy.konta)}`);
+    ctx.nawiguj(k.klient ? `klienci/${encodeURIComponent(k.klient.id)}` : 'klienci');
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -85,7 +127,7 @@ function wartosciNowegoNajmu(s) {
   return {
     client_id: klient, unit_id: jednostka, start_on: dzien, billing_day: String(Number(dzien.slice(8))),
     amount_gr: kwotaDoPola(cennik), period_months: '1', last_period: ustawienia(s).default_last_period,
-    deposit_method: 'gotowka',
+    deposit_method: 'gotowka', pay_method: 'przelew', bank_account_id: '',
   };
 }
 
@@ -121,6 +163,7 @@ function formularzNowegoNajmu(s) {
             opcje: OKRESY_ROZLICZENIOWE.map((m) => ({ wartosc: m, tekst: NAZWY_OKRESOW[m] })) })}
         </div>
         ${wybor(f, { nazwa: 'last_period', etykieta: 'Ostatni okres przy końcu najmu', opcje: OSTATNI_OKRES })}`)}
+      ${sekcja('Płatność', polaPlatnosci(f, s))}
       ${sekcja('Umowa', `
         <div class="pola-w-rzedzie">
           ${pole(f, { nazwa: 'number', etykieta: 'Numer umowy', atrybuty: 'autocomplete="off"',
@@ -176,6 +219,14 @@ async function zapiszNajem(form, ctx) {
   await zapisz(ctx, async () => {
     ctx.scal(await ctx.db.zapiszPakiet(wynik.pakiet));
     let komunikat = `Dodano najem ${jednostka.code}`;
+    // Domyślnie baza zapisuje „przelew, konto nieustalone”; inne miejsce płatności – osobna zmiana najmu.
+    if (wynik.platnosc.pay_method !== 'przelew' || wynik.platnosc.bank_account_id) {
+      try {
+        ctx.scal({ rentals: [await ctx.db.zmien('rentals', wynik.najemId, wynik.platnosc)] });
+      } catch (e) {
+        komunikat += `, ale miejsce płatności nie zostało zapisane (${e.message})`;
+      }
+    }
     if (umowaPdf) {
       try {
         const sciezka = await ctx.db.wgrajUmowe(s.uzytkownik.id, wynik.umowaId, umowaPdf);
@@ -561,12 +612,13 @@ const FORMULARZE = {
   koniec: { tytul: 'Koniec najmu', render: formularzKonca },
   korekta: { tytul: 'Korekta należności', render: formularzKorekty },
   promocja: { tytul: 'Promocja', render: formularzPromocji },
+  platnosc: { tytul: 'Gdzie płaci', render: formularzPlatnosci },
 };
 
 /** Ekran nadrzędny dla „‹ wstecz” i podświetlonej zakładki. */
 function nadrzedny(s) {
   const { parametr, zapytanie } = s.ui;
-  if (parametr === 'podwyzka') return { href: '#/jednostki', tekst: 'Jednostki', zakladka: 'jednostki' };
+  if (parametr === 'podwyzka') return { href: '#/ustawienia', tekst: 'Ustawienia', zakladka: null };
   if (parametr === 'nowy') {
     if (zapytanie.klient && s.indeksy.klienci.has(zapytanie.klient)) {
       return { href: `#/klienci/${encodeURIComponent(zapytanie.klient)}`, tekst: s.indeksy.klienci.get(zapytanie.klient).name, zakladka: 'klienci' };
@@ -634,6 +686,7 @@ export default {
     koniec: zapiszKoniec,
     korekta: zapiszKorekte,
     promocja: zapiszPromocje,
+    platnosc: zapiszPlatnosc,
   },
 };
 

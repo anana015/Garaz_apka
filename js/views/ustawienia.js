@@ -50,6 +50,15 @@ function przeglad(s) {
   return `
     <div class="siatka">
       ${sekcjaKarty('konta', 'Konta bankowe', kontaBankowe(s))}
+      ${sekcjaKarty('jednostki', 'Jednostki i stawki', `${pola([
+        ['Jednostki', `${s.dane.units.filter((j) => !j.archived).length} (wyłączone z najmu: ${
+          s.dane.units.filter((j) => !j.archived && j.out_of_service).length})`],
+      ])}
+        <div class="pasek-akcji">
+          ${przycisk({ tekst: 'Dodaj jednostkę', href: '#/jednostki/nowa', drugi: true, ikona: 'plus' })}
+          ${przycisk({ tekst: 'Zmień stawki wielu najmów', href: '#/najmy/podwyzka', drugi: true })}
+        </div>
+        <p class="podpowiedz">Dane pojedynczej jednostki zmienisz w jej szczegółach (Jednostki → jednostka → Edytuj).</p>`)}
       ${sekcjaKarty('rozliczenia', 'Rozliczenia', pola([
         ['Tolerancja terminowości', `${u.tolerance_days} dni`],
         ['Okno terminowości', `${u.punctuality_months} mies.`],

@@ -2,7 +2,7 @@
 
 Aplikacja PWA do śledzenia czynszów za jednostki magazynowe: kto zapłacił, kto zalega, ile wpłynęło i ile ryczałtu zapłacić. Specyfikacja: „Najem magazynów – specyfikacja” v0.1 (projekt „Magazyny – apka, obsługa”).
 
-**Stan (0.7.0):** kroki 1a–1d zaimplementowane – Raporty, ryczałt kwartalny (`js/podatek.js`), eksporty CSV (`js/eksport.js`), kopia zapasowa JSON (`js/kopia.js` + funkcja `wczytaj_kopie`, migracja 004) i tryb offline (kopia ostatnio pobranych danych w IndexedDB, tylko odczyt). Do zrobienia z 1b: profile PKO BP i Alior. Szczegóły: dokument „stan-kodu” w projekcie.
+**Stan (0.7.2):** kroki 1a–1d zaimplementowane – Raporty, ryczałt kwartalny (`js/podatek.js`), eksporty CSV (`js/eksport.js`), kopia zapasowa JSON (`js/kopia.js` + funkcja `wczytaj_kopie`, migracja 004) i tryb offline (kopia ostatnio pobranych danych w IndexedDB, tylko odczyt). „Gdzie płaci” przy najmie i usuwanie wpłaty gotówką (0.7.1); prostszy widok z trybem „Edytuj” i jednostkami w Ustawieniach (0.7.2). Do zrobienia z 1b: profile PKO BP i Alior. Szczegóły: dokument „stan-kodu” w projekcie.
 
 ## Uruchomienie lokalne
 

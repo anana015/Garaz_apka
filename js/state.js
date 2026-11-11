@@ -37,6 +37,7 @@ export const state = {
     form: null,                // stan otwartego formularza (js/formularz.js)
     miesiac: kluczMiesiaca(dzisiaj()),
     filtry: {},                // { [ekran]: 'nazwa-filtra' }
+    edycja: false,             // tryb edycji ekranu: rzadziej używane opcje widoczne po „Edytuj”; zeruje się przy zmianie adresu
     szukaj: {},                // { [ekran]: 'tekst' }
   },
 };

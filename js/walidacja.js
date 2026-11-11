@@ -4,7 +4,7 @@
 // Gdy bledy jest pusty, wynik zawiera gotowy wiersz albo pakiet dla db.zapiszPakiet().
 
 import { TYPY_JEDNOSTEK } from './config.js';
-import { stawkaNaDzien } from './dane.js';
+import { MIEJSCA_PLATNOSCI, stawkaNaDzien } from './dane.js';
 import { doPelnychZlotych, naleznosciNajmu, pierwszyOkresOd } from './okresy.js';
 import {
   czytajDate, dodajDni, formatData, formatZl, normalizujTekst, noweId as losoweId, oczyscNip, oczyscRachunek,
@@ -227,6 +227,8 @@ export function walidujNajem(w, { indeksy, ustawienia, plik = null, noweId = los
   const kaucjaData = kaucja ? (data(w, 'deposit_on', bledy) ?? podpisana ?? start) : null;
   const bladPdf = walidujPdf(plik);
   if (bladPdf) bledy.pdf = bladPdf;
+  const platnosc = walidujMiejscePlatnosci(w, { konta: indeksy.konta });
+  Object.assign(bledy, platnosc.bledy);
 
   if (!bezBledow(bledy)) return { bledy };
 
@@ -252,7 +254,8 @@ export function walidujNajem(w, { indeksy, ustawienia, plik = null, noweId = los
       method: w.deposit_method === 'przelew' ? 'przelew' : 'gotowka', on_date: kaucjaData,
     }] : [],
   };
-  return { bledy, pakiet, umowaId, najemId, istniejacaUmowa: istniejaca };
+  // Miejsce płatności zapisuje widok osobno (funkcja zapisz_pakiet z migracji 001 nie zna tych kolumn).
+  return { bledy, pakiet, umowaId, najemId, istniejacaUmowa: istniejaca, platnosc: platnosc.wiersz };
 }
 
 // ---------------------------------------------------------------------
@@ -501,6 +504,23 @@ export function walidujKonto(w, { konta = [], id = null } = {}) {
 // ---------------------------------------------------------------------
 
 export const RODZAJE_GOTOWKI = Object.freeze({ czynsz: 'Czynsz', przychod_inny: 'Inny przychód' });
+
+/**
+ * Gdzie klient płaci za najem (decyzja 4): przelew na konto (puste = nieustalone), gotówka albo FV.
+ * Gotówka i FV nie mają konta (ograniczenie rentals_gotowka_bez_konta dotyczy gotówki).
+ * @param {object} w pola: pay_method, bank_account_id
+ * @param {{ konta?: Map }} kontekst
+ */
+export function walidujMiejscePlatnosci(w, { konta = new Map() } = {}) {
+  const bledy = {};
+  const pay_method = w.pay_method in MIEJSCA_PLATNOSCI ? w.pay_method : 'przelew';
+  let bank_account_id = pay_method === 'przelew' ? lubNull(w.bank_account_id) : null;
+  if (bank_account_id && !konta.has(bank_account_id)) {
+    bledy.bank_account_id = 'Nie ma takiego konta.';
+    bank_account_id = null;
+  }
+  return { bledy, wiersz: { pay_method, bank_account_id } };
+}
 
 /**
  * Wpłata ryczałtu za kwartał (6.5, tabela tax_payments).
