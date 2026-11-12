@@ -246,6 +246,7 @@ function wierszNajmu(s, n, dzien) {
         <span class="zawijaj">płaci: ${esc(platnosc)}${edycja && trwa && platnosc.endsWith('nieustalone')
     ? ` <a class="maly" href="#/najmy/${id}/platnosc">ustal</a>` : ''}</span>
         ${promo ? `<span class="znacznik promocja">${promo.do ? `promocja do ${formatData(promo.do)}` : 'promocja'}</span>` : ''}
+        ${j?.has_power ? '<span class="znacznik prad">prąd – rozliczenie co kwartał</span>' : ''}
         ${koniec ? `<span class="znacznik${koniec.wygasla ? ' pilne' : ''}">${esc(koniec.wygasla
           ? `Umowa wygasła ${formatData(umowa.valid_until)}: przedłuż albo zakończ najem` : koniec.tekst)}</span>` : ''}</div>
       <div class="prawa kwota">${stawka != null ? formatZl(stawka) : '—'}</div>

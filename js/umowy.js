@@ -31,6 +31,7 @@ export const POLA_UMOWY = Object.freeze([
   { klucz: 'stawka_poczatkowa', opis: 'Czynsz od pierwszego miesiąca (z promocją, jeśli jest)' },
   { klucz: 'stawka_poczatkowa_slownie', opis: 'Czynsz od pierwszego miesiąca słownie' },
   { klucz: 'promocja_do', opis: 'Ostatni dzień promocji (puste, gdy bez promocji)' },
+  { klucz: 'prad', opis: 'Zapis o prądzie (puste, gdy jednostka bez prądu)' },
   { klucz: 'kaucja', opis: 'Kaucja (puste – boxy bez kaucji albo jeszcze nie wpisana)' },
   { klucz: 'kaucja_slownie', opis: 'Kaucja słownie' },
   { klucz: 'data_startu', opis: 'Początek najmu' },
@@ -170,6 +171,9 @@ export function daneUmowy(s, { klientId, najemIds, dataUmowy, numer, dzis }) {
     stawka_poczatkowa: poczatkowaGr ? formatZl(poczatkowaGr) : '',
     stawka_poczatkowa_slownie: poczatkowaGr ? kwotaSlownie(poczatkowaGr) : '',
     promocja_do: koncePromocji.length ? formatData(koncePromocji.sort().at(-1)) : '',
+    prad: jednostki.some((j) => j.has_power)
+      ? `${jednostki.length > 1 ? `Jednostki z prądem: ${jednostki.filter((j) => j.has_power).map((j) => j.code).join(', ')}. ` : ''}`
+        + 'Rachunki za zużyty prąd rozliczane są raz na kwartał.' : '',
     kaucja: kaucjaGr > 0 ? formatZl(kaucjaGr) : '',
     kaucja_slownie: kaucjaGr > 0 ? kwotaSlownie(kaucjaGr) : '',
     data_startu: daty.map(formatData).join(', '),

@@ -73,6 +73,7 @@ const FILTRY = {
   konczace: { tekst: 'Kończące się umowy', warunek: (o, s) => Boolean(koniecUmowy(o.umowa, o.najem, s)) },
   wypowiedziane: { tekst: 'Kończące się najmy', warunek: (o) => Boolean(o.wypowiedzenie) },
   promocje: { tekst: 'W promocji', warunek: (o) => Boolean(o.promo) },
+  prad: { tekst: 'Z prądem', warunek: (o) => Boolean(o.j.has_power) },
 };
 
 /** Tekst statusu jak na kafelku: „zalega 200 zł”, „opłacona do 20.11”, „Wolna”. */
@@ -94,6 +95,7 @@ function kafelek(o, s) {
     ${o.nastepny ? `<span class="znacznik promocja">od ${formatDataKrotka(o.nastepny.start_on)}: ${esc(o.nastepnyKlient?.name ?? 'nowy najem')}</span>` : ''}
     ${o.promo ? `<span class="znacznik promocja">${o.promo.do ? `promocja do ${formatDataKrotka(o.promo.do)}` : 'promocja'}</span>` : ''}
     ${umowa ? `<span class="znacznik${umowa.wygasla ? ' pilne' : ''}">${esc(umowa.tekst)}</span>` : ''}
+    ${o.j.has_power ? '<span class="znacznik prad">prąd</span>' : ''}
   </a>`;
 }
 
@@ -274,6 +276,7 @@ function szczegoly(s, j) {
           <dt>Status</dt><dd><span class="status ${STATUS[o.status].klasa}">${STATUS[o.status].tekst}</span></dd>
           ${formatM2(j.area_m2) ? `<dt>Powierzchnia</dt><dd>${formatM2(j.area_m2)}</dd>` : ''}
           <dt>Cennik</dt><dd class="kwota">${j.list_price_gr != null ? formatZl(j.list_price_gr) : '—'}</dd>
+          <dt>Prąd</dt><dd>${j.has_power ? `<span class="znacznik prad">doprowadzony</span> rachunki rozliczane raz na kwartał` : 'brak'}</dd>
           ${pustostan != null ? `<dt>Pustostan</dt><dd>${pustostan} dni</dd>` : ''}
         </dl>
         ${j.description ? `<p class="wyciszony">${esc(j.description)}</p>` : ''}
@@ -344,7 +347,7 @@ function przychodJednostki(s, j, dzien) {
 function ustawieniaJednostki(s, j, o, historia, dzien) {
   const id = encodeURIComponent(j.id);
   const dane = [TYPY_JEDNOSTEK[j.type]?.nazwa ?? j.type, formatM2(j.area_m2),
-    j.list_price_gr != null ? `cennik ${formatZl(j.list_price_gr)}` : null].filter(Boolean).map(esc).join(' · ');
+    j.list_price_gr != null ? `cennik ${formatZl(j.list_price_gr)}` : null, j.has_power ? 'prąd' : null].filter(Boolean).map(esc).join(' · ');
   const klientNajmu = (n) => s.indeksy.klienci.get(s.indeksy.umowy.get(n.contract_id)?.client_id);
   const tresc = `
     ${grupa('Dane jednostki', dane, `<dl class="opis-pol">
@@ -374,12 +377,13 @@ function ustawieniaJednostki(s, j, o, historia, dzien) {
 const kluczFormularza = (s) => `jednostki/${s.ui.parametr}/${s.ui.akcja ?? ''}`;
 
 function wartosciJednostki(j) {
-  if (!j) return { type: '', out_of_service: '' };
+  if (!j) return { type: '', out_of_service: '', has_power: '' };
   return {
     code: j.code, type: j.type,
     area_m2: j.area_m2 != null ? String(Number(j.area_m2)).replace('.', ',') : '',
     list_price_gr: kwotaDoPola(j.list_price_gr), description: j.description ?? '',
     out_of_service: j.out_of_service ? 'on' : '',
+    has_power: j.has_power ? 'on' : '',
   };
 }
 
@@ -403,6 +407,8 @@ function formularzJednostki(s, j) {
           podpowiedz: 'Podpowiadana przy nowym najmie. Zmiana nie zmienia trwających najmów (Z12).' })}
       </div>
       ${obszar(f, { nazwa: 'description', etykieta: 'Opis', wiersze: 2 })}
+      ${przelacznik(f, { nazwa: 'has_power', etykieta: 'Doprowadzony prąd',
+        podpowiedz: 'Zapisane w umowie; rachunki za prąd rozliczane raz na kwartał.' })}
       ${przelacznik(f, { nazwa: 'out_of_service', etykieta: 'Wyłączona z najmu (np. remont)',
         podpowiedz: 'Nie liczy się do obłożenia i nie można jej wynająć.' })}`,
   });
@@ -497,6 +503,9 @@ export default {
       const wynajeta = j ? Boolean(biezacyNajem(s.indeksy.najmyJednostki.get(j.id), dzisiaj())) : false;
       const { bledy, wiersz } = walidujJednostke(w, { jednostki: s.dane.units, id: j?.id ?? null, wynajeta });
       if (maBledy(ctx, w, bledy)) return;
+      // Bez migracji 014 baza nie zna has_power: pomijamy pole, chyba że ktoś zaznaczył prąd (wtedy komunikat o migracji).
+      const jest014 = s.dane.units.some((x) => 'has_power' in x);
+      if (!jest014 && !wiersz.has_power) delete wiersz.has_power;
       const kolejna = ev.submitter?.value === 'kolejna';
 
       await zapisz(ctx, async () => {

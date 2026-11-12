@@ -113,6 +113,7 @@ export function walidujJednostke(w, { jednostki = [], id = null, wynajeta = fals
     wiersz: {
       code, type: w.type, area_m2: area, list_price_gr: cena,
       description: lubNull(w.description), out_of_service: wylaczona,
+      has_power: zaznaczone(w.has_power),   // migracja 014 – bez niej pole usuwa widok przed zapisem
     },
   };
 }

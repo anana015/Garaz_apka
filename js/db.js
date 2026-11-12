@@ -142,6 +142,9 @@ export function komunikatZapisu(error) {
   const m = `${error?.message ?? ''} ${error?.details ?? ''}`;
   const ograniczenie = Object.keys(OGRANICZENIA).find((nazwa) => m.includes(nazwa));
   if (ograniczenie) return OGRANICZENIA[ograniczenie];
+  if (/has_power/.test(m)) {
+    return 'Znacznik prądu wymaga zmiany w bazie. Uruchom w Supabase plik supabase/migracje/014_prad.sql.';
+  }
   if (/from_day|rental_rates_amount_gr_check/.test(m)) {
     return 'Nowa promocja wymaga zmiany w bazie. Uruchom w Supabase plik supabase/migracje/013_promocje_od_dnia.sql.';
   }
