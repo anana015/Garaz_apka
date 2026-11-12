@@ -476,7 +476,7 @@ export default {
         ${karta('zysk', 'Koszty i zysk', kartaZysku(s, z))}
         ${karta('vat', `Limity zwolnienia z VAT ${rok}`, kartaVat(s, rok))}
         ${karta('brakujace', 'Brakujące wpłaty', kartaBrakujacych(s, okres, z), 'szeroka')}
-        ${pokazTerminowosc() ? karta('terminowosc', 'Terminowość', kartaTerminowosci(s)) : ''}
+        ${pokazTerminowosc(s) ? karta('terminowosc', 'Terminowość', kartaTerminowosci(s)) : ''}
         ${karta('dluznicy', 'Dłużnicy (stan na dziś)', kartaDluznikow(s))}
         ${karta('jednostki', 'Przychód według jednostek', kartaJednostek(s, z))}
         ${karta('oblozenie', 'Obłożenie (dziś)', kartaOblozenia(s))}

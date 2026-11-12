@@ -6,6 +6,7 @@ import { biezacyNajem, opisPlatnosci, planowanyKoniec, stawkaNaDzien } from '../
 import { formularz, maBledy, obszar, pole, przelacznik, stanFormularza, wartosciFormularza, wybor, zapisz } from '../formularz.js';
 import { filtry, poleSzukaj, przycisk, pustyStan, przyciskEdycji } from '../ui.js';
 import { promocjaNajmu } from '../promocje.js';
+import { formatKwh } from '../prad.js';
 import { ALEJKI, GORA, LINIA_WJAZDU, MIEJSCA, SZEROKOSC, WYLACZONE_MIEJSCA, WYSOKOSC, miejsceJednostki, rozmiescJednostki } from '../mapa.js';
 import { grupa, grupaNajmu, kartaUstawien, menu, pozycja } from './edycja.js';
 import { akcjeAnulowania } from './edycja.js';
@@ -245,6 +246,7 @@ function lista(s) {
   return `
     ${przelacznikWidoku(widok)}
     ${filtry(opcje, filtr, 'Status jednostek')}
+    ${filtr === 'prad' ? '<div class="pasek-akcji"><a class="przycisk drugi" href="#/prad">Rozliczenie prądu – odczyty liczników</a></div>' : ''}
     ${poleSzukaj('jednostki', s.ui.szukaj.jednostki, 'Szukaj po numerze albo kliencie')}
     ${tresc}`;
 }
@@ -309,8 +311,20 @@ function szczegoly(s, j) {
           : '<p class="wyciszony">Jednostka nie była jeszcze wynajmowana.</p>'}
       </section>
     </div>
+    ${j.has_power ? kartaPradu(s, j) : ''}
     <section class="karta" aria-labelledby="j-przychod"><h2 id="j-przychod">Przychód z jednostki – 12 miesięcy</h2>
       ${przychodJednostki(s, j, dzien)}</section>`;
+}
+
+/** Odczyty licznika prądu jednostki (0.23.0) – ostatnie 6, link do rozliczenia kwartalnego. */
+function kartaPradu(s, j) {
+  const odczyty = (s.dane.power_readings ?? []).filter((o) => o.unit_id === j.id)
+    .sort((a, b) => b.read_on.localeCompare(a.read_on)).slice(0, 6);
+  return `<section class="karta" aria-labelledby="j-prad"><h2 id="j-prad">Prąd – odczyty licznika</h2>
+    ${odczyty.length ? `<ul class="lista">${odczyty.map((o) => `<li><div class="wiersz"><div class="glowna">
+      <strong>${formatData(o.read_on)}</strong><span>${o.amount_gr != null ? `doliczono ${formatZl(o.amount_gr)}` : 'odczyt początkowy'}</span></div>
+      <div class="prawa kwota">${formatKwh(o.kwh)} kWh</div></div></li>`).join('')}</ul>` : '<p class="wyciszony">Brak odczytów.</p>'}
+    <div class="pasek-akcji"><a class="przycisk drugi" href="#/prad">Rozliczenie prądu</a></div></section>`;
 }
 
 /**

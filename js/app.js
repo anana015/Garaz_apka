@@ -21,11 +21,12 @@ import najmy from './views/najmy.js';
 import koszty from './views/koszty.js';
 import bramy from './views/bramy.js';
 import stawki from './views/stawki.js';
+import prad from './views/prad.js';
 import logowanie from './views/logowanie.js';
 
 // najmy: formularze najmu (nowy, stawka, koniec, korekta, podwyżka) – bez własnej zakładki.
 const EKRANY = {
-  pulpit, wplaty, klienci, zadania: zadaniaWidok, jednostki, raporty, import: importWidok, ustawienia, najmy, koszty, bramy, stawki,
+  pulpit, wplaty, klienci, zadania: zadaniaWidok, jednostki, raporty, import: importWidok, ustawienia, najmy, koszty, bramy, stawki, prad,
 };
 const ZAKLADKI = [
   { id: 'pulpit', tekst: 'Pulpit' },

@@ -7,6 +7,7 @@ import { biezacyNajem, doPrzypisania, najemTrwa, planowanyKoniec } from '../dane
 import { pilneZadania } from '../zadania.js';
 import { nazwaKategorii, zyskZakresu } from '../koszty.js';
 import { bramyDoZrobienia } from '../bramy.js';
+import { doRozliczenia, kwartalDoRozliczenia } from '../prad.js';
 import { limityVat, PROGI_VAT } from '../statystyki.js';
 import {
   daneGrupy, datyKwartalu, etykietaKwartalu, GRUPY_RYCZALTU, kwartalDaty, kwartalyDoZaplaty, nazwaGrupy, progRoku,
@@ -14,7 +15,7 @@ import {
 } from '../podatek.js';
 import { pustyStan } from '../ui.js';
 import {
-  esc, dzisiaj, etykietaMiesiaca, formatZl, formatData, kluczMiesiaca, MIESIACE_W, odmiana, porownajKody, roznicaDni,
+  dodajDni, esc, dzisiaj, etykietaMiesiaca, formatZl, formatData, kluczMiesiaca, MIESIACE_W, odmiana, porownajKody, roznicaDni,
 } from '../utils.js';
 import { opisProgu, rozliczeniaKlientow, ustawienia, wyborMiesiaca, pokazWybranyMiesiac } from './wspolne.js';
 
@@ -45,6 +46,14 @@ function paskiOstrzezen(s) {
     }
     if (b.doPrzypisania.length) {
       paski.push(`<a class="baner ostrzezenie pelny-wiersz" href="#/bramy">Bramy: ${odmiana(b.doPrzypisania.length, ['numer czeka', 'numery czekają', 'numerów czeka'])} na przypisanie ›</a>`);
+    }
+  }
+  // Prąd: od 7 dni przed końcem kwartału do 30 dni po nim – jednostki z prądem bez odczytu za kwartał.
+  if (s.dane.units.some((u) => u.has_power)) {
+    const kw = kwartalDoRozliczenia(dzisiaj());
+    const brak = dzisiaj() >= dodajDni(kw.do, -7) ? doRozliczenia(s.dane, s.indeksy, kw) : [];
+    if (brak.length) {
+      paski.push(`<a class="baner ostrzezenie pelny-wiersz" href="#/prad">Prąd ${kw.nazwa}: ${odmiana(brak.length, ['jednostka czeka', 'jednostki czekają', 'jednostek czeka'])} na odczyt licznika ›</a>`);
     }
   }
   // Umowy na czas określony kończące się w ciągu settings.expiring_days dni albo już wygasłe (Z10).

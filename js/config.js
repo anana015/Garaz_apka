@@ -7,7 +7,7 @@ export const CONFIG = Object.freeze({
   supabaseKey: 'sb_publishable_aFlZhbycefQPMj6imB3jFQ_KSLQmZ28',   // klucz publiczny (publishable)
 });
 
-export const WERSJA = '0.22.0';
+export const WERSJA = '0.23.0';
 
 /** Tabele z rozdziału 4 – kolejność nie ma znaczenia, służy do pobierania i kopii zapasowej. */
 export const TABELE = Object.freeze([
@@ -16,9 +16,10 @@ export const TABELE = Object.freeze([
   'tax_payments', 'settings',
   'expenses', 'cost_rules',   // etap 2 (migracja 010)
   'gates', 'gate_access',     // bramy GSM (migracja 012)
+  'power_readings',           // odczyty liczników prądu (migracja 017)
 ]);
 /** Tabele, które mogą jeszcze nie istnieć (migracja nieuruchomiona) – brak = pusta lista zamiast błędu. */
-export const TABELE_OPCJONALNE = Object.freeze(['expenses', 'cost_rules', 'gates', 'gate_access']);
+export const TABELE_OPCJONALNE = Object.freeze(['expenses', 'cost_rules', 'gates', 'gate_access', 'power_readings']);
 
 /** Etykiety terminowości (5.5). Sprawdzane od góry. */
 export const PROGI_TERMINOWOSCI = Object.freeze({
@@ -57,6 +58,8 @@ export const DOMYSLNE_USTAWIENIA = Object.freeze({
   vat_limit_gr: 24_000_000,
   tax_account: null,
   data_start: '2026-01-01',
+  power_price_gr: 130,       // cena 1 kWh brutto w groszach (migracja 017)
+  client_card_layout: null,  // układ karty klienta (migracja 017); null = domyślny
   last_backup_at: null,
   promotions: null,          // lista promocji (js/promocje.js); null = domyślna, migracja 007
   contract_templates: null,  // wzory umów (js/umowy.js); migracja 011

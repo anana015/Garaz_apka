@@ -3,8 +3,8 @@
 --
 -- 1. Wpisz swój e-mail logowania (ten sam co w aplikacji).
 -- 2. Zamień XXX na numery kart SIM w sterownikach (9 cyfr albo +48…) i HASLO na hasła sterowników.
--- 3. add_template / remove_template: zostaw null – od 0.22.0 aplikacja używa {haslo}#TEL{telefon9}#{pozycja}#
---    i {haslo}#DEL{telefon9}#{pozycja}# (pola: {haslo}, {telefon} (+48…), {telefon9} (9 cyfr), {pozycja}).
+-- 3. add_template / remove_template: zostaw null – od 0.23.0 aplikacja używa {haslo}#TEL4800{telefon9}#{pozycja}#
+--    i {haslo}#DEL4800{telefon9}#{pozycja}# (pola: {haslo}, {telefon} (+48…), {telefon9} (9 cyfr), {pozycja}).
 --    Wpisz własne tylko, gdy sterownik chce inaczej.
 -- 4. Uruchom. Ponowne uruchomienie poprawia dane (on conflict … do update).
 

@@ -10,7 +10,7 @@ const A = '00000000-0000-4000-8000-00000000000a';
 const B = '00000000-0000-4000-8000-00000000000b';
 const TABELE = ['units', 'clients', 'contracts', 'rentals', 'rental_rates', 'charge_adjustments',
   'bank_accounts', 'imports', 'payments', 'payers', 'deposits', 'client_notes',
-  'tax_payments', 'settings', 'expenses', 'cost_rules', 'gates', 'gate_access'];
+  'tax_payments', 'settings', 'expenses', 'cost_rules', 'gates', 'gate_access', 'power_readings'];
 
 let db;
 
@@ -48,7 +48,7 @@ test('migracje można uruchomić drugi raz bez błędu', async () => {
   assert.equal(rows.length, 3, 'każde ograniczenie raz');
 });
 
-test('schemat ma 18 tabel, każda z RLS i polityką own_rows', async () => {
+test('schemat ma 19 tabel, każda z RLS i polityką own_rows', async () => {
   await db.exec('reset role');
   const { rows } = await db.query(`
     select c.relname as tabela, c.relrowsecurity as rls,

@@ -12,9 +12,10 @@ export function bramaJednostki(j) {
 /** Ile dni po końcu najmu (koniec okresu wypowiedzenia) numer zostaje w bramie. */
 export const DNI_PO_KONCU = 3;
 
-// Polecenia sterownika (12.11.2026): numer bez +48 (9 cyfr), np. 1234#TEL600111222#205# i 1234#DEL600111222#205#.
-export const DOMYSLNE_POLECENIE_DODANIA = '{haslo}#TEL{telefon9}#{pozycja}#';
-export const DOMYSLNE_POLECENIE_USUNIECIA = '{haslo}#DEL{telefon9}#{pozycja}#';
+// Polecenia sterownika (12.11.2026, poprawione): 4800 + numer bez +48, np. 1234#TEL4800600111222#205#
+// i 1234#DEL4800600111222#205#.
+export const DOMYSLNE_POLECENIE_DODANIA = '{haslo}#TEL4800{telefon9}#{pozycja}#';
+export const DOMYSLNE_POLECENIE_USUNIECIA = '{haslo}#DEL4800{telefon9}#{pozycja}#';
 /** SMS do klienta po przypisaniu (przy usunięciu z bramy klient nie dostaje SMS-a). */
 export const DOMYSLNA_WIADOMOSC = 'Dzień dobry,\naby otworzyć bramę przy ul. Nad Drwiną 11A proszę zadzwonić pod numer {numer_bramy}.\n'
   + 'Pozdrawiam\nJakub Chwaja';
@@ -33,16 +34,19 @@ export function wypelnij(szablon, wartosci) {
   return String(szablon ?? '').replace(/\{([a-z0-9_]+)\}/gi, (cale, k) => (wartosci[k] != null ? String(wartosci[k]) : cale));
 }
 
+/** Pozycja w poleceniu: 3 cyfry, jak w sterowniku (6 → „006”, 205 → „205”); brak – ''. */
+export const pozycjaSterownika = (p) => (p == null || p === '' ? '' : String(p).padStart(3, '0'));
+
 /** Treść polecenia dodania numeru do sterownika. */
 export function polecenieDodania(brama, { telefon, pozycja }) {
   return wypelnij(brama.add_template || DOMYSLNE_POLECENIE_DODANIA,
-    { haslo: brama.password ?? '', telefon, telefon9: telefon?.slice(-9), pozycja: pozycja ?? '' });
+    { haslo: brama.password ?? '', telefon, telefon9: telefon?.slice(-9), pozycja: pozycjaSterownika(pozycja) });
 }
 
 /** Treść polecenia usunięcia (remove_template albo domyślne #DEL). */
 export function polecenieUsuniecia(brama, { telefon, pozycja }) {
   return wypelnij(brama.remove_template || DOMYSLNE_POLECENIE_USUNIECIA,
-    { haslo: brama.password ?? '', telefon, telefon9: telefon?.slice(-9), pozycja: pozycja ?? '' });
+    { haslo: brama.password ?? '', telefon, telefon9: telefon?.slice(-9), pozycja: pozycjaSterownika(pozycja) });
 }
 
 /** SMS do klienta po przypisaniu. */

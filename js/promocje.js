@@ -263,7 +263,10 @@ export function zestawienieStawek(dane, indeksy, dzien) {
     for (const x of podwyzkiNajmu(stawki)) podwyzki.push({ ...k, ...x, zaplanowana: x.od > dzien });
   }
   const najmy = new Map(dane.rentals.map((n) => [n.id, n]));
-  const zmianyKwot = (dane.charge_adjustments ?? []).filter((a) => najmy.has(a.rental_id)).map((a) => ({
+  // Opłaty za prąd (0.23.0) to nie ręczne zmiany – są na ekranie „Prąd”.
+  const zPradu = new Set((dane.power_readings ?? []).map((o) => o.adjustment_id).filter(Boolean));
+  const zmianyKwot = (dane.charge_adjustments ?? []).filter((a) => najmy.has(a.rental_id) && !zPradu.has(a.id)
+    && !/^Prąd /.test(a.reason ?? '')).map((a) => ({
     ...kontekst(najmy.get(a.rental_id)), okres: a.period_start, kwotaGr: a.amount_gr, powod: a.reason ?? '', id: a.id,
   }));
   return {

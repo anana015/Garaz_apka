@@ -105,12 +105,43 @@ export function opisProgu(p, u) {
  * w Ustawieniach → Karta klienta). Zapamiętane na tym urządzeniu (localStorage), bez migracji bazy.
  */
 const KLUCZ_TERMINOWOSCI = 'najem.terminowoscKlienta';
-export function pokazTerminowosc() {
-  try { return localStorage.getItem(KLUCZ_TERMINOWOSCI) === '1'; } catch { return false; }
+const terminowoscZUrzadzenia = () => { try { return localStorage.getItem(KLUCZ_TERMINOWOSCI) === '1'; } catch { return false; } };
+
+/**
+ * Własny układ karty klienta (0.23.0, settings.client_card_layout – migracja 017): kolejność kart, szeroka / wąska,
+ * widoczna / ukryta. Brak zapisu = układ domyślny (terminowość – jak dawny przełącznik na tym urządzeniu).
+ */
+export const KARTY_KLIENTA = Object.freeze([
+  { id: 'saldo', nazwa: 'Saldo' },
+  { id: 'notatki', nazwa: 'Notatki i historia kontaktu' },
+  { id: 'najmy', nazwa: 'Najmy' },
+  { id: 'bramy', nazwa: 'Bramy' },
+  { id: 'kontakt', nazwa: 'Kontakt' },
+  { id: 'terminowosc', nazwa: 'Terminowość' },
+  { id: 'kaucja', nazwa: 'Kaucja' },
+  { id: 'dokumenty', nazwa: 'Dokumenty' },
+  { id: 'kartoteka', nazwa: 'Kartoteka rozrachunków' },
+  { id: 'platnicy', nazwa: 'Płatnicy' },
+]);
+export const domyslnyUklad = () => KARTY_KLIENTA.map(({ id }) => ({
+  id, szeroka: id === 'kartoteka', widoczna: id !== 'terminowosc',
+}));
+
+/** Układ karty klienta: zapisane karty w kolejności + karty dodane w nowszych wersjach (na końcu, domyślnie). */
+export function ukladKarty(s) {
+  const zapisany = ustawienia(s).client_card_layout;
+  const znane = new Set(KARTY_KLIENTA.map((k) => k.id));
+  if (!Array.isArray(zapisany)) {
+    return domyslnyUklad().map((k) => (k.id === 'terminowosc' ? { ...k, widoczna: terminowoscZUrzadzenia() } : k));
+  }
+  const wynik = zapisany.filter((k) => k && znane.has(k.id))
+    .map((k) => ({ id: k.id, szeroka: Boolean(k.szeroka), widoczna: k.widoczna !== false }));
+  for (const k of domyslnyUklad()) if (!wynik.some((x) => x.id === k.id)) wynik.push(k);
+  return wynik;
 }
-export function ustawTerminowosc(wlacz) {
-  try { localStorage.setItem(KLUCZ_TERMINOWOSCI, wlacz ? '1' : '0'); } catch { /* tryb prywatny – zostaje domyślnie wyłączona */ }
-}
+
+/** Karta „Terminowość” widoczna (karta klienta i Raporty). */
+export const pokazTerminowosc = (s) => ukladKarty(s).find((k) => k.id === 'terminowosc')?.widoczna ?? false;
 
 /** Eksporty CSV (rozdz. 10) – wspólne dla Ustawień i Raportów. rodzaj: klienci | jednostki | wplaty | dluznicy | ryczalt. */
 export const EKSPORTY = Object.freeze({

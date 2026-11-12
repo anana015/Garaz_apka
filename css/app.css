@@ -512,6 +512,8 @@ fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 }
 .podglad strong { font-family: var(--font-mono); font-weight: 500; }
 .podglad span { color: var(--muted); font-size: .9rem; }
+/* Prąd – pole stanu licznika (0.23.0) */
+.pole-kwh { width: 7.5em; text-align: right; }
 /* Jednostka z prądem (0.20.0) */
 .znacznik.prad { background: #FFF4CC; color: #6B4E00; border-color: #E8C95A; }
 /* Kwoty w kolejnych miesiącach (podgląd promocji, „Kwoty w miesiącach” przy najmie) – 0.19.0 */

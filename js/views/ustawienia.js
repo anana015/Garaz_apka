@@ -21,7 +21,7 @@ import {
 import { BANKI, walidujKonto, walidujUstawienia } from '../walidacja.js';
 import startowe from './startowe.js';
 import { akcjeWzorow, ekranWzoru, formularzeWzorow, formularzWynajmujacego, formularzWzoru, kartaWzorow } from './umowy.js';
-import { EKSPORTY, pobierzEksport, pokazTerminowosc, ustawienia, ustawTerminowosc } from './wspolne.js';
+import { domyslnyUklad, EKSPORTY, KARTY_KLIENTA, pobierzEksport, ukladKarty, ustawienia } from './wspolne.js';
 
 function sekcjaKarty(id, tytul, tresc, edycja) {
   return `<section class="karta" aria-labelledby="u-${id}">
@@ -120,6 +120,47 @@ function przypomnienieKopii(u) {
     ? `<div class="baner ostrzezenie">Ostatnia kopia: ${formatData(data)}. Zapisz nową.</div>` : '';
 }
 
+const nazwaKarty = (id) => KARTY_KLIENTA.find((k) => k.id === id)?.nazwa ?? id;
+
+/** #/ustawienia/karta-klienta – kolejność (↑ ↓), szerokość i widoczność kart na karcie klienta. */
+function ekranUkladu(s) {
+  const uklad = ukladKarty(s);
+  const przycisk2 = (id, zmiana, tekst, etykieta, wylaczony = false) => `<button type="button" class="link-btn" data-akcja="uklad"
+    data-id="${esc(id)}" data-zmiana="${zmiana}" aria-label="${esc(etykieta)}"${wylaczony ? ' disabled' : ''}>${tekst}</button>`;
+  return `<section class="karta">
+    <p class="podpowiedz">Karty na karcie klienta od góry. Na szerokim ekranie stoją w dwóch kolumnach – „szeroka” zajmuje cały wiersz.
+      Zmiany zapisują się od razu i obowiązują na wszystkich urządzeniach.</p>
+    <ul class="lista uklad-karty">${uklad.map((k, i) => `<li><div class="wiersz">
+      <div class="glowna"><strong${k.widoczna ? '' : ' class="wyciszony"'}>${i + 1}. ${esc(nazwaKarty(k.id))}</strong>
+        <span>${k.widoczna ? (k.szeroka ? 'szeroka' : 'wąska') : 'ukryta'}</span></div>
+      <div class="prawa">
+        ${przycisk2(k.id, 'gora', '↑', `Przesuń wyżej: ${nazwaKarty(k.id)}`, i === 0)}
+        ${przycisk2(k.id, 'dol', '↓', `Przesuń niżej: ${nazwaKarty(k.id)}`, i === uklad.length - 1)}
+        ${przycisk2(k.id, 'szeroka', k.szeroka ? 'wąska' : 'szeroka', `Zmień szerokość: ${nazwaKarty(k.id)}`)}
+        ${przycisk2(k.id, 'widoczna', k.widoczna ? 'ukryj' : 'pokaż', `${k.widoczna ? 'Ukryj' : 'Pokaż'}: ${nazwaKarty(k.id)}`)}
+      </div></div></li>`).join('')}</ul>
+    <div class="pasek-akcji">${przycisk2('', 'domyslny', 'Przywróć układ domyślny', 'Przywróć układ domyślny')}</div>
+    <p class="podpowiedz">„Terminowość” włącza też kartę „Terminowość” w Raportach. Karta „Bramy” pokazuje się tylko klientom z jednostką za bramą.</p>
+  </section>`;
+}
+
+async function zapiszUklad(ctx, uklad, doZapisu) {
+  const s = ctx.state;
+  if (s.podglad || s.offline || s.zKopii || !s.uzytkownik) { ctx.toast('Zmiana układu wymaga połączenia z bazą.'); return; }
+  const poprzednie = s.dane.settings;
+  ctx.scal({ settings: { ...(poprzednie ?? {}), client_card_layout: doZapisu ?? null } });   // od razu na ekranie
+  ctx.render();
+  try {
+    ctx.scal({ settings: await ctx.db.zapiszUstawienia(s.uzytkownik.id, { client_card_layout: doZapisu ?? null }) });
+    if (!doZapisu) ctx.toast('Przywrócono układ domyślny');
+  } catch (e) {
+    ctx.scal({ settings: poprzednie });
+    ctx.toast(/client_card_layout/.test(e.message)
+      ? 'Brakuje zmiany w bazie. Uruchom w Supabase plik supabase/migracje/017_prad_karta_klienta.sql.' : e.message);
+  }
+  ctx.render();
+}
+
 function przeglad(s) {
   const u = ustawienia(s);
   const ostatni = u.default_last_period === 'pelny' ? 'pełny okres' : 'proporcjonalnie';
@@ -147,10 +188,10 @@ function przeglad(s) {
         ['Ostatni okres najmu', ostatni],
         ['Dzień płatności nowych najmów', `${u.default_billing_day ?? 20}.`],
       ]), '#/ustawienia/edycja')}
-      ${sekcjaKarty('karta-klienta', 'Karta klienta', `${pola([['Karta „Terminowość”', pokazTerminowosc() ? 'widoczna' : 'ukryta']])}
-        <div class="pasek-akcji"><button type="button" class="przycisk drugi" data-akcja="terminowosc-klienta">
-          ${pokazTerminowosc() ? 'Ukryj terminowość' : 'Pokaż terminowość'}</button></div>
-        <p class="podpowiedz">Dotyczy karty klienta i karty „Terminowość” w Raportach. Ustawienie dotyczy tego urządzenia.</p>`)}
+      ${sekcjaKarty('karta-klienta', 'Karta klienta', `<p>${ukladKarty(s).filter((k) => k.widoczna)
+    .map((k) => esc(nazwaKarty(k.id)) + (k.szeroka ? ' <span class="wyciszony">(szeroka)</span>' : '')).join(' · ')}</p>
+        <p class="podpowiedz">Kolejność, szerokość i widoczność kart. „Terminowość” dotyczy też Raportów.</p>`,
+    '#/ustawienia/karta-klienta')}
       ${sekcjaKarty('podatek', 'Podatek', pola([
         ['Wpłaty ryczałtu', u.tax_period === 'miesiac' ? 'miesięcznie' : 'kwartalnie'],
         ['Stawki', `${formatProcentBp(u.tax_rate_low_bp)} / ${formatProcentBp(u.tax_rate_high_bp)}`],
@@ -406,6 +447,7 @@ export default {
     if (parametr === 'promocja') return 'Nowa promocja';
     if (parametr === 'wzor') return akcja === 'nowy' ? 'Nowy wzór umowy' : 'Wzór umowy';
     if (parametr === 'wynajmujacy') return 'Dane wynajmującego';
+    if (parametr === 'karta-klienta') return 'Układ karty klienta';
     return 'Ustawienia';
   },
 
@@ -419,6 +461,7 @@ export default {
     if (parametr === 'promocja') return formularzNowejPromocji(s);
     if (parametr === 'wzor') return akcja === 'nowy' ? formularzWzoru(s) : ekranWzoru(s);
     if (parametr === 'wynajmujacy') return formularzWynajmujacego(s);
+    if (parametr === 'karta-klienta') return ekranUkladu(s);
     if (parametr === 'konto') {
       const konto = akcja === 'nowe' ? null : s.indeksy.konta.get(akcja);
       if (akcja !== 'nowe' && !konto) return pustyStan('Nie znaleziono konta.', [{ tekst: 'Ustawienia', href: '#/ustawienia' }]);
@@ -428,11 +471,18 @@ export default {
   },
 
   akcje: {
-    /** Włącza / wyłącza kartę „Terminowość” na karcie klienta (localStorage, bez bazy). */
-    'terminowosc-klienta'(el, ctx) {
-      ustawTerminowosc(!pokazTerminowosc());
-      ctx.toast(pokazTerminowosc() ? 'Terminowość będzie widoczna na karcie klienta.' : 'Terminowość ukryta na karcie klienta.');
-      ctx.render();
+    /** Układ karty klienta: ↑ ↓, szeroka, widoczna, domyślny – każda zmiana od razu w settings.client_card_layout. */
+    'uklad'(el, ctx) {
+      const { id, zmiana } = el.dataset;
+      let uklad = ukladKarty(ctx.state).map((k) => ({ ...k }));
+      const i = uklad.findIndex((k) => k.id === id);
+      if (zmiana === 'domyslny') uklad = domyslnyUklad();
+      else if (i < 0) return;
+      else if (zmiana === 'gora' && i > 0) [uklad[i - 1], uklad[i]] = [uklad[i], uklad[i - 1]];
+      else if (zmiana === 'dol' && i < uklad.length - 1) [uklad[i + 1], uklad[i]] = [uklad[i], uklad[i + 1]];
+      else if (zmiana === 'szeroka') uklad[i].szeroka = !uklad[i].szeroka;
+      else if (zmiana === 'widoczna') uklad[i].widoczna = !uklad[i].widoczna;
+      zapiszUklad(ctx, uklad, zmiana === 'domyslny' ? null : uklad);
     },
     ...akcjeWzorow,
     kopia: (_el, ctx) => zapiszKopie(ctx),

@@ -13,6 +13,7 @@ import {
 } from '../umowy.js';
 import { dzisiaj, esc, formatData, noweId, odmiana } from '../utils.js';
 import { ustawienia } from './wspolne.js';
+import { czytajKwh } from '../prad.js';
 
 const MAX_WZORU = 10 * 1024 * 1024;
 export const wzoryUmow = (s) => (Array.isArray(ustawienia(s).contract_templates) ? ustawienia(s).contract_templates : []);
@@ -336,7 +337,7 @@ export function formularzUmowy(s, klient) {
       <div class="pola-w-rzedzie">
         ${pole(f, { nazwa: 'okres_dni', etykieta: 'Okres wypowiedzenia (dni)', odswiez: true, atrybuty: 'inputmode="numeric" maxlength="4"' })}
         ${zPradem ? pole(f, { nazwa: 'licznik', etykieta: 'Stan licznika prądu (kWh)', odswiez: true, atrybuty: 'inputmode="decimal" maxlength="12"',
-    podpowiedz: 'Na dzień wydania. Puste = kropki do wpisania ręcznie.' }) : ''}
+    podpowiedz: 'Na dzień wydania. Zapisze się też jako odczyt początkowy (rozliczenie prądu). Puste = kropki.' }) : ''}
       </div>
       <h3 class="maly">Dane, które trafią do umowy</h3>
       ${brakuje.length ? `<p class="baner ostrzezenie"><span>Brakuje: ${brakuje.map((k) => esc(opisPola.get(k))).join(', ')}.
@@ -376,12 +377,32 @@ async function pobierzUmowe(form, ctx) {
     pobierzPlik(nazwaPlikuUmowy(wartosci, dzis), wynik.plik,
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     ctx.toast(wynik.puste.length ? `Umowa gotowa – ${wynik.puste.length} pól do wpisania ręcznie` : 'Umowa gotowa do wydruku');
+    await zapiszLicznikStartowy(ctx, najmy, w.licznik);
   } catch (e) {
     f.blad = e.message;
   } finally {
     f.trwa = false;
     ctx.render();
   }
+}
+
+/**
+ * Stan licznika z umowy → odczyt początkowy (power_readings, migracja 017) dla jednostki z prądem, której najem nie ma
+ * jeszcze odczytu. Tylko gdy w umowie jest jedna jednostka z prądem; błąd zapisu nie przerywa pobrania umowy.
+ */
+async function zapiszLicznikStartowy(ctx, najemIds, licznik) {
+  const s = ctx.state;
+  const kwh = czytajKwh(licznik);
+  if (kwh == null) return;
+  const zPradem = najemIds.map((id) => s.dane.rentals.find((n) => n.id === id))
+    .filter((n) => n && s.indeksy.jednostki.get(n.unit_id)?.has_power);
+  if (zPradem.length !== 1) return;
+  const n = zPradem[0];
+  if ((s.dane.power_readings ?? []).some((o) => o.rental_id === n.id)) return;
+  try {
+    const odczyt = await ctx.db.wstaw('power_readings', { unit_id: n.unit_id, rental_id: n.id, read_on: n.start_on, kwh, amount_gr: null });
+    ctx.scal({ power_readings: [odczyt] });
+  } catch { /* bez migracji 017 – stan licznika zostaje tylko w umowie */ }
 }
 
 export const formularzeUmowy = { umowa: pobierzUmowe };
