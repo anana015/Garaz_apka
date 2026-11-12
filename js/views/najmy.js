@@ -2,7 +2,7 @@
 //   #/najmy/nowy[?klient=<id>&jednostka=<id>]   nowy najem (umowa, stawka, kaucja, PDF)
 //   #/najmy/<id>/stawka                          zmiana stawki jednego najmu
 //   #/najmy/<id>/koniec                          zakończenie najmu z rozliczeniem kaucji
-//   #/najmy/<id>/korekta                         korekta należności (rabat, umorzenie, dopłata)
+//   #/najmy/<id>/korekta[?okres=RRRR-MM-DD]      zmiana kwoty w wybranym miesiącu (obniżka, umorzenie, dopłata)
 //   #/najmy/podwyzka                             zmiana stawek wielu najmów naraz
 //   #/najmy/<id>/promocja                        promocja: rabat % na N pierwszych okresów (lista: js/promocje.js)
 //   #/najmy/<id>/platnosc                        gdzie płaci: przelew na konto, gotówka albo FV (decyzja 4)
@@ -15,7 +15,8 @@ import {
 } from '../formularz.js';
 import { naleznosciNajmu } from '../okresy.js';
 import {
-  czytajWarunki, listaPromocji, nowaPozycja, opisWarunkow, planPromocji, wierszeStawek,
+  czytajWarunki, harmonogramPromocji, jestMigracja013, KONIEC_PROMOCJI, listaPromocji, nowaPozycja, OPIS_WARIANTU, opisWarunkow,
+  planPromocji, wierszeStawek, wymagajaMigracji013,
 } from '../promocje.js';
 import { pustyStan } from '../ui.js';
 import {
@@ -25,7 +26,10 @@ import {
   BANKI, OKRESY_ROZLICZENIOWE, POWODY_ZATRZYMANIA, TRYBY_STAWKI, saldoKaucji, walidujKoniec, walidujKorekte,
   walidujMiejscePlatnosci, walidujNajem, walidujPdf, walidujPodwyzke, walidujZmianeStawki, zaznaczone,
 } from '../walidacja.js';
-import { ustawienia } from './wspolne.js';
+import { listaMiesiecy, nazwaMiesiaca, szczegolyNaleznosci, ustawienia } from './wspolne.js';
+
+/** Komunikat, gdy promocja potrzebuje migracji 013 (stawka „od dnia” albo 0 zł), a baza jej jeszcze nie ma. */
+const BRAK_MIGRACJI_013 = 'Ta promocja wymaga zmiany w bazie: uruchom w Supabase plik supabase/migracje/013_promocje_od_dnia.sql.';
 
 const NAZWY_OKRESOW = { 1: 'Miesiąc', 3: 'Kwartał (3 miesiące)', 6: 'Pół roku', 12: 'Rok' };
 const OSTATNI_OKRES = [
@@ -303,13 +307,14 @@ function polaPromocjiNajmu(f, s) {
   const w = f.wartosci;
   const opcjeListy = [...opcjePromocji(s), { wartosc: 'inna', tekst: 'Inna…' }];
   let html = wybor(f, { nazwa: 'promo', etykieta: 'Promocja', opcje: opcjeListy, pusta: 'Bez promocji', odswiez: true,
-    podpowiedz: 'Obniżona stawka na pierwsze okresy, potem stawka z pola „Stawka”. Listę zmienisz w Ustawieniach → Promocje.' });
+    podpowiedz: 'Rabat na pierwsze miesiące, potem stawka z pola „Stawka”. Start 1.–10.: ten miesiąc to 1. miesiąc promocji; '
+      + '11.–22.: do tego samego dnia, potem proporcjonalnie; od 23.: końcówka miesiąca gratis. Listę zmienisz w Ustawieniach → Promocje.' });
   if (w.promo === 'inna') {
     html += `${pole(f, { nazwa: 'promo_nazwa', etykieta: 'Nazwa promocji', atrybuty: 'maxlength="60"',
       podpowiedz: 'Np. „Zniżka dla stałego klienta”. Puste = opis z rabatu.' })}
       <div class="pola-w-rzedzie">
         ${pole(f, { nazwa: 'promo_rabat', etykieta: 'Rabat (%)', wymagane: true, odswiez: true, atrybuty: 'inputmode="decimal"' })}
-        ${pole(f, { nazwa: 'promo_okresy', etykieta: 'Ile okresów', wymagane: true, odswiez: true, atrybuty: 'inputmode="numeric"' })}
+        ${pole(f, { nazwa: 'promo_okresy', etykieta: 'Ile miesięcy', wymagane: true, odswiez: true, atrybuty: 'inputmode="numeric"' })}
       </div>
       ${przelacznik(f, { nazwa: 'promo_zapisz', etykieta: 'Dodaj tę promocję do listy' })}`;
   }
@@ -318,7 +323,7 @@ function polaPromocjiNajmu(f, s) {
   const normalna = parseKwota(w.amount_gr);
   if (wybrana && najem && normalna > 0) {
     const plan = planPromocji(najem, { normalnaGr: normalna, rabat: wybrana.rabat, okresy: wybrana.okresy });
-    if (plan) html += podgladPromocji(plan.promocyjnaGr, wybrana.okresy, plan.poczatek, normalna, plan.koniec);
+    if (plan) html += podgladPromocji(najem, plan, normalna);
   }
   return html;
 }
@@ -374,7 +379,13 @@ async function zapiszNajem(form, ctx) {
     const najem = wynik.pakiet.rentals[0];
     const normalna = wynik.pakiet.rental_rates[0].amount_gr;
     const plan = planPromocji(najem, { normalnaGr: normalna, rabat: promocja.wybrana.rabat, okresy: promocja.wybrana.okresy });
-    wynik.pakiet.rental_rates = wierszeStawek(najem.id, plan, normalna, promocja.wybrana.nazwa);
+    const wiersze = wierszeStawek(najem.id, plan, normalna, promocja.wybrana.nazwa);
+    if (wymagajaMigracji013(wiersze) && !jestMigracja013(s.dane.rental_rates)) {
+      maBledy(ctx, w, { promo: BRAK_MIGRACJI_013 });
+      return;
+    }
+    // Pierwsza stawka jest zawsze od startu najmu: promocyjna albo 0 zł (końcówka miesiąca gratis).
+    wynik.pakiet.rental_rates = wiersze;
   }
   const jednostka = s.indeksy.jednostki.get(w.unit_id);
   const klientId = w.client_id;
@@ -663,22 +674,23 @@ async function zapiszKoniec(form, ctx, ev) {
 // Korekta należności
 // ---------------------------------------------------------------------
 
-/** Należności najmu do wyboru okresu: od data_start do 3 miesięcy w przód. */
+/** Należności najmu do wyboru okresu: od data_start do 12 miesięcy w przód (obniżkę można wpisać z wyprzedzeniem). */
 function naleznosciDoKorekty(s, k) {
   const u = ustawienia(s);
   return naleznosciNajmu(k.najem, { stawki: k.stawki, korekty: k.korekty, dataStart: u.data_start, dzis: dzisiaj() })
-    .filter((n) => n.poczatek <= dodajMiesiace(dzisiaj(), 3));
+    .filter((n) => n.poczatek <= dodajMiesiace(dzisiaj(), 12));
 }
 
 function formularzKorekty(s, k) {
   const naleznosci = naleznosciDoKorekty(s, k);
   const dzien = dzisiaj();
   const biezacy = [...naleznosci].reverse().find((n) => n.poczatek <= dzien) ?? naleznosci[0];
-  const naKwote = s.ui.zapytanie.tryb === 'kwota';
+  const zAdresu = naleznosci.find((n) => n.poczatek === s.ui.zapytanie.okres);
+  const naKwote = s.ui.zapytanie.tryb === 'kwota' || Boolean(zAdresu);
   const f = stanFormularza(s, `najmy/${k.najem.id}/korekta`, () => ({
     tryb: naKwote ? 'kwota' : 'roznica',
-    // „Kwota 1. okresu” z karty klienta: pierwszy okres; zwykła korekta: bieżący.
-    period_start: (naKwote ? naleznosci[0] : biezacy)?.poczatek ?? '',
+    // Miesiąc z „Kwoty w miesiącach” (?okres=); „Kwota 1. okresu”: pierwszy okres; zwykła zmiana: bieżący.
+    period_start: (zAdresu ?? (s.ui.zapytanie.tryb === 'kwota' ? naleznosci[0] : biezacy))?.poczatek ?? '',
   }));
   const kwotaOkresu = naleznosci.find((n) => n.poczatek === f.wartosci.period_start);
   if (!naleznosci.length) {
@@ -686,32 +698,43 @@ function formularzKorekty(s, k) {
   }
   const okresy = [...naleznosci].reverse().map((n) => ({
     wartosc: n.poczatek,
-    tekst: `${formatData(n.poczatek)} – ${formatData(n.koniec)} · ${formatZl(n.kwotaGr)}${n.korektaGr ? ` (w tym korekta ${formatZl(n.korektaGr)})` : ''}`,
+    tekst: `${nazwaMiesiaca(n.poczatek)}${n.rodzaj !== 'pelny' ? ` (${formatData(n.poczatek)} – ${formatData(n.koniec)})` : ''} · ${
+      formatZl(n.kwotaGr)}${n.korektaGr ? ` (w tym zmiana ${formatZl(n.korektaGr)})` : ''}`,
   }));
   const dotychczas = [...k.korekty].sort((a, b) => b.period_start.localeCompare(a.period_start));
+  const szczegoly = kwotaOkresu ? szczegolyNaleznosci(kwotaOkresu) : '';
+  const wierszKorekty = (x) => {
+    const pytanie = s.ui.usunKorekte === x.id;
+    return `<li><div class="wiersz"><div class="glowna">
+      <strong>${esc(nazwaMiesiaca(x.period_start))}</strong><span>${esc(x.reason)}</span>
+      ${pytanie ? `<span><button type="button" class="link-btn" data-akcja="usun-korekte-tak" data-id="${esc(x.id)}">Tak, cofnij tę zmianę</button>
+        · <button type="button" class="link-btn" data-akcja="usun-korekte-nie">Nie</button></span>` : ''}</div>
+      <div class="prawa"><span class="kwota">${x.amount_gr > 0 ? '+' : ''}${formatZl(x.amount_gr)}</span>${pytanie ? ''
+    : ` <button type="button" class="link-btn maly" data-akcja="usun-korekte" data-id="${esc(x.id)}">cofnij</button>`}</div></div></li>`;
+  };
 
   return `${naglowekNajmu(s, k)}
     <div class="siatka">
       ${formularz(f, {
-        nazwa: 'korekta', przycisk: 'Zapisz korektę',
+        nazwa: 'korekta', przycisk: 'Zapisz',
         anuluj: k.klient ? `#/klienci/${encodeURIComponent(k.klient.id)}` : '#/klienci',
         tresc: `
-          ${wybor(f, { nazwa: 'period_start', etykieta: 'Okres', opcje: okresy, wymagane: true, odswiez: true })}
+          ${wybor(f, { nazwa: 'period_start', etykieta: 'Miesiąc', opcje: okresy, wymagane: true, odswiez: true,
+    podpowiedz: szczegoly ? `Wyliczenie: ${esc(szczegoly)}` : 'Także przyszłe miesiące – do 12 miesięcy w przód.' })}
           ${opcje(f, { nazwa: 'tryb', legenda: 'Jak zmienić', odswiez: true, opcje: [
-    { wartosc: 'kwota', tekst: 'Ustaw kwotę należności' }, { wartosc: 'roznica', tekst: 'Zmień o kwotę (+/−)' }] })}
+    { wartosc: 'kwota', tekst: 'Ustaw kwotę za ten miesiąc' }, { wartosc: 'roznica', tekst: 'Zmień o kwotę (+/−)' }] })}
           ${f.wartosci.tryb === 'kwota'
-    ? pole(f, { nazwa: 'nowa_kwota', etykieta: 'Należność za ten okres (zł)', typ: 'kwota', wymagane: true,
-      podpowiedz: `Teraz: ${kwotaOkresu ? formatZl(kwotaOkresu.kwotaGr) : '—'}. Np. kwota, którą klient faktycznie miał zapłacić za niepełny pierwszy miesiąc.` })
-    : pole(f, { nazwa: 'amount_gr', etykieta: 'Kwota korekty (zł)', typ: 'kwota', wymagane: true,
-      podpowiedz: 'Ujemna = rabat lub umorzenie, np. -50. Dodatnia = dopłata. Należność nie może spaść poniżej 0 zł.' })}
+    ? pole(f, { nazwa: 'nowa_kwota', etykieta: 'Klient płaci za ten miesiąc (zł)', typ: 'kwota', wymagane: true,
+      podpowiedz: `Teraz: ${kwotaOkresu ? formatZl(kwotaOkresu.kwotaGr) : '—'}. Np. obniżka w tym miesiącu do 150 zł albo 0 zł (umorzenie).` })
+    : pole(f, { nazwa: 'amount_gr', etykieta: 'O ile zmienić (zł)', typ: 'kwota', wymagane: true,
+      podpowiedz: 'Ujemna = obniżka lub umorzenie, np. -50. Dodatnia = dopłata. Należność nie może spaść poniżej 0 zł.' })}
           ${pole(f, { nazwa: 'reason', etykieta: 'Powód', wymagane: f.wartosci.tryb !== 'kwota', atrybuty: 'maxlength="200"',
-    podpowiedz: f.wartosci.tryb === 'kwota' ? 'Puste = „Ręczna kwota okresu”.' : '' })}`,
+    podpowiedz: f.wartosci.tryb === 'kwota' ? 'Np. „obniżka – remont dachu”. Puste = „Ręczna kwota okresu”.' : '' })}
+          <p class="podpowiedz">Zmienia tylko ten jeden miesiąc. Stawka na kolejne miesiące – „Zmień stawkę”.</p>`,
       })}
-      <section class="karta"><h2>Dotychczasowe korekty</h2>
-        ${dotychczas.length ? `<ul class="lista">${dotychczas.map((x) => `<li><div class="wiersz"><div class="glowna">
-          <strong>okres od ${formatData(x.period_start)}</strong><span>${esc(x.reason)}</span></div>
-          <div class="prawa kwota">${formatZl(x.amount_gr)}</div></div></li>`).join('')}</ul>`
-          : '<p class="wyciszony">Brak korekt.</p>'}
+      <section class="karta"><h2>Dotychczasowe zmiany kwot</h2>
+        ${dotychczas.length ? `<ul class="lista">${dotychczas.map(wierszKorekty).join('')}</ul>`
+          : '<p class="wyciszony">Brak zmian.</p>'}
       </section>
     </div>`;
 }
@@ -724,7 +747,9 @@ async function zapiszKorekte(form, ctx) {
   if (maBledy(ctx, w, bledy)) return;
   await zapisz(ctx, async () => {
     ctx.scal({ charge_adjustments: [await ctx.db.wstaw('charge_adjustments', wiersz)] });
-    ctx.toast(`Korekta ${k.jednostka?.code ?? ''} za okres od ${formatData(wiersz.period_start)}: ${formatZl(wiersz.amount_gr)}`);
+    const po = naleznosciNajmu(k.najem, { stawki: k.stawki, korekty: [...k.korekty, wiersz], dataStart: ustawienia(s).data_start, dzis: dzisiaj() })
+      .find((n) => n.poczatek === wiersz.period_start);
+    ctx.toast(`${k.jednostka?.code ?? ''} – ${nazwaMiesiaca(wiersz.period_start)}: ${po ? formatZl(po.kwotaGr) : formatZl(wiersz.amount_gr)}`);
     ctx.nawiguj(k.klient ? `klienci/${encodeURIComponent(k.klient.id)}` : 'klienci');
   });
 }
@@ -761,12 +786,19 @@ function policzPromocje(w, k) {
   return { bledy, normalna, rabat, okresy, poczatek: plan.poczatek, koniecPromocji: plan.koniec, promocyjna: plan.promocyjnaGr, plan };
 }
 
-/** Podgląd promocji: „100 zł od 05.11.2026 do 19.01.2027 (niepełny okres i 2 pełne)”, „potem 200 zł od 20.01.2027”. */
-function podgladPromocji(promocyjna, okresy, poczatek, normalna, koniec) {
-  const zakres = koniec ? `od ${formatData(poczatek)} do ${formatData(dodajDni(koniec, -1))}` : `od ${formatData(poczatek)}`;
+/**
+ * Podgląd promocji: „gratis do 30.11.2026, 100 zł od 01.12.2026 do 31.01.2027”, „potem 200 zł od 01.02.2027”
+ * i kwoty w kolejnych miesiącach (z podziałem miesiąca, gdy normalna stawka zaczyna się w jego trakcie).
+ */
+function podgladPromocji(najem, plan, normalna, stawki = []) {
+  const zakres = plan.promocjaOd
+    ? `${formatZl(plan.promocyjnaGr)} od ${formatData(plan.promocjaOd)}${plan.koniec ? ` do ${formatData(dodajDni(plan.koniec, -1))}` : ''}` : '';
+  const miesiace = harmonogramPromocji(najem, { plan, normalnaGr: normalna, stawki });
   return `<div class="podglad" role="status">
-      <strong>${formatZl(promocyjna)} ${zakres}</strong>
-      <span>${koniec ? `potem ${formatZl(normalna)} od ${formatData(koniec)} (${okresy} mies. od startu, do pełnego miesiąca)` : 'najem kończy się w trakcie promocji'}</span></div>`;
+      <strong>${[plan.gratisDo ? `gratis ${formatData(plan.poczatek)} – ${formatData(plan.gratisDo)}` : '', zakres].filter(Boolean).join(', ')}</strong>
+      <span>${plan.koniec ? `potem ${formatZl(normalna)} od ${formatData(plan.koniec)}` : 'najem kończy się w trakcie promocji'} · ${
+  esc(OPIS_WARIANTU[plan.wariant] ?? '')}</span>
+      ${miesiace.length ? listaMiesiecy(miesiace) : ''}</div>`;
 }
 
 /** Opcje listy promocji (Ustawienia → Promocje). */
@@ -782,12 +814,13 @@ function formularzPromocji(s, k) {
     rabat: String(pierwsza?.rabat ?? 50), okresy: String(pierwsza?.okresy ?? 2), od: k.najem.start_on,
   }));
   const p = policzPromocje(f.wartosci, k);
-  const podglad = p.promocyjna != null ? podgladPromocji(p.promocyjna, p.okresy, p.poczatek, p.normalna, p.koniecPromocji) : '';
+  const podglad = p.plan ? podgladPromocji(k.najem, p.plan, p.normalna, k.stawki) : '';
   return `${naglowekNajmu(s, k)}
     ${formularz(f, {
     nazwa: 'promocja', przycisk: 'Zapisz promocję',
     anuluj: k.klient ? `#/klienci/${encodeURIComponent(k.klient.id)}` : '#/klienci',
-    uwaga: 'Promocja zapisze się jako stawki w historii najmu. Stawki wpisane na czas promocji zostaną zastąpione.',
+    uwaga: 'Promocja zapisze się jako stawki w historii najmu. Stawki wpisane na czas promocji (także promocja liczona '
+      + 'wcześniej według starej reguły) zostaną zastąpione.',
     tresc: `
       ${wybor(f, { nazwa: 'szablon', etykieta: 'Promocja', opcje: opcjePromocji(s), pusta: 'Własne warunki', odswiez: true,
     podpowiedz: 'Listę zmienisz w Ustawieniach → Promocje.' })}
@@ -797,9 +830,9 @@ function formularzPromocji(s, k) {
         ${pole(f, { nazwa: 'rabat', etykieta: 'Rabat (%)', wymagane: true, odswiez: true, atrybuty: 'inputmode="decimal"' })}
       </div>
       <div class="pola-w-rzedzie">
-        ${pole(f, { nazwa: 'okresy', etykieta: 'Ile okresów', wymagane: true, odswiez: true, atrybuty: 'inputmode="numeric"' })}
+        ${pole(f, { nazwa: 'okresy', etykieta: 'Ile miesięcy', wymagane: true, odswiez: true, atrybuty: 'inputmode="numeric"' })}
         ${pole(f, { nazwa: 'od', etykieta: 'Od dnia', typ: 'date', wymagane: true, odswiez: true,
-    podpowiedz: 'Promocja zaczyna się od pierwszego okresu od tego dnia.' })}
+    podpowiedz: '1.–10.: od początku tego miesiąca; 11.–22.: od tego dnia; od 23.: do końca miesiąca gratis, rabat od następnego.' })}
       </div>${podglad}`,
   })}`;
 }
@@ -810,16 +843,26 @@ async function zapiszPromocje(form, ctx) {
   const w = wartosciFormularza(form);
   const p = policzPromocje(w, k);
   if (maBledy(ctx, w, p.bledy)) return;
+  const wiersze = wierszeStawek(k.najem.id, p.plan, p.normalna, powodPromocji(s, w.szablon, p));
+  if (wymagajaMigracji013(wiersze) && !jestMigracja013(s.dane.rental_rates)) {
+    maBledy(ctx, w, { od: BRAK_MIGRACJI_013 });
+    return;
+  }
   await zapisz(ctx, async () => {
     // Stawki wpisane w trakcie promocji (po jej początku, przed końcem) – usuwamy, żeby nie nadpisały rabatu.
-    const wSrodku = k.stawki.filter((st) => st.valid_from > p.poczatek && (!p.koniecPromocji || st.valid_from < p.koniecPromocji));
+    // Także „koniec promocji” z wcześniejszego wyliczenia (stara reguła) do 3 miesięcy po nowym końcu.
+    const daty = new Set(wiersze.map((x) => x.valid_from));
+    const poKoncu = p.koniecPromocji ? dodajMiesiace(p.koniecPromocji, 3) : null;
+    const wSrodku = k.stawki.filter((st) => !daty.has(st.valid_from) && st.valid_from > p.poczatek
+      && ((!p.koniecPromocji || st.valid_from < p.koniecPromocji)
+        || (st.reason === KONIEC_PROMOCJI && st.valid_from <= poKoncu)));
     for (const st of wSrodku) await ctx.db.usun('rental_rates', st.id);
-    const wiersze = wierszeStawek(k.najem.id, p.plan, p.normalna, powodPromocji(s, w.szablon, p));
     const zapisane = await ctx.db.zapiszWiele('rental_rates', wiersze, 'rental_id,valid_from');
     const usuniete = new Set(wSrodku.map((st) => st.id));
     s.dane = { ...s.dane, rental_rates: s.dane.rental_rates.filter((st) => !usuniete.has(st.id)) };
     ctx.scal({ rental_rates: zapisane });
-    ctx.toast(`Promocja ${k.jednostka?.code ?? ''}: ${formatZl(p.promocyjna)} od ${formatData(p.poczatek)}`);
+    ctx.toast(`Promocja ${k.jednostka?.code ?? ''}: ${formatZl(p.promocyjna)} od ${formatData(p.plan.promocjaOd ?? p.poczatek)}${
+      p.koniecPromocji ? `, normalnie od ${formatData(p.koniecPromocji)}` : ''}`);
     ctx.nawiguj(k.klient ? `klienci/${encodeURIComponent(k.klient.id)}` : 'klienci');
   });
 }
@@ -827,7 +870,7 @@ async function zapiszPromocje(form, ctx) {
 const FORMULARZE = {
   stawka: { tytul: 'Zmiana stawki', render: formularzStawki },
   koniec: { tytul: 'Koniec najmu', render: formularzKonca },
-  korekta: { tytul: 'Korekta należności', render: formularzKorekty },
+  korekta: { tytul: 'Kwota w miesiącu', render: formularzKorekty },
   promocja: { tytul: 'Promocja', render: formularzPromocji },
   platnosc: { tytul: 'Gdzie płaci', render: formularzPlatnosci },
 };
@@ -878,6 +921,34 @@ export default {
   },
 
   akcje: {
+    'usun-korekte'(el, ctx) {
+      ctx.state.ui.usunKorekte = el.dataset.id;
+      ctx.render();
+    },
+    'usun-korekte-nie'(el, ctx) {
+      ctx.state.ui.usunKorekte = null;
+      ctx.render();
+    },
+    /** Cofnięcie ręcznej zmiany kwoty miesiąca (usunięcie wiersza charge_adjustments) – po potwierdzeniu na ekranie. */
+    async 'usun-korekte-tak'(el, ctx) {
+      const s = ctx.state;
+      const x = s.dane.charge_adjustments.find((a) => a.id === el.dataset.id);
+      s.ui.usunKorekte = null;
+      if (!x) return;
+      if (s.podglad || s.offline || s.zKopii) {
+        ctx.toast('Cofnięcie zmiany wymaga połączenia z bazą.');
+        return;
+      }
+      try {
+        await ctx.db.usun('charge_adjustments', x.id);
+        s.dane = { ...s.dane, charge_adjustments: s.dane.charge_adjustments.filter((a) => a.id !== x.id) };
+        ctx.scal({});
+        ctx.toast(`Cofnięto zmianę za ${nazwaMiesiaca(x.period_start)} (${formatZl(x.amount_gr)})`);
+        ctx.render();
+      } catch (e) {
+        ctx.toast(e.message);
+      }
+    },
     'zaznacz-wszystkie'(el, ctx) {
       zaznaczWszystkie(el, ctx, true);
     },

@@ -15,6 +15,11 @@
 //  - Z34 należności od data_start; okres zaczęty przed data_start jest w saldzie otwarcia
 //        (decyzja z 9.11.2026), więc pierwsza należność ma termin ≥ data_start;
 //  - 5.1 bez daty końca – okresy do dziś + 24 miesiące (przyszłe służą do rozliczania przedpłat).
+//  - (12.11.2026, migracja 013) stawka „od dnia” (rental_rates.from_day) obowiązuje od swojego dnia, a nie od
+//        następnego okresu: miesiąc, w którym taka stawka się zaczyna, dzieli się na części liczone
+//        proporcjonalnie do dni (stawka × dni ÷ dni miesiąca), każda część zaokrąglona do pełnych 10 zł.
+//        Używa tego promocja (np. start 12.11: 12–30.11 po 100 zł = 60 zł; styczeń 1–12 po 100 zł = 40 zł
+//        + 13–31 po 200 zł = 120 zł). Tylko okresy miesięczne.
 
 import { stawkaNaDzien } from './dane.js';
 import { dodajDni, dodajMiesiace, dniWMiesiacu, iso, parseData, roznicaDni } from './utils.js';
@@ -36,6 +41,23 @@ const dniWlacznie = (a, b) => roznicaDni(a, b) + 1;
 
 /** Zaokrąglenie kwoty w groszach do pełnego złotego (Z7, Z8): 17 649 gr → 17 600 gr, 21 290 gr → 21 300 gr. */
 export const doPelnychZlotych = (gr) => Math.round(gr / 100) * 100;
+
+/** Zaokrąglenie do pełnych 10 zł (części miesiąca przy stawce „od dnia”): 12 258 gr → 12 000 gr, 3 871 gr → 4 000 gr. */
+export const doDziesiatek = (gr) => Math.round(gr / 1000) * 1000;
+
+/**
+ * Części okresu [a, b] przy stawkach „od dnia” (from_day) zaczynających się w tym okresie; null – brak takich stawek.
+ * Stawka części: zwykłe stawki liczą się od początku okresu (Z13), stawki „od dnia” – od swojego dnia.
+ */
+function czesciOkresu(stawki, poczatekOkresu, a, b) {
+  const dzielace = stawki.filter((st) => st.from_day && st.valid_from >= a && st.valid_from <= b);
+  if (!dzielace.length) return null;
+  const starty = [...new Set([a, ...dzielace.map((st) => st.valid_from)])].sort();
+  return starty.map((od, i) => {
+    const obowiazujace = stawki.filter((st) => (st.from_day ? st.valid_from <= od : st.valid_from <= poczatekOkresu));
+    return { od, do: i + 1 < starty.length ? dodajDni(starty[i + 1], -1) : b, stawkaGr: stawkaNaDzien(obowiazujace, od) };
+  });
+}
 
 /**
  * Pierwszy dzień płatności nie wcześniejszy niż `data` (Z5).
@@ -123,9 +145,19 @@ export function naleznosciNajmu(najem, { stawki = [], korekty = [], dataStart, d
       if (najem.last_period !== 'pelny') kwota = doPelnychZlotych((pelnaKwota * dni) / dniOkresu);
     }
 
-    const korekta = korekty
-      .filter((k) => k.period_start >= okres.poczatek && k.period_start <= okres.koniec)
-      .reduce((suma, k) => suma + k.amount_gr, 0);
+    // Stawki „od dnia” (migracja 013): miesiąc dzielony na części, każda do pełnych 10 zł.
+    const doDnia = koniecNajmu && koniecNajmu < okres.koniec && najem.last_period !== 'pelny' ? koniecNajmu : okres.koniec;
+    const czesci = dlugosc === 1 ? czesciOkresu(stawki, okres.poczatek, okres.poczatek, doDnia) : null;
+    if (czesci) {
+      for (const c of czesci) {
+        const dniCzesci = dniWlacznie(c.od, c.do);
+        c.kwotaGr = dniCzesci >= dniOkresu ? (c.stawkaGr ?? 0) : doDziesiatek(((c.stawkaGr ?? 0) * dniCzesci) / dniOkresu);
+      }
+      kwota = czesci.reduce((suma, c) => suma + c.kwotaGr, 0);
+    }
+
+    const korektyOkresu = korekty.filter((k) => k.period_start >= okres.poczatek && k.period_start <= okres.koniec);
+    const korekta = korektyOkresu.reduce((suma, k) => suma + k.amount_gr, 0);
 
     wynik.push({
       najemId: najem.id,
@@ -139,8 +171,10 @@ export function naleznosciNajmu(najem, { stawki = [], korekty = [], dataStart, d
       stawkaGr: stawka,
       bazowaGr: kwota,                              // przed korektami (formularz korekty, 8.6)
       korektaGr: korekta,
+      korektaOpis: korektyOkresu.map((k) => k.reason).filter(Boolean).join('; '),
       kwotaGr: Math.max(0, kwota + korekta),        // wynik nie może być ujemny (5.1)
       brakStawki: stawka == null,
+      czesci,                                       // null albo [{ od, do, stawkaGr, kwotaGr }] (stawki „od dnia”)
     });
   }
   return wynik;

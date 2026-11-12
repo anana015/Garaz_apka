@@ -457,7 +457,8 @@ export default {
   render(s) {
     if (s.ui.parametr === 'ryczalt') return formularzRyczaltu(s);
     if (pelneMiesiaceWplat(s.dane.payments, dzisiaj()) < MIN_PELNYCH_MIESIECY) {
-      return pustyStan('Raporty pojawią się po drugim pełnym miesiącu wpłat.', [{ tekst: 'Koszty', href: '#/koszty', drugi: true }]);
+      return pustyStan('Raporty pojawią się po drugim pełnym miesiącu wpłat.', [{ tekst: 'Koszty', href: '#/koszty', drugi: true },
+        { tekst: 'Promocje i podwyżki', href: '#/stawki', drugi: true }]);
     }
     const okres = s.ui.filtry.raporty ?? 'miesiac';
     const z = zakresOkresu(okres, s.ui.miesiac, dzisiaj());
@@ -465,7 +466,8 @@ export default {
     const karta = (id, tytul, tresc, klasa = '') => `<section class="karta${klasa ? ` ${klasa}` : ''}" aria-labelledby="r-${id}">
       <h2 id="r-${id}">${tytul}</h2>${tresc}</section>`;
     return `
-      <div class="pasek-akcji"><a class="przycisk drugi" href="#/koszty">Koszty</a></div>
+      <div class="pasek-akcji"><a class="przycisk drugi" href="#/koszty">Koszty</a>
+        <a class="przycisk drugi" href="#/stawki">Promocje i podwyżki</a></div>
       ${filtry(OKRESY, okres, 'Okres raportu')}
       ${okres !== '12m' ? wyborMiesiaca(s) : ''}
       ${z.tytul ? `<p class="podpowiedz">${esc(z.tytul)}: ${formatData(z.od)} – ${formatData(z.do)}</p>` : ''}

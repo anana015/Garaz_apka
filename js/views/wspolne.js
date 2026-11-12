@@ -7,11 +7,41 @@ import { daneGrupy, GRUPY_RYCZALTU, NAGLOWEK_CSV, wierszeCsv, zestawienieRoku } 
 import { rozliczenia } from '../rozliczenia.js';
 import { pobierzPlik } from '../ui.js';
 import {
-  esc, dzisiaj, kluczMiesiaca, zakresMiesiecy, etykietaMiesiaca, formatData, formatProcentBp, formatZl, MIESIACE_KROTKO,
+  esc, dzisiaj, kluczMiesiaca, zakresMiesiecy, etykietaMiesiaca, formatData, formatProcentBp, formatZl, MIESIACE, MIESIACE_KROTKO,
 } from '../utils.js';
 
 /** Ustawienia z bazy albo domyślne (tryb podglądu, pierwsze uruchomienie). */
 export const ustawienia = (s) => ({ ...DOMYSLNE_USTAWIENIA, ...(s.dane.settings ?? {}) });
+
+/** „listopad 2026” z daty RRRR-MM-DD. */
+export const nazwaMiesiaca = (data) => `${MIESIACE[Number(data.slice(5, 7)) - 1]} ${data.slice(0, 4)}`;
+
+/**
+ * Szczegóły należności miesiąca (okresy.naleznosciNajmu): części przy stawkach „od dnia” – „1–12.01 po 100 zł: 40 zł
+ * + 13–31.01 po 200 zł: 120 zł”, niepełny okres – „12.11–30.11”, pełny – ''.
+ */
+export function szczegolyNaleznosci(n) {
+  const dm = (d) => `${d.slice(8, 10)}.${d.slice(5, 7)}`;
+  const zl = (gr) => formatZl(gr ?? 0, { grosze: false });
+  if (n.czesci?.length) return n.czesci.map((c) => `${dm(c.od)}–${dm(c.do)} po ${zl(c.stawkaGr)}: ${zl(c.kwotaGr)}`).join(' + ');
+  return n.rodzaj && n.rodzaj !== 'pelny' ? `${dm(n.poczatek)}–${dm(n.koniec)}` : '';
+}
+
+/**
+ * Lista kwot w miesiącach (podgląd promocji, „Kwoty w miesiącach” przy najmie).
+ * link(n) – opcjonalny adres „zmień” dla miesiąca.
+ */
+export function listaMiesiecy(naleznosci, { link = null } = {}) {
+  return `<ul class="harmonogram">${naleznosci.map((n) => {
+    const szczegoly = szczegolyNaleznosci(n);
+    const korekta = n.korektaGr ? `zmieniono o ${n.korektaGr > 0 ? '+' : ''}${formatZl(n.korektaGr, { grosze: false })}${
+      n.korektaOpis ? `: ${n.korektaOpis}` : ''}` : '';
+    const dopisek = [szczegoly, korekta].filter(Boolean).join(' · ');
+    const href = link?.(n);
+    return `<li><span>${esc(nazwaMiesiaca(n.poczatek))}${dopisek ? ` <span class="wyciszony">(${esc(dopisek)})</span>` : ''}</span>
+      <span class="kwota">${formatZl(n.kwotaGr)}${href ? ` <a class="maly" href="${esc(href)}">zmień</a>` : ''}</span></li>`;
+  }).join('')}</ul>`;
+}
 
 /** Poziomy wybór miesiąca od daty startu danych do bieżącego miesiąca (8.1). */
 export function wyborMiesiaca(s) {

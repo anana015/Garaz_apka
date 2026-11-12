@@ -5,23 +5,106 @@ import { readFile, readdir } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 import { btree_gist } from '@electric-sql/pglite/contrib/btree_gist';
 import {
-  DOMYSLNE_PROMOCJE, czytajWarunki, listaPromocji, nowaPozycja, planPromocji, stawkaPromocyjna, wierszeStawek,
+  DOMYSLNE_PROMOCJE, czytajWarunki, harmonogramPromocji, listaPromocji, nowaPozycja, planPromocji, podwyzkiNajmu,
+  promocjaNajmu, promocjeNajmu, stawkaPromocyjna, wierszeStawek, zestawienieStawek,
 } from '../js/promocje.js';
-import { dodajDni } from '../js/utils.js';
+import { pierwszyOkresOd } from '../js/okresy.js';
+import { dodajDni, dodajMiesiace } from '../js/utils.js';
+
+/** Reguła końca promocji z 0.13.0 – nadal w jednorazowym SQL (najmy sprzed 0.19.0). */
+const koniecStarejReguly = (n, okresy) => {
+  const poczatek = pierwszyOkresOd(n, n.start_on);
+  return pierwszyOkresOd(n, dodajDni(dodajMiesiace(poczatek, okresy * (n.period_months ?? 1)), -15));
+};
 
 const najem = (start_on, billing_day = 20, period_months = 1, end_on = null) =>
   ({ id: 'n', start_on, end_on, billing_day, period_months });
 
-test('plan promocji: N miesięcy od startu zaokrąglone do 1. dnia miesiąca (okresy kalendarzowe)', () => {
-  assert.deepEqual(planPromocji(najem('2026-09-05'), { normalnaGr: 20000, rabat: 50, okresy: 2 }),
-    { poczatek: '2026-09-05', koniec: '2026-11-01', promocyjnaGr: 10000 });
-  assert.equal(planPromocji(najem('2026-09-01'), { normalnaGr: 20000, rabat: 50, okresy: 2 }).koniec, '2026-11-01');
-  assert.equal(planPromocji(najem('2026-09-20'), { normalnaGr: 20000, rabat: 50, okresy: 2 }).koniec, '2026-12-01');
-  assert.equal(planPromocji(najem('2026-09-05'), { normalnaGr: 18000, rabat: 50, okresy: 1 }).koniec, '2026-10-01');
-  // najem kończy się w trakcie promocji → bez stawki „koniec promocji”
-  const p = planPromocji(najem('2026-09-05', 20, 1, '2026-10-31'), { normalnaGr: 20000, rabat: 50, okresy: 2 });
+const P = { normalnaGr: 20000, rabat: 50, okresy: 2 };
+const miesiace = (n, plan) => harmonogramPromocji(n, { plan, normalnaGr: 20000 }).map((m) => [m.poczatek.slice(0, 7), m.kwotaGr / 100]);
+
+test('promocja 12.11: start 11.–22. – do 12.01 po 100 zł, od 13.01 po 200 zł (przykład z 12.11.2026)', () => {
+  const n = najem('2026-11-12');
+  const plan = planPromocji(n, P);
+  assert.equal(plan.wariant, 'srodek-miesiaca');
+  assert.deepEqual([plan.poczatek, plan.promocjaOd, plan.koniec, plan.gratisDo], ['2026-11-12', '2026-11-12', '2027-01-13', null]);
+  assert.deepEqual(wierszeStawek('n', plan, 20000, 'Startowa').map((w) => [w.valid_from, w.amount_gr, w.from_day]),
+    [['2026-11-12', 10000, true], ['2027-01-13', 20000, true]]);
+  assert.deepEqual(miesiace(n, plan), [['2026-11', 60], ['2026-12', 100], ['2027-01', 160]],
+    'styczeń: 12/31 × 100 = 38,71 → 40 zł + 19/31 × 200 = 122,58 → 120 zł');
+});
+
+test('promocja: start 1.–10. – ten miesiąc to 1. miesiąc promocji; od 23. – końcówka gratis', () => {
+  const a = planPromocji(najem('2026-11-05'), P);
+  assert.deepEqual([a.wariant, a.poczatek, a.koniec], ['poczatek-miesiaca', '2026-11-05', '2027-01-01']);
+  assert.deepEqual(miesiace(najem('2026-11-05'), a), [['2026-11', 90], ['2026-12', 100], ['2027-01', 200]]);
+  assert.deepEqual(miesiace(najem('2026-11-01'), planPromocji(najem('2026-11-01'), P)),
+    [['2026-11', 100], ['2026-12', 100], ['2027-01', 200]]);
+
+  const b = planPromocji(najem('2026-11-25'), P);
+  assert.deepEqual([b.wariant, b.poczatek, b.gratisDo, b.promocjaOd, b.koniec],
+    ['koniec-miesiaca', '2026-11-25', '2026-11-30', '2026-12-01', '2027-02-01']);
+  assert.deepEqual(wierszeStawek('n', b, 20000, 'Startowa').map((w) => [w.valid_from, w.amount_gr, w.from_day]),
+    [['2026-11-25', 0, true], ['2026-12-01', 10000, false], ['2027-02-01', 20000, false]]);
+  assert.deepEqual(miesiace(najem('2026-11-25'), b), [['2026-11', 0], ['2026-12', 100], ['2027-01', 100], ['2027-02', 200]]);
+
+  // granice przedziałów
+  assert.equal(planPromocji(najem('2026-11-10'), P).wariant, 'poczatek-miesiaca');
+  assert.equal(planPromocji(najem('2026-11-11'), P).wariant, 'srodek-miesiaca');
+  assert.equal(planPromocji(najem('2026-11-22'), P).koniec, '2027-01-23');
+  assert.equal(planPromocji(najem('2026-11-23'), P).wariant, 'koniec-miesiaca');
+  // 1 miesiąc
+  assert.equal(planPromocji(najem('2026-11-12'), { ...P, okresy: 1 }).koniec, '2026-12-13');
+});
+
+test('promocja: od dnia w trwającym najmie, koniec najmu w trakcie, okresy kwartalne (stara reguła)', () => {
+  // trwający najem od 03.03, promocja od 05.11 → cały listopad z rabatem (od 01.11)
+  assert.equal(planPromocji(najem('2026-03-03'), { ...P, od: '2026-11-05' }).poczatek, '2026-11-01');
+  const p = planPromocji(najem('2026-09-12', 20, 1, '2026-10-31'), P);
   assert.equal(p.koniec, null);
   assert.equal(wierszeStawek('n', p, 20000, 'x').length, 1);
+  const k = planPromocji(najem('2026-05-02', 20, 3), P);
+  assert.deepEqual([k.wariant, k.koniec], ['okresy', koniecStarejReguly(najem('2026-05-02', 20, 3), 2)]);
+  assert.equal(wierszeStawek('n', k, 20000, 'x').every((w) => w.from_day === false), true);
+});
+
+test('rozpoznanie promocji i podwyżek w historii stawek', () => {
+  const st = (od, zl, reason, from_day = false) => ({ valid_from: od, amount_gr: zl * 100, reason, from_day });
+  const historia = [st('2024-03-01', 180, 'start'), st('2026-02-01', 200, 'podwyżka 2026'),
+    st('2026-11-25', 0, 'Startowa – końcówka miesiąca gratis', true), st('2026-12-01', 100, 'Startowa'),
+    st('2027-02-01', 200, 'koniec promocji'), st('2027-06-01', 220, 'podwyżka 2027')];
+  const [p] = promocjeNajmu(historia);
+  assert.deepEqual([p.od, p.do, p.nazwa, p.gratisDo, p.promocyjnaGr, p.regularnaGr],
+    ['2026-11-25', '2027-01-31', 'Startowa', '2026-11-30', 10000, 20000]);
+  assert.deepEqual(promocjaNajmu(historia, '2026-11-27'), { od: '2026-11-25', do: '2027-01-31', nazwa: 'Startowa' });
+  assert.equal(promocjaNajmu(historia, '2027-02-01'), null);
+  assert.deepEqual(podwyzkiNajmu(historia).map((x) => [x.od, x.zGr / 100, x.naGr / 100]),
+    [['2026-02-01', 180, 200], ['2027-06-01', 200, 220]]);
+  // starszy zapis: tańsza stawka start i promocja → „start” nie wchodzi do promocji
+  const stary = [st('2025-01-01', 90, 'start'), st('2026-10-05', 100, 'Promocja startowa'), st('2026-12-01', 200, 'koniec promocji')];
+  assert.equal(promocjeNajmu(stary)[0].od, '2026-10-05');
+  assert.deepEqual(podwyzkiNajmu(stary), []);
+});
+
+test('zestawienie: kto korzysta, kto skorzystał, podwyżki i ręczne zmiany kwot', () => {
+  const dane = {
+    rentals: [{ id: 'r1', contract_id: 'c1', unit_id: 'u1', start_on: '2026-11-12', end_on: null },
+      { id: 'r2', contract_id: 'c2', unit_id: 'u2', start_on: '2026-01-05', end_on: null }],
+    rental_rates: [],
+    charge_adjustments: [{ id: 'a1', rental_id: 'r2', period_start: '2026-12-01', amount_gr: -5000, reason: 'obniżka' }],
+  };
+  const stawki = new Map([
+    ['r1', [{ valid_from: '2026-11-12', amount_gr: 10000, reason: 'Startowa' }, { valid_from: '2027-01-13', amount_gr: 20000, reason: 'koniec promocji' }]],
+    ['r2', [{ valid_from: '2026-01-05', amount_gr: 9000, reason: 'Startowa' }, { valid_from: '2026-03-01', amount_gr: 18000, reason: 'koniec promocji' },
+      { valid_from: '2026-07-01', amount_gr: 19000, reason: 'podwyżka' }]],
+  ]);
+  const ix = { umowy: new Map([['c1', { client_id: 'k1' }], ['c2', { client_id: 'k2' }]]),
+    klienci: new Map([['k1', { id: 'k1', name: 'Nowa' }], ['k2', { id: 'k2', name: 'Stara' }]]),
+    jednostki: new Map([['u1', { code: 'B-1' }], ['u2', { code: 'B-2' }]]), stawkiNajmu: stawki };
+  const z = zestawienieStawek(dane, ix, '2026-12-15');
+  assert.deepEqual(z.promocje.map((p) => [p.klient.name, p.status, p.do]), [['Nowa', 'trwa', '2027-01-12'], ['Stara', 'zakonczona', '2026-02-28']]);
+  assert.deepEqual(z.podwyzki.map((p) => [p.klient.name, p.od, p.zGr, p.naGr]), [['Stara', '2026-07-01', 18000, 19000]]);
+  assert.deepEqual(z.zmianyKwot.map((x) => [x.klient.name, x.okres, x.kwotaGr]), [['Stara', '2026-12-01', -5000]]);
 });
 
 test('stawka promocyjna do pełnych złotych, warunki z formularza', () => {
@@ -89,7 +172,7 @@ const stawkiNajmu = async (id) => (await db.query(
   `select to_char(valid_from, 'YYYY-MM-DD') as od, amount_gr / 100 as zl from public.rental_rates
    where rental_id = $1 order by valid_from`, [id])).rows.map((r) => [r.od, Number(r.zl)]);
 
-test('SQL: koniec promocji taki sam jak w aplikacji (planPromocji)', async () => {
+test('SQL: koniec promocji taki sam jak stara reguła z 0.13.0 (najmy sprzed 0.19.0)', async () => {
   const przypadki = [];
   for (let d = '2025-11-03'; d <= '2026-12-31'; d = dodajDni(d, 11)) przypadki.push([d, 20, 1]);
   przypadki.push(['2026-01-31', 31, 1], ['2026-03-15', 31, 1], ['2026-05-02', 20, 3], ['2026-02-28', 30, 1]);
@@ -100,8 +183,7 @@ test('SQL: koniec promocji taki sam jak w aplikacji (planPromocji)', async () =>
     .map((r) => [r.id, r.koniec]));
   assert.ok(wynik.length > 0);
   przypadki.forEach(([start, dzien, okres], i) => {
-    const js = planPromocji(najem(start, dzien, okres), { normalnaGr: 20000, rabat: 50, okresy: 2 });
-    assert.equal(plan.get(ids[i]), js.koniec, `start ${start}, dzień ${dzien}, okres ${okres}`);
+    assert.equal(plan.get(ids[i]), koniecStarejReguly(najem(start, dzien, okres), 2), `start ${start}, dzień ${dzien}, okres ${okres}`);
   });
   // podgląd niczego nie zapisał
   assert.deepEqual(await stawkiNajmu(ids[0]), [[przypadki[0][0], 200]]);

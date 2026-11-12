@@ -151,3 +151,47 @@ test('pomocnicze: pierwszy dzień płatności i zaokrąglenie do złotego', () =
   assert.equal(doPelnychZlotych(21290), 21300);
   assert.equal(doPelnychZlotych(15050), 15100, 'od 50 groszy w górę');
 });
+
+// ---------------------------------------------------------------------
+// Stawki „od dnia” (migracja 013, prośba 12.11.2026): miesiąc dzielony na części, każda do pełnych 10 zł
+// ---------------------------------------------------------------------
+
+const odDnia = (valid_from, zl) => ({ ...stawka(valid_from, zl), from_day: true });
+
+test('stawka od dnia: start 12.11, 100 zł do 12.01, od 13.01 200 zł → 60 / 100 / 40 + 120 / 200', () => {
+  const n = naleznosciNajmu(najem({ start_on: '2026-11-12', billing_day: 20 }), {
+    dataStart: '2026-01-01', dzis: '2026-11-12', horyzontMiesiecy: 4,
+    stawki: [odDnia('2026-11-12', 100), odDnia('2027-01-13', 200)] });
+  assert.deepEqual(n.slice(0, 4).map((x) => x.kwotaGr / 100), [60, 100, 160, 200]);
+  assert.deepEqual(n[2].czesci.map((c) => [c.od, c.do, c.stawkaGr / 100, c.kwotaGr / 100]),
+    [['2027-01-01', '2027-01-12', 100, 40], ['2027-01-13', '2027-01-31', 200, 120]]);
+  assert.equal(n[1].czesci, null, 'grudzień bez podziału');
+  assert.equal(n[2].termin, '2027-01-20');
+});
+
+test('stawka od dnia: 0 zł (gratis) i zwykła stawka od 1. dnia; zwykła stawka w środku miesiąca nadal od następnego', () => {
+  const n = naleznosciNajmu(najem({ start_on: '2026-11-25', billing_day: 20 }), {
+    dataStart: '2026-01-01', dzis: '2026-11-25', horyzontMiesiecy: 4,
+    stawki: [odDnia('2026-11-25', 0), stawka('2026-12-01', 100), stawka('2027-01-15', 200)] });
+  assert.deepEqual(n.slice(0, 3).map((x) => x.kwotaGr / 100), [0, 100, 100]);
+  assert.equal(n[3].kwotaGr, 20000, 'zwykła stawka z 15.01 obowiązuje od lutego (Z13)');
+  assert.equal(n[0].brakStawki, false);
+});
+
+test('stawka od dnia: koniec najmu w dzielonym miesiącu – części do dnia końca', () => {
+  const n = naleznosciNajmu(najem({ start_on: '2026-11-12', end_on: '2027-01-20', billing_day: 20 }), {
+    dataStart: '2026-01-01', dzis: '2026-11-12',
+    stawki: [odDnia('2026-11-12', 100), odDnia('2027-01-13', 200)] });
+  const sty = n.at(-1);
+  assert.equal(sty.rodzaj, 'ostatni-niepelny');
+  assert.deepEqual(sty.czesci.map((c) => c.kwotaGr / 100), [40, 50], '1–12 po 100 zł = 38,71 → 40; 13–20 po 200 zł = 51,61 → 50');
+  assert.equal(sty.kwotaGr, 9000);
+});
+
+test('korekta: powód w należności (korektaOpis)', () => {
+  const n = naleznosciNajmu(najem({ start_on: '2026-10-01' }), { ...OPCJE, stawki: [stawka('2026-10-01', 200)],
+    korekty: [{ rental_id: 'r1', period_start: '2026-11-01', amount_gr: -5000, reason: 'obniżka – remont' }] });
+  const lis = n.find((x) => x.poczatek === '2026-11-01');
+  assert.equal(lis.kwotaGr, 15000);
+  assert.equal(lis.korektaOpis, 'obniżka – remont');
+});

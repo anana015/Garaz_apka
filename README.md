@@ -28,6 +28,7 @@ Otwórz <http://localhost:8080>. Bez konfiguracji Supabase aplikacja działa w *
    | `005_mapowanie_csv.sql` | kolumna `bank_accounts.csv_mapping` – ręczne mapowanie kolumn wyciągu zapamiętane przy koncie | 0.8.0 – bez niej kolumny trzeba wskazywać przy każdym wyciągu |
    | `006_dzien_20_wypowiedzenie_jednostka.sql` | **raz**: wszystkie najmy płatne 20.; `settings.default_billing_day`; wypowiedzenie (`rentals.notice_given_on`, `notice_end_on`); wpłata za jednostkę (`payments.rental_id`) | 0.9.0 – bez niej nie zapiszą się ustawienia, wypowiedzenie ani „Za jednostkę” |
    | `007_promocje.sql` | lista promocji (`settings.promotions`, null = domyślna) | 0.10.0 – bez niej działa lista domyślna, ale nie da się jej zmienić |
+   | `013_promocje_od_dnia.sql` | stawka „od dnia” (`rental_rates.from_day`) dzieląca miesiąc, stawka 0 zł (końcówka miesiąca gratis), `zapisz_pakiet` z `from_day` | 0.19.0 – bez niej promocja ze startem po 10. dniu miesiąca się nie zapisze (komunikat o migracji) |
 3. W **Authentication**:
    - wyłącz zakładanie nowych kont (sign-ups) – aplikacja ma jednego użytkownika,
    - dodaj użytkownika (e-mail i hasło) w zakładce **Users**,

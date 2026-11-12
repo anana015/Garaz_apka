@@ -49,7 +49,7 @@ export function grupaNajmu(s, n, dzien, { tytul = null, otwarta = false } = {}) 
     pozycja({ tekst: 'Zmień stawkę', href: `#/najmy/${id}/stawka`, wartosc: stawka != null ? formatZl(stawka) : '' }),
     pozycja({ tekst: 'Promocja', href: `#/najmy/${id}/promocja`, wartosc: promo?.do ? `do ${formatData(promo.do)}` : '' }),
     pozycja({ tekst: 'Kwota 1. okresu', href: `#/najmy/${id}/korekta?tryb=kwota` }),
-    pozycja({ tekst: 'Korekta należności', href: `#/najmy/${id}/korekta` }),
+    pozycja({ tekst: 'Kwota w wybranym miesiącu', href: `#/najmy/${id}/korekta`, wartosc: 'obniżka, umorzenie, dopłata' }),
     pozycja({ tekst: 'Gdzie płaci', href: `#/najmy/${id}/platnosc`, wartosc: esc(platnosc) }),
     trwa && n.notice_end_on ? pozycja({ tekst: 'Cofnij wypowiedzenie', akcja: 'cofnij-wypowiedzenie', id: n.id,
       wartosc: formatData(n.notice_end_on) }) : null,

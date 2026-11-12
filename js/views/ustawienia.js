@@ -54,10 +54,13 @@ function listaPromocjiKarta(s) {
     : '<p class="wyciszony">Lista jest pusta – w nowym najmie zostaje „Bez promocji” i „Inna…”.</p>';
   return `${html}<div class="pasek-akcji">
       ${przycisk({ tekst: 'Dodaj promocję', href: '#/ustawienia/promocja/nowa', drugi: true, ikona: 'plus' })}
+      ${przycisk({ tekst: 'Kto korzysta z promocji', href: '#/stawki', drugi: true })}
       ${Array.isArray(ustawienia(s).promotions) ? '<button type="button" class="przycisk drugi" data-akcja="domyslne-promocje">Przywróć domyślne</button>' : ''}
     </div>
-    <p class="podpowiedz">Promocja zapisuje się przy najmie jako obniżona stawka na pierwsze okresy i powrót do normalnej stawki.
-      Usunięcie z listy nie zmienia najmów, które już ją mają.</p>`;
+    <p class="podpowiedz">Jak liczymy N miesięcy promocji: start 1.–10. dnia – ten miesiąc to 1. miesiąc promocji;
+      start 11.–22. – rabat do tego samego dnia za N miesięcy, potem normalna stawka proporcjonalnie (części do pełnych 10 zł);
+      start od 23. – końcówka miesiąca gratis, potem N pełnych miesięcy z rabatem. Promocja zapisuje się przy najmie jako
+      stawki w historii. Usunięcie z listy nie zmienia najmów, które już ją mają.</p>`;
 }
 
 /** Zapis listy promocji (null = lista domyślna). Wymaga migracji 007. */
@@ -84,7 +87,7 @@ function formularzNowejPromocji(s) {
         podpowiedz: 'Tak będzie widoczna na liście i w historii stawek, np. „Zniżka na pierwszy miesiąc”.' })}
       <div class="pola-w-rzedzie">
         ${pole(f, { nazwa: 'rabat', etykieta: 'Rabat (%)', wymagane: true, atrybuty: 'inputmode="decimal"' })}
-        ${pole(f, { nazwa: 'okresy', etykieta: 'Ile okresów', wymagane: true, atrybuty: 'inputmode="numeric"',
+        ${pole(f, { nazwa: 'okresy', etykieta: 'Ile miesięcy', wymagane: true, atrybuty: 'inputmode="numeric"',
           podpowiedz: 'Liczone od startu najmu i zaokrąglane do 1. dnia miesiąca (np. 2 mies. od 05.09 → do 31.10).' })}
       </div>`,
   });

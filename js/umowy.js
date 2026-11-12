@@ -126,7 +126,8 @@ export function daneUmowy(s, { klientId, najemIds, dataUmowy, numer, dzis }) {
   for (const n of najmy) {
     const st = stawkiPosortowane(s, n.id);
     if (!st.length) continue;
-    const odStartu = st.filter((x) => x.valid_from <= n.start_on).at(-1) ?? st[0];
+    // Pierwsza płatna stawka (stawka 0 zł = końcówka miesiąca gratis przy promocji od 23. dnia – pomijamy).
+    const odStartu = st.filter((x) => x.valid_from <= n.start_on && x.amount_gr > 0).at(-1) ?? st.find((x) => x.amount_gr > 0) ?? st[0];
     poczatkowaGr += odStartu.amount_gr;
     regularnaGr += st.at(-1).amount_gr;
     const p = promocjaNajmu(st, n.start_on > dzis ? n.start_on : dzis);

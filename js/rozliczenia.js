@@ -150,7 +150,9 @@ export function kartoteka({ pozycje, wplaty, saldoOtwarcia = 0, dataStart, dzis 
   for (const p of pozycje) {
     if (p.otwarcie || p.termin > dzis) continue;
     const okres = `${p.poczatek.slice(8, 10)}.${p.poczatek.slice(5, 7)}–${p.koniec.slice(8, 10)}.${p.koniec.slice(5, 7)}`;
-    wiersze.push({ data: p.termin, kolej: 1, opis: `Należność ${p.kod} za ${okres}`, winienGr: p.kwotaGr, maGr: 0 });
+    const zmiana = p.korektaGr ? ` (zmieniona o ${p.korektaGr > 0 ? '+' : ''}${(p.korektaGr / 100).toFixed(2).replace('.', ',')} zł${
+      p.korektaOpis ? `: ${p.korektaOpis}` : ''})` : '';
+    wiersze.push({ data: p.termin, kolej: 1, opis: `Należność ${p.kod} za ${okres}${zmiana}`, winienGr: p.kwotaGr, maGr: 0 });
   }
   for (const w of wplaty) {
     if (w.booked_on > dzis) continue;

@@ -10,7 +10,7 @@ const A = '00000000-0000-4000-8000-00000000000a';
 const B = '00000000-0000-4000-8000-00000000000b';
 const TABELE = ['units', 'clients', 'contracts', 'rentals', 'rental_rates', 'charge_adjustments',
   'bank_accounts', 'imports', 'payments', 'payers', 'deposits', 'client_notes',
-  'tax_payments', 'settings', 'expenses', 'cost_rules'];
+  'tax_payments', 'settings', 'expenses', 'cost_rules', 'gates', 'gate_access'];
 
 let db;
 
@@ -48,7 +48,7 @@ test('migracje można uruchomić drugi raz bez błędu', async () => {
   assert.equal(rows.length, 3, 'każde ograniczenie raz');
 });
 
-test('schemat ma 16 tabel, każda z RLS i polityką own_rows', async () => {
+test('schemat ma 18 tabel, każda z RLS i polityką own_rows', async () => {
   await db.exec('reset role');
   const { rows } = await db.query(`
     select c.relname as tabela, c.relrowsecurity as rls,
@@ -171,6 +171,27 @@ test('zapisz_pakiet: nowy najem (klient, umowa, najem, stawka, kaucja) w jednej 
   assert.deepEqual(w.payments, []);
 });
 
+test('migracja 013: stawka „od dnia” (from_day) i 0 zł zapisują się w zapisz_pakiet; ujemna nie', async () => {
+  await jako(A);
+  const id = { u: crypto.randomUUID(), k: crypto.randomUUID(), c: crypto.randomUUID(), r: crypto.randomUUID() };
+  const pakiet = {
+    units: [{ id: id.u, code: 'B-13', type: 'box_duzy' }],
+    clients: [{ id: id.k, name: 'Promocja Test' }],
+    contracts: [{ id: id.c, client_id: id.k }],
+    rentals: [{ id: id.r, contract_id: id.c, unit_id: id.u, start_on: '2026-11-25', billing_day: 20 }],
+    rental_rates: [
+      { rental_id: id.r, valid_from: '2026-11-25', amount_gr: 0, reason: 'Promocja – końcówka miesiąca gratis', from_day: true },
+      { rental_id: id.r, valid_from: '2026-12-01', amount_gr: 10000, reason: 'Promocja', from_day: false },
+      { rental_id: id.r, valid_from: '2027-02-01', amount_gr: 20000, reason: 'koniec promocji' },
+    ],
+  };
+  const { rows: [{ w }] } = await db.query('select public.zapisz_pakiet($1) as w', [pakiet]);
+  const wgDaty = Object.fromEntries(w.rental_rates.map((r) => [r.valid_from, [r.amount_gr, r.from_day]]));
+  assert.deepEqual(wgDaty, { '2026-11-25': [0, true], '2026-12-01': [10000, false], '2027-02-01': [20000, false] });
+  await oczekujBledu('insert into rental_rates (rental_id, valid_from, amount_gr) values ($1, $2, -100)',
+    [id.r, '2027-03-01'], /rental_rates_kwota/);
+});
+
 test('zapisz_pakiet: błąd w jednym wierszu cofa cały pakiet (7.5: wszystko albo nic)', async () => {
   await jako(A);
   const unit = (await db.query("select id from units where code = 'B-12'")).rows[0].id;
@@ -224,7 +245,8 @@ test('storage: bucket umowy prywatny, PDF do 10 MB, pliki tylko we własnym fold
   const { rows: [b] } = await db.query("select * from storage.buckets where id = 'umowy'");
   assert.equal(b.public, false);
   assert.equal(Number(b.file_size_limit), 10 * 1024 * 1024);
-  assert.deepEqual(b.allowed_mime_types, ['application/pdf']);
+  assert.deepEqual(b.allowed_mime_types,
+    ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']);   // Word od 011
 
   await jako(A);
   await db.query("insert into storage.objects (bucket_id, name) values ('umowy', $1)", [`${A}/umowa.pdf`]);

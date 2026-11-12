@@ -18,7 +18,8 @@ import { grupa, grupaNajmu, menu, pozycja } from './edycja.js';
 import { akcjeAnulowania } from './edycja.js';
 import { promocjaNajmu } from '../promocje.js';
 import { koniecUmowy } from './jednostki.js';
-import { pokazTerminowosc, rozliczeniaKlientow, ustawienia } from './wspolne.js';
+import { listaMiesiecy, pokazTerminowosc, rozliczeniaKlientow, ustawienia } from './wspolne.js';
+import { naleznosciNajmu } from '../okresy.js';
 import { PROGI_TERMINOWOSCI, bezKaucji } from '../config.js';
 import { doCsv } from '../csv.js';
 import { kartoteka, terminowosc } from '../rozliczenia.js';
@@ -191,6 +192,30 @@ function opis(etykieta, wartosc) {
 
 const OKRES_SLOWNIE = { 1: 'co miesiąc', 3: 'co kwartał', 6: 'co pół roku', 12: 'co rok' };
 
+/**
+ * „Kwoty w miesiącach” (prośba 12.11): należności trwającego najmu od 2 miesięcy wstecz do 6 w przód, z podziałem
+ * miesiąca przy promocji i linkiem „zmień” (ręczna kwota w wybranym miesiącu, np. obniżka).
+ */
+function kwotyWMiesiacach(s, n, stawki, dzien) {
+  if (najemZakonczony(n, dzien)) return '';
+  const u = ustawienia(s);
+  const korekty = s.dane.charge_adjustments.filter((k) => k.rental_id === n.id);
+  let naleznosci;
+  try {
+    naleznosci = naleznosciNajmu(n, { stawki, korekty, dataStart: u.data_start, dzis: dzien, horyzontMiesiecy: 7 });
+  } catch {
+    return '';
+  }
+  const od = dodajMiesiace(`${dzien.slice(0, 7)}-01`, -2);
+  const doDnia = dodajMiesiace(dzien, 6);
+  const widoczne = naleznosci.filter((x) => x.koniec >= od && x.poczatek <= doDnia);
+  if (!widoczne.length) return '';
+  const id = encodeURIComponent(n.id);
+  return `<details class="historia-stawek"><summary>Kwoty w miesiącach</summary>
+    ${listaMiesiecy(widoczne, { link: (x) => `#/najmy/${id}/korekta?okres=${x.poczatek}` })}
+    <p class="podpowiedz">„zmień” – inna kwota tylko w tym miesiącu (np. obniżka). Cofnąć można na tym samym ekranie.</p></details>`;
+}
+
 function wierszNajmu(s, n, dzien) {
   const j = s.indeksy.jednostki.get(n.unit_id);
   const umowa = s.indeksy.umowy.get(n.contract_id);
@@ -228,11 +253,12 @@ function wierszNajmu(s, n, dzien) {
     ${stawki.length > 1 ? `<details class="historia-stawek"><summary>Historia stawek (${stawki.length})</summary>
       <ul>${stawki.map((st) => `<li><span>od ${formatData(st.valid_from)}${st.reason ? ` · ${esc(st.reason)}` : ''}</span>
         <span class="kwota">${formatZl(st.amount_gr)}</span></li>`).join('')}</ul></details>` : ''}
+    ${kwotyWMiesiacach(s, n, stawki, dzien)}
     ${edycja ? `<div class="akcje-wiersza">
       <a href="#/najmy/${id}/stawka">Zmień stawkę</a>
       <a href="#/najmy/${id}/promocja">Promocja</a>
       <a href="#/najmy/${id}/korekta?tryb=kwota">Kwota 1. okresu</a>
-      <a href="#/najmy/${id}/korekta">Korekta należności</a>
+      <a href="#/najmy/${id}/korekta">Kwota w wybranym miesiącu</a>
       <a href="#/najmy/${id}/platnosc">Gdzie płaci</a>
       ${trwa ? `<a href="#/najmy/${id}/koniec">Zakończ najem</a>` : ''}
     </div>` : ''}
