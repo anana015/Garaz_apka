@@ -1,8 +1,8 @@
 // Mapa placu (prośba 11.11): układ rzędów R1–R4 i boxów oraz dopasowanie jednostek po kodzie.
 // Czysta logika bez DOM – rysowanie jest w js/views/jednostki.js.
 //
-// Numeracja z mapki użytkownika: w każdym rzędzie numery rosną od wjazdu (południe) na północ;
-// najpierw prawa strona alejki (od 1), potem lewa (dalsze numery). Kod garażu: G05R1 = garaż 5 w rzędzie 1
+// Numeracja (poprawiona 12.11.2026): w każdym rzędzie numery rosną od wjazdu (południe) na północ.
+// R1: lewa 1–10, prawa 11–20; R2: prawa 1–9, lewa 10–18; R3: lewa 1–9, prawa 10–19; R4: lewa 1–7, prawa 8–13. Kod garażu: G05R1 = garaż 5 w rzędzie 1
 // (K zamiast G – kontener). Boxy: osobna numeracja XL (duże, 4 m²) i XS (małe, 3 m²), kod B01XS / B02XL;
 // bez końcówki XS/XL rozmiar bierzemy z typu jednostki.
 
@@ -19,14 +19,14 @@ const B_SZER = 26;               // box
  * Strony rzędu: „prawa” i „lewa” patrząc od wjazdu w głąb alejki.
  */
 export const KOLUMNY = Object.freeze([
-  { rzad: 1, strona: 'lewa', x: 20, od: 10, ile: 11 },
-  { rzad: 1, strona: 'prawa', x: 84, od: 1, ile: 9 },
+  { rzad: 1, strona: 'lewa', x: 20, od: 1, ile: 10 },
+  { rzad: 1, strona: 'prawa', x: 84, od: 11, ile: 10 },
   { rzad: 2, strona: 'lewa', x: 114, od: 10, ile: 9 },
   { rzad: 2, strona: 'prawa', x: 178, od: 1, ile: 9 },
-  { rzad: 3, strona: 'lewa', x: 208, od: 10, ile: 10 },
-  { rzad: 3, strona: 'prawa', x: 272, od: 1, ile: 9 },
-  { rzad: 4, strona: 'lewa', x: 302, od: 7, ile: 7 },
-  { rzad: 4, strona: 'prawa', x: 366, od: 1, ile: 6 },
+  { rzad: 3, strona: 'lewa', x: 208, od: 1, ile: 9 },
+  { rzad: 3, strona: 'prawa', x: 272, od: 10, ile: 10 },
+  { rzad: 4, strona: 'lewa', x: 302, od: 1, ile: 7 },
+  { rzad: 4, strona: 'prawa', x: 366, od: 8, ile: 6 },
 ]);
 
 /** Alejki między stronami rzędu: środek x (podpis „R1”…). */
