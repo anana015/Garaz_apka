@@ -4,8 +4,8 @@
 // Czyste funkcje (tests/umowy.test.js); JSZip przekazywany z zewnątrz (w przeglądarce db.jszip(), w testach pakiet npm).
 
 import { TYPY_JEDNOSTEK } from './config.js';
-import { promocjaNajmu } from './promocje.js';
-import { formatData, formatRachunek, formatZl } from './utils.js';
+import { promocjaNajmu, promocjeNajmu } from './promocje.js';
+import { dodajMiesiace, formatData, formatRachunek, formatZl, roznicaDni } from './utils.js';
 import { TYPY_DOKUMENTU } from './walidacja.js';
 
 /** Brak danej w umowie: miejsce do wpisania ręcznie. */
@@ -13,11 +13,13 @@ export const PUSTE_MIEJSCE = '……………………';
 
 /** Pola dostępne we wzorach – kolejność jak w podpowiedzi w Ustawieniach. */
 export const POLA_UMOWY = Object.freeze([
+  { klucz: 'dane_wynajmujacego', opis: 'Dane wynajmującego – wybierane przy umowie (Ustawienia → Dane wynajmującego)' },
   { klucz: 'klient', opis: 'Imię i nazwisko albo nazwa firmy' },
   { klucz: 'klient_adres', opis: 'Adres klienta' },
   { klucz: 'klient_telefon', opis: 'Telefon' },
   { klucz: 'klient_email', opis: 'E-mail' },
   { klucz: 'klient_pesel', opis: 'PESEL' },
+  { klucz: 'klient_pesel_nip', opis: 'PESEL (osoba) albo NIP (firma)' },
   { klucz: 'klient_dokument', opis: 'Dokument tożsamości z numerem, np. „dowód osobisty ABC123456”' },
   { klucz: 'klient_dokument_typ', opis: 'Rodzaj dokumentu' },
   { klucz: 'klient_dokument_numer', opis: 'Numer dokumentu' },
@@ -26,25 +28,49 @@ export const POLA_UMOWY = Object.freeze([
   { klucz: 'jednostka', opis: 'Numer jednostki (kilka: „G-03, B-12”)' },
   { klucz: 'jednostka_typ', opis: 'Rodzaj jednostki, np. „garaż”' },
   { klucz: 'jednostka_powierzchnia', opis: 'Powierzchnia, np. „18 m²”' },
-  { klucz: 'stawka', opis: 'Miesięczny czynsz (regularny – po promocji), np. „330,00 zł”' },
+  { klucz: 'stawka', opis: 'Miesięczny czynsz (regularny – po promocji), sama kwota bez „zł”, np. „330” (we wzorze dalej „złotych”)' },
   { klucz: 'stawka_slownie', opis: 'Czynsz słownie' },
-  { klucz: 'stawka_poczatkowa', opis: 'Czynsz od pierwszego miesiąca (z promocją, jeśli jest)' },
+  { klucz: 'stawka_poczatkowa', opis: 'Czynsz od pierwszego miesiąca (z promocją, jeśli jest), sama kwota bez „zł”' },
   { klucz: 'stawka_poczatkowa_slownie', opis: 'Czynsz od pierwszego miesiąca słownie' },
   { klucz: 'promocja_do', opis: 'Ostatni dzień promocji (puste, gdy bez promocji)' },
-  { klucz: 'prad', opis: 'Zapis o prądzie (puste, gdy jednostka bez prądu)' },
+  { klucz: 'promocja', opis: '„, przy czym przez pierwsze dwa miesiące…” – dopisek o promocji na start (puste bez promocji)' },
+  { klucz: 'prad', opis: 'Krótki zapis o prądzie (puste, gdy jednostka bez prądu)' },
+  { klucz: 'klauzula_prad', opis: 'Klauzula o prądzie: cena 1 kWh, rozliczenie kwartalne, stan licznika (puste bez prądu)' },
   { klucz: 'kaucja', opis: 'Kaucja (puste – boxy bez kaucji albo jeszcze nie wpisana)' },
   { klucz: 'kaucja_slownie', opis: 'Kaucja słownie' },
   { klucz: 'data_startu', opis: 'Początek najmu' },
   { klucz: 'umowa_do', opis: 'Koniec umowy albo „czas nieokreślony”' },
-  { klucz: 'okres_wypowiedzenia', opis: 'Okres wypowiedzenia z umowy' },
+  { klucz: 'okres_wypowiedzenia', opis: 'Okres wypowiedzenia w dniach, np. „30” (we wzorze dalej „dni”) – wpisywany przy umowie' },
   { klucz: 'dzien_platnosci', opis: 'Dzień miesiąca płatności, np. „20”' },
   { klucz: 'forma_platnosci', opis: '„przelewem na rachunek …”, „gotówką” albo „na podstawie faktury”' },
   { klucz: 'konto', opis: 'Numer rachunku do wpłat' },
+  { klucz: 'numer_konta', opis: 'Numer rachunku do wpłat (to samo co konto)' },
   { klucz: 'numer_umowy', opis: 'Numer umowy' },
   { klucz: 'data_umowy', opis: 'Data zawarcia umowy' },
   { klucz: 'dzis', opis: 'Dzisiejsza data' },
 ]);
 const ZNANE = new Set(POLA_UMOWY.map((p) => p.klucz));
+/** Pola, w których zostają podziały wierszy (Enter → nowa linia w Wordzie). */
+const WIELOLINIOWE = new Set(['dane_wynajmujacego']);
+/** Pola-dopiski: bez danej zostają puste (bez kropek), np. brak promocji albo jednostka bez prądu. */
+export const POLA_OPCJONALNE = new Set(['promocja', 'klauzula_prad', 'prad', 'promocja_do']);
+
+/** Cena prądu w klauzuli (prośba 12.11.2026). */
+export const CENA_KWH = '1,3 zł brutto (słownie: jeden złoty trzydzieści groszy brutto)';
+const DOPELNIACZ = { garaz: 'garażu', kontener: 'kontenera', box_duzy: 'boxa', box_maly: 'boxa' };
+
+/** Kwota bez „zł”: 20000 → „200”, 20050 → „200,50” (we wzorze dalej „złotych brutto”). */
+const kwotaLiczba = (gr) => formatZl(gr, { grosze: gr % 100 !== 0, waluta: false });
+
+/** Okres wypowiedzenia w dniach z pola umowy: „30” → 30, „1 miesiąc” → 30, „2 miesiące” → 60; inaczej null. */
+export function dniWypowiedzenia(tekst) {
+  const t = String(tekst ?? '').trim().toLowerCase();
+  const m = t.match(/^(\d+)\s*(dni|dzień|d)?\.?$/);
+  if (m) return Number(m[1]);
+  const mies = t.match(/^(\d+)?\s*mies/);
+  if (mies) return 30 * Number(mies[1] ?? 1);
+  return null;
+}
 
 // ---------------------------------------------------------------------
 // Kwota słownie
@@ -112,7 +138,7 @@ const stawkiPosortowane = (s, najemId) => [...(s.indeksy.stawkiNajmu.get(najemId
  * @param {{ klientId: string, najemIds: string[], dataUmowy?: string, numer?: string, dzis: string }} o
  * @returns {Record<string, string>} puste pole = brak danej (w dokumencie: PUSTE_MIEJSCE)
  */
-export function daneUmowy(s, { klientId, najemIds, dataUmowy, numer, dzis }) {
+export function daneUmowy(s, { klientId, najemIds, dataUmowy, numer, dzis, wynajmujacy = '', licznik = '', okresDni = '' }) {
   const k = s.indeksy.klienci.get(klientId) ?? {};
   const najmy = najemIds.map((id) => s.dane.rentals.find((n) => n.id === id)).filter(Boolean)
     .sort((a, b) => (s.indeksy.jednostki.get(a.unit_id)?.code ?? '').localeCompare(s.indeksy.jednostki.get(b.unit_id)?.code ?? '', 'pl', { numeric: true }));
@@ -124,6 +150,7 @@ export function daneUmowy(s, { klientId, najemIds, dataUmowy, numer, dzis }) {
   let poczatkowaGr = 0;
   let regularnaGr = 0;
   const koncePromocji = [];
+  const promocjeStart = [];   // promocja zaczynająca się w pierwszym miesiącu najmu
   for (const n of najmy) {
     const st = stawkiPosortowane(s, n.id);
     if (!st.length) continue;
@@ -133,7 +160,27 @@ export function daneUmowy(s, { klientId, najemIds, dataUmowy, numer, dzis }) {
     regularnaGr += st.at(-1).amount_gr;
     const p = promocjaNajmu(st, n.start_on > dzis ? n.start_on : dzis);
     if (p?.do) koncePromocji.push(p.do);
+    const start = promocjeNajmu(st).find((x) => x.od >= n.start_on && x.od < dodajMiesiace(n.start_on, 1));
+    if (start) promocjeStart.push(start);
   }
+  // „, przy czym przez pierwsze dwa miesiące…” – tekst z prośby 12.11 dla −50% / ok. 2 miesiące, inaczej opis ogólny.
+  let promocja = '';
+  if (promocjeStart.length) {
+    const p = promocjeStart[0];
+    const polowa = p.regularnaGr != null && Math.abs(p.promocyjnaGr * 2 - p.regularnaGr) <= 100;
+    const dni = p.do ? roznicaDni(p.od, p.do) + 1 : null;
+    promocja = polowa && dni != null && dni >= 45 && dni <= 75
+      ? ', przy czym przez pierwsze dwa miesiące najmu czynsz będzie wynosić połowę stawki i będzie on płatny z góry za dwa miesiące'
+      : `, przy czym ${p.do ? `do dnia ${formatData(p.do)}` : 'w okresie promocji'} czynsz będzie wynosić ${kwotaLiczba(p.promocyjnaGr)} złotych brutto`;
+  }
+  const zPradem = jednostki.filter((j) => j.has_power);
+  const licznikTekst = String(licznik ?? '').trim() || '……….';
+  const klauzulaPrad = zPradem.length
+    ? `Prąd będzie rozliczany według zużycia. Cena za 1 kWh to ${CENA_KWH}. Należność za prąd płatna jest raz na kwartał, `
+      + `na koniec kwartału. Stan licznika na dzień wydania ${DOPELNIACZ[zPradem[0].type] ?? 'jednostki'}${
+        zPradem.length > 1 ? ` ${zPradem.map((j) => j.code).join(', ')}` : ''} to: ${licznikTekst} kWh`
+    : '';
+  const dniWyp = String(okresDni ?? '').trim() || (dniWypowiedzenia(umowa?.notice_period) ?? '');
 
   // Kaucja: przyjęcia minus zwroty i zatrzymania w umowie.
   const ruchy = umowa ? s.dane.deposits.filter((d) => d.contract_id === umowa.id) : [];
@@ -157,6 +204,8 @@ export function daneUmowy(s, { klientId, najemIds, dataUmowy, numer, dzis }) {
     klient_telefon: k.phone ?? '',
     klient_email: k.email ?? '',
     klient_pesel: k.pesel ?? '',
+    klient_pesel_nip: k.pesel || k.nip || '',
+    dane_wynajmujacego: String(wynajmujacy ?? '').trim(),
     klient_dokument: k.doc_number ? `${dokumentTyp || 'dokument'} ${k.doc_number}` : '',
     klient_dokument_typ: dokumentTyp,
     klient_dokument_numer: k.doc_number ?? '',
@@ -166,11 +215,13 @@ export function daneUmowy(s, { klientId, najemIds, dataUmowy, numer, dzis }) {
     jednostka_typ: unikalne(jednostki.map((j) => TYPY_JEDNOSTEK[j.type]?.nazwa.toLowerCase())).join(', '),
     jednostka_powierzchnia: powierzchnia.length
       ? `${String(powierzchnia.reduce((x, j) => x + Number(j.area_m2), 0)).replace('.', ',')} m²` : '',
-    stawka: regularnaGr ? formatZl(regularnaGr) : '',
+    stawka: regularnaGr ? kwotaLiczba(regularnaGr) : '',
     stawka_slownie: regularnaGr ? kwotaSlownie(regularnaGr) : '',
-    stawka_poczatkowa: poczatkowaGr ? formatZl(poczatkowaGr) : '',
+    stawka_poczatkowa: poczatkowaGr ? kwotaLiczba(poczatkowaGr) : '',
     stawka_poczatkowa_slownie: poczatkowaGr ? kwotaSlownie(poczatkowaGr) : '',
     promocja_do: koncePromocji.length ? formatData(koncePromocji.sort().at(-1)) : '',
+    promocja,
+    klauzula_prad: klauzulaPrad,
     prad: jednostki.some((j) => j.has_power)
       ? `${jednostki.length > 1 ? `Jednostki z prądem: ${jednostki.filter((j) => j.has_power).map((j) => j.code).join(', ')}. ` : ''}`
         + 'Rachunki za zużyty prąd rozliczane są raz na kwartał.' : '',
@@ -178,10 +229,11 @@ export function daneUmowy(s, { klientId, najemIds, dataUmowy, numer, dzis }) {
     kaucja_slownie: kaucjaGr > 0 ? kwotaSlownie(kaucjaGr) : '',
     data_startu: daty.map(formatData).join(', '),
     umowa_do: umowa ? (umowa.valid_until ? formatData(umowa.valid_until) : 'czas nieokreślony') : '',
-    okres_wypowiedzenia: umowa?.notice_period ?? '',
+    okres_wypowiedzenia: String(dniWyp),
     dzien_platnosci: unikalne(najmy.map((n) => String(n.billing_day))).join(', '),
     forma_platnosci: formaPlatnosci,
     konto: konto?.iban ? formatRachunek(konto.iban) : '',
+    numer_konta: konto?.iban ? formatRachunek(konto.iban) : '',
     numer_umowy: numer ?? umowa?.number ?? '',
     data_umowy: formatData(dataUmowy || umowa?.signed_on || dzis),
     dzis: formatData(dzis),
@@ -221,7 +273,15 @@ export function wypelnijXml(xml, wartosci) {
     const klucz = m[1].toLowerCase();
     let wartosc;
     if (!ZNANE.has(klucz) && !(klucz in wartosci)) { nieznane.add(m[1]); continue; }
-    if (wartosci[klucz]) { wartosc = escXml(String(wartosci[klucz]).replace(/\s*\n\s*/g, ', ')); uzyte.add(klucz); }
+    if (wartosci[klucz]) {
+      const tekst = String(wartosci[klucz]).replace(/\r/g, '');
+      // Wiele linii: nowa linia w tym samym akapicie (<w:br/>); w pozostałych polach – przecinek.
+      wartosc = WIELOLINIOWE.has(klucz)
+        ? tekst.split(/\s*\n\s*/).map(escXml).join('</w:t><w:br/><w:t xml:space="preserve">')
+        : escXml(tekst.replace(/\s*\n\s*/g, ', '));
+      uzyte.add(klucz);
+    }
+    else if (POLA_OPCJONALNE.has(klucz)) wartosc = '';
     else { wartosc = PUSTE_MIEJSCE; puste.add(klucz); }
     const a = m.index;
     const b = m.index + m[0].length;

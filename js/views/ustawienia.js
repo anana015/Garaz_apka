@@ -3,7 +3,8 @@
 //         #/ustawienia/dane-startowe (import z szablonów CSV, 7.5 – views/startowe.js),
 //         #/ustawienia/kopia (wczytanie kopii zapasowej JSON, rozdz. 10),
 //         #/ustawienia/promocja/nowa (dodanie promocji do listy w nowym najmie),
-//         #/ustawienia/wzor/nowy, #/ustawienia/wzor/<id> (wzory umów do podpisania – views/umowy.js)
+//         #/ustawienia/wzor/nowy, #/ustawienia/wzor/<id> (wzory umów do podpisania – views/umowy.js),
+//         #/ustawienia/wynajmujacy/nowy, #/ustawienia/wynajmujacy/<id> (dane wynajmującego do umów)
 
 import { WERSJA, DNI_PRZYPOMNIENIA_KOPII } from '../config.js';
 import {
@@ -19,7 +20,7 @@ import {
 } from '../utils.js';
 import { BANKI, walidujKonto, walidujUstawienia } from '../walidacja.js';
 import startowe from './startowe.js';
-import { akcjeWzorow, ekranWzoru, formularzeWzorow, formularzWzoru, kartaWzorow } from './umowy.js';
+import { akcjeWzorow, ekranWzoru, formularzeWzorow, formularzWynajmujacego, formularzWzoru, kartaWzorow } from './umowy.js';
 import { EKSPORTY, pobierzEksport, pokazTerminowosc, ustawienia, ustawTerminowosc } from './wspolne.js';
 
 function sekcjaKarty(id, tytul, tresc, edycja) {
@@ -404,6 +405,7 @@ export default {
     if (parametr === 'kopia') return 'Wczytaj kopię';
     if (parametr === 'promocja') return 'Nowa promocja';
     if (parametr === 'wzor') return akcja === 'nowy' ? 'Nowy wzór umowy' : 'Wzór umowy';
+    if (parametr === 'wynajmujacy') return 'Dane wynajmującego';
     return 'Ustawienia';
   },
 
@@ -416,6 +418,7 @@ export default {
     if (parametr === 'kopia') return ekranKopii(s);
     if (parametr === 'promocja') return formularzNowejPromocji(s);
     if (parametr === 'wzor') return akcja === 'nowy' ? formularzWzoru(s) : ekranWzoru(s);
+    if (parametr === 'wynajmujacy') return formularzWynajmujacego(s);
     if (parametr === 'konto') {
       const konto = akcja === 'nowe' ? null : s.indeksy.konta.get(akcja);
       if (akcja !== 'nowe' && !konto) return pustyStan('Nie znaleziono konta.', [{ tekst: 'Ustawienia', href: '#/ustawienia' }]);

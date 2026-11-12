@@ -5,11 +5,11 @@
 // Pliki wzorów leżą w buckecie „umowy” jako {user_id}/wzory/{id}.docx, lista w settings.contract_templates (migracja 011).
 
 import { najemZakonczony } from '../dane.js';
-import { formularz, maBledy, opcje, plik, pole, stanFormularza, wartosciFormularza, zapisz } from '../formularz.js';
+import { formularz, maBledy, obszar, opcje, plik, pole, stanFormularza, wartosciFormularza, wybor, zapisz } from '../formularz.js';
 import { sciezkaWzoru } from '../kopia.js';
 import { pobierzPlik, przycisk, pustyStan } from '../ui.js';
 import {
-  daneUmowy, nazwaPlikuUmowy, POLA_UMOWY, polaWzoru, PUSTE_MIEJSCE, wypelnijDocx,
+  daneUmowy, dniWypowiedzenia, nazwaPlikuUmowy, POLA_OPCJONALNE, POLA_UMOWY, polaWzoru, PUSTE_MIEJSCE, wypelnijDocx,
 } from '../umowy.js';
 import { dzisiaj, esc, formatData, noweId, odmiana } from '../utils.js';
 import { ustawienia } from './wspolne.js';
@@ -18,6 +18,12 @@ const MAX_WZORU = 10 * 1024 * 1024;
 export const wzoryUmow = (s) => (Array.isArray(ustawienia(s).contract_templates) ? ustawienia(s).contract_templates : []);
 
 const bezPolaczenia = (s) => s.podglad || s.offline || s.zKopii || !s.uzytkownik;
+
+/** Dane wynajmującego (settings.landlords, migracja 015): [{ id, nazwa, dane }]. */
+export const wynajmujacy = (s) => (Array.isArray(ustawienia(s).landlords) ? ustawienia(s).landlords : []);
+const KLUCZ_WYNAJMUJACEGO = 'najem.umowa.wynajmujacy';
+const ostatniWynajmujacy = () => { try { return localStorage.getItem(KLUCZ_WYNAJMUJACEGO) ?? ''; } catch { return ''; } };
+const zapamietajWynajmujacego = (id) => { try { localStorage.setItem(KLUCZ_WYNAJMUJACEGO, id); } catch { /* bez pamięci */ } };
 
 /** Lista pól do wstawienia we wzorze – w Ustawieniach i przy dodawaniu wzoru. */
 export function listaPol() {
@@ -41,9 +47,80 @@ export function kartaWzorow(s) {
           <span>${esc(w.plik ?? '')}${w.pola ? ` · ${odmiana(w.pola.length, ['pole', 'pola', 'pól'])}` : ''}${w.wgrano ? ` · wgrano ${formatData(w.wgrano.slice(0, 10))}` : ''}</span></div>
       </a></li>`).join('')}</ul>`
     : '<p class="wyciszony">Brak wzorów. Dodaj wzór umowy w Wordzie (.docx) z polami, np. {{klient}}, {{stawka}}.</p>';
+  const wyn = wynajmujacy(s);
   return `${lista}
     <div class="pasek-akcji">${przycisk({ tekst: 'Dodaj wzór', href: '#/ustawienia/wzor/nowy', drugi: true, ikona: 'plus' })}</div>
+    <h3 class="maly">Dane wynajmującego (pole {{dane_wynajmujacego}})</h3>
+    ${wyn.length ? `<ul class="lista">${wyn.map((x) => `<li><a class="wiersz" href="#/ustawienia/wynajmujacy/${encodeURIComponent(x.id)}">
+        <div class="glowna"><strong>${esc(x.nazwa)}</strong><span>${esc(String(x.dane ?? '').split('\n')[0])}</span></div></a></li>`).join('')}</ul>`
+    : '<p class="wyciszony">Brak. Dodaj wersje danych wynajmującego – przy umowie wybierzesz jedną z nich.</p>'}
+    <div class="pasek-akcji">${przycisk({ tekst: 'Dodaj dane wynajmującego', href: '#/ustawienia/wynajmujacy/nowy', drugi: true, ikona: 'plus' })}</div>
     ${listaPol()}`;
+}
+
+/** #/ustawienia/wynajmujacy/nowy | <id> – nazwa do wyboru i pełne dane (kilka linii). */
+export function formularzWynajmujacego(s) {
+  const x = wynajmujacy(s).find((w) => w.id === s.ui.akcja) ?? null;
+  if (s.ui.akcja !== 'nowy' && !x) return pustyStan('Nie znaleziono danych wynajmującego.', [{ tekst: 'Ustawienia', href: '#/ustawienia' }]);
+  const f = stanFormularza(s, `ustawienia/wynajmujacy/${s.ui.akcja}`, () => ({ nazwa: x?.nazwa ?? '', dane: x?.dane ?? '' }));
+  return `${formularz(f, {
+    nazwa: 'wynajmujacy',
+    przycisk: x ? 'Zapisz' : 'Dodaj',
+    anuluj: '#/ustawienia',
+    tresc: `${pole(f, { nazwa: 'nazwa', etykieta: 'Nazwa do wyboru', wymagane: true, atrybuty: 'maxlength="40"',
+      podpowiedz: 'Krótko, np. „Wynajmujący 1”, „Firma”, „Wspólnie”. Widać ją tylko w aplikacji.' })}
+      ${obszar(f, { nazwa: 'dane', etykieta: 'Dane do umowy', wymagane: true, wiersze: 6, maks: 1000,
+    podpowiedz: 'Dokładnie tak, jak mają być w umowie – imię i nazwisko / firma, adres, PESEL / NIP itd. Każda linia = nowa linia w umowie.' })}`,
+  })}
+  ${x ? `<section class="karta"><div class="pasek-akcji">${f.potwierdzUsuniecie
+    ? `<span class="potwierdzenie">Usunąć „${esc(x.nazwa)}”?
+        <button type="button" class="przycisk" data-akcja="usun-wynajmujacego-tak" data-id="${esc(x.id)}">Usuń</button>
+        <button type="button" class="link-btn" data-akcja="usun-wzor-nie">Anuluj</button></span>`
+    : '<button type="button" class="link-btn" data-akcja="usun-wzor">Usuń</button>'}</div></section>` : ''}`;
+}
+
+async function zapiszListeWynajmujacych(ctx, lista) {
+  const s = ctx.state;
+  try {
+    ctx.scal({ settings: await ctx.db.zapiszUstawienia(s.uzytkownik.id, { landlords: lista }) });
+  } catch (e) {
+    throw /landlords/.test(e.message)
+      ? new Error('W bazie brakuje miejsca na dane wynajmującego. Uruchom w Supabase plik supabase/migracje/015_wynajmujacy.sql.') : e;
+  }
+}
+
+async function zapiszWynajmujacego(form, ctx) {
+  const s = ctx.state;
+  const w = wartosciFormularza(form);
+  const nazwa = String(w.nazwa ?? '').trim();
+  const dane = String(w.dane ?? '').replace(/\r/g, '').trim();
+  const id = s.ui.akcja === 'nowy' ? null : s.ui.akcja;
+  const bledy = {};
+  if (!nazwa) bledy.nazwa = 'Podaj nazwę.';
+  else if (wynajmujacy(s).some((x) => x.id !== id && x.nazwa.toLowerCase() === nazwa.toLowerCase())) bledy.nazwa = 'Ta nazwa już jest.';
+  if (!dane) bledy.dane = 'Wpisz dane wynajmującego.';
+  if (maBledy(ctx, w, bledy)) return;
+  await zapisz(ctx, async () => {
+    const lista = id ? wynajmujacy(s).map((x) => (x.id === id ? { ...x, nazwa, dane } : x))
+      : [...wynajmujacy(s), { id: noweId(), nazwa, dane }];
+    await zapiszListeWynajmujacych(ctx, lista);
+    ctx.toast(id ? `Zapisano „${nazwa}”` : `Dodano „${nazwa}”`);
+    ctx.nawiguj('ustawienia');
+  });
+}
+
+async function usunWynajmujacego(el, ctx) {
+  const s = ctx.state;
+  const x = wynajmujacy(s).find((w) => w.id === el.dataset.id);
+  if (!x) return;
+  if (bezPolaczenia(s)) { ctx.toast('Usuwanie wymaga połączenia z bazą.'); return; }
+  try {
+    await zapiszListeWynajmujacych(ctx, wynajmujacy(s).filter((w) => w.id !== x.id));
+    ctx.toast(`Usunięto „${x.nazwa}”`);
+    ctx.nawiguj('ustawienia');
+  } catch (e) {
+    ctx.toast(e.message);
+  }
 }
 
 /** #/ustawienia/wzor/nowy */
@@ -164,8 +241,9 @@ export const akcjeWzorow = {
   'usun-wzor'(_el, ctx) { if (ctx.state.ui.form) { ctx.state.ui.form.potwierdzUsuniecie = true; ctx.render(); } },
   'usun-wzor-nie'(_el, ctx) { if (ctx.state.ui.form) { ctx.state.ui.form.potwierdzUsuniecie = false; ctx.render(); } },
   'usun-wzor-tak': usunWzor,
+  'usun-wynajmujacego-tak': usunWynajmujacego,
 };
-export const formularzeWzorow = { 'wzor-umowy': zapiszWzor };
+export const formularzeWzorow = { 'wzor-umowy': zapiszWzor, wynajmujacy: zapiszWynajmujacego };
 
 // ---------------------------------------------------------------------
 // Karta klienta → Umowa do podpisania
@@ -185,6 +263,12 @@ function domyslneNajmy(najmy, wskazany) {
 
 const lista = (x) => (x == null ? [] : [].concat(x));
 
+/** Opcje daneUmowy z pól formularza umowy. */
+const opcjeDanych = (s, w) => ({
+  dataUmowy: w.data_umowy, numer: w.numer, licznik: w.licznik, okresDni: w.okres_dni,
+  wynajmujacy: wynajmujacy(s).find((x) => x.id === w.wynajmujacy)?.dane ?? '',
+});
+
 /** #/klienci/<id>/umowa */
 export function formularzUmowy(s, klient) {
   const dzis = dzisiaj();
@@ -202,17 +286,22 @@ export function formularzUmowy(s, klient) {
   const f = stanFormularza(s, `klienci/${klient.id}/umowa`, () => {
     const zaznaczone = domyslneNajmy(najmy, s.ui.zapytanie.najem);
     const umowa = s.indeksy.umowy.get(najmy.find((n) => n.id === zaznaczone[0])?.contract_id);
+    const wyn = wynajmujacy(s);
+    const ostatni = ostatniWynajmujacy();
     return { wzor: wzory.length === 1 ? wzory[0].id : '', najmy: zaznaczone,
-      numer: umowa?.number ?? '', data_umowy: umowa?.signed_on ?? dzis };
+      numer: umowa?.number ?? '', data_umowy: umowa?.signed_on ?? dzis,
+      wynajmujacy: wyn.some((x) => x.id === ostatni) ? ostatni : wyn[0]?.id ?? '',
+      okres_dni: String(dniWypowiedzenia(umowa?.notice_period) ?? 30), licznik: '' };
   });
   const zaznaczone = lista(f.wartosci.najmy);
-  const wartosci = daneUmowy(s, { klientId: klient.id, najemIds: zaznaczone, dzis,
-    dataUmowy: f.wartosci.data_umowy, numer: f.wartosci.numer });
+  const wyn = wynajmujacy(s);
+  const wartosci = daneUmowy(s, { ...opcjeDanych(s, f.wartosci), klientId: klient.id, najemIds: zaznaczone, dzis });
+  const zPradem = zaznaczone.some((nid) => s.indeksy.jednostki.get(s.dane.rentals.find((n) => n.id === nid)?.unit_id)?.has_power);
   const wzor = wzory.find((w) => w.id === f.wartosci.wzor);
   // Podgląd: pola z wybranego wzoru (gdy znane), inaczej wszystkie.
   const klucze = wzor?.pola?.length ? wzor.pola : POLA_UMOWY.map((p) => p.klucz);
   const opisPola = new Map(POLA_UMOWY.map((p) => [p.klucz, p.opis]));
-  const brakuje = klucze.filter((k) => opisPola.has(k) && !wartosci[k]);
+  const brakuje = klucze.filter((k) => opisPola.has(k) && !wartosci[k] && !POLA_OPCJONALNE.has(k));
 
   const wierszNajmu = (n) => {
     const j = s.indeksy.jednostki.get(n.unit_id);
@@ -223,7 +312,8 @@ export function formularzUmowy(s, klient) {
   const podglad = `<div class="tabela-przewijana"><table class="tabela"><tbody>${klucze.map((k) => `<tr>
       <td class="mono">{{${esc(k)}}}</td>
       <td>${!opisPola.has(k) ? '<span class="status zalega">nieznane pole – zostanie bez zmian</span>'
-    : wartosci[k] ? esc(wartosci[k]) : `<span class="status czesciowo">brak – ${esc(PUSTE_MIEJSCE)}</span>`}</td></tr>`).join('')}
+    : wartosci[k] ? esc(wartosci[k]) : POLA_OPCJONALNE.has(k) ? '<span class="wyciszony">nie dotyczy – puste</span>'
+      : `<span class="status czesciowo">brak – ${esc(PUSTE_MIEJSCE)}</span>`}</td></tr>`).join('')}
     </tbody></table></div>`;
 
   return `${formularz(f, {
@@ -235,9 +325,18 @@ export function formularzUmowy(s, klient) {
       <fieldset class="pole opcje"><legend>Jednostki w umowie</legend>
         <div class="opcje-lista">${najmy.map(wierszNajmu).join('')}</div>
         ${f.bledy.najmy ? `<p class="blad">${esc(f.bledy.najmy)}</p>` : ''}</fieldset>
+      ${wyn.length ? wybor(f, { nazwa: 'wynajmujacy', etykieta: 'Wynajmujący', odswiez: true,
+    opcje: wyn.map((x) => ({ wartosc: x.id, tekst: x.nazwa })) })
+    : `<p class="baner ostrzezenie"><span>Brak danych wynajmującego – w umowie będą kropki.
+        <a href="#/ustawienia/wynajmujacy/nowy">Dodaj dane wynajmującego</a>.</span></p>`}
       <div class="pola-w-rzedzie">
         ${pole(f, { nazwa: 'numer', etykieta: 'Numer umowy', odswiez: true, atrybuty: 'maxlength="40"' })}
         ${pole(f, { nazwa: 'data_umowy', etykieta: 'Data zawarcia', typ: 'date', odswiez: true })}
+      </div>
+      <div class="pola-w-rzedzie">
+        ${pole(f, { nazwa: 'okres_dni', etykieta: 'Okres wypowiedzenia (dni)', odswiez: true, atrybuty: 'inputmode="numeric" maxlength="4"' })}
+        ${zPradem ? pole(f, { nazwa: 'licznik', etykieta: 'Stan licznika prądu (kWh)', odswiez: true, atrybuty: 'inputmode="decimal" maxlength="12"',
+    podpowiedz: 'Na dzień wydania. Puste = kropki do wpisania ręcznie.' }) : ''}
       </div>
       <h3 class="maly">Dane, które trafią do umowy</h3>
       ${brakuje.length ? `<p class="baner ostrzezenie"><span>Brakuje: ${brakuje.map((k) => esc(opisPola.get(k))).join(', ')}.
@@ -269,7 +368,8 @@ async function pobierzUmowe(form, ctx) {
   ctx.render();
   try {
     const dzis = dzisiaj();
-    const wartosci = daneUmowy(s, { klientId: klient.id, najemIds: najmy, dzis, dataUmowy: w.data_umowy, numer: w.numer });
+    const wartosci = daneUmowy(s, { ...opcjeDanych(s, w), klientId: klient.id, najemIds: najmy, dzis });
+    if (w.wynajmujacy) zapamietajWynajmujacego(w.wynajmujacy);
     const JSZip = await ctx.db.jszip();
     const plikWzoru = await ctx.db.pobierzZMagazynu(sciezkaWzoru(s.uzytkownik.id, wzor.id));
     const wynik = await wypelnijDocx(JSZip, plikWzoru, wartosci);
