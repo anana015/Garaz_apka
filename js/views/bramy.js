@@ -65,8 +65,7 @@ function lista(s) {
       <section class="karta" aria-labelledby="b-sterowniki"><h2 id="b-sterowniki">Sterowniki</h2>
         <dl class="opis-pol">${bramy.map((b) => `<dt>${esc(b.nazwa || `Brama ${b.numer}`)}</dt><dd>
           <span class="mono">${esc(b.sim_phone)}</span><br>${odmiana(aktywne.filter((d) => d.gate_id === b.id).length, ['numer', 'numery', 'numerów'])}
-          · następna pozycja ${wolnaPozycja(b, aktywne) ?? '<span class="status zalega">brak wolnych</span>'}${
-  b.remove_template ? '' : '<br><span class="maly status czesciowo">brak polecenia usuwania</span>'}</dd>`).join('')}</dl>
+          · następna pozycja ${wolnaPozycja(b, aktywne) ?? '<span class="status zalega">brak wolnych</span>'}</dd>`).join('')}</dl>
         <p class="podpowiedz">Numery SIM, hasła i polecenia zmienia się w Supabase (tabela gates). Rzędy R1–R4 → brama 1, boxy → brama 2.</p>
       </section>
       <section class="karta szeroka" aria-labelledby="b-dostep"><h2 id="b-dostep">Z dostępem (${aktywne.length})</h2>
@@ -126,7 +125,7 @@ function ekranKlienta(s) {
     podpowiedz: `Pierwsza wolna od ${brama.first_slot}.` })}
         </div>
         <p class="maly">Polecenie do bramy: <span class="mono">${esc(ukryjHaslo(polecenieDodania(brama, w), brama))}</span></p>
-        <p class="maly">SMS do klienta: ${esc(wiadomoscDlaKlienta(brama, w))}</p>
+        <p class="maly">SMS do klienta:</p><p class="maly" style="white-space:pre-line">${esc(wiadomoscDlaKlienta(brama, w))}</p>
         <p class="podpowiedz">Po zapisie pojawią się dwa przyciski: SMS do bramy i SMS do klienta – w Wiadomościach dotknij „Wyślij”.
           „Był już wpisany wcześniej” zapisuje dostęp bez SMS-ów (pozycję zostaw pustą, jeśli jej nie znasz).</p>`,
     })}`;
@@ -145,11 +144,11 @@ function ekranKlienta(s) {
     uwaga: '',
     tresc: `${!doUsuniecia ? `<p class="baner ostrzezenie"><span>${stan?.usunOd ? `Termin usunięcia to ${formatData(stan.usunOd)}.`
       : 'Klient ma trwający najem za tą bramą.'} Usuń wcześniej tylko wtedy, gdy na pewno trzeba.</span></p>` : ''}
-      ${!brama.remove_template ? `<p class="baner blad"><span>W bazie nie ma polecenia usuwania dla tej bramy. Wpisz je w Supabase
-        (gates.remove_template, z instrukcji sterownika). Możesz zapisać usunięcie teraz, a SMS wysłać ręcznie.</span></p>` : ''}
       ${dostep.slot == null ? pole(f, { nazwa: 'pozycja', etykieta: 'Pozycja w sterowniku (jeśli znasz)', atrybuty: 'inputmode="numeric"',
     podpowiedz: 'Klient był wpisany przed aplikacją – polecenie usuwania może wymagać pozycji.' }) : ''}
-      <p class="podpowiedz">Zapisuje usunięcie i pokazuje przycisk SMS-a z poleceniem usunięcia. Pozycja ${dostep.slot ?? ''} wraca do puli.</p>
+      <p class="maly">Polecenie do bramy: <span class="mono">${esc(ukryjHaslo(polecenieUsuniecia(brama, { telefon: dostep.phone, pozycja: dostep.slot ?? '' }), brama))}</span></p>
+      <p class="podpowiedz">Zapisuje usunięcie i pokazuje przycisk SMS-a z poleceniem usunięcia. Klient nie dostaje SMS-a.
+        Pozycja ${dostep.slot ?? ''} wraca do puli.</p>
       ${ponownie}`,
   })}`;
 }

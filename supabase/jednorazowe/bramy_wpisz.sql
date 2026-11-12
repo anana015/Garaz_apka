@@ -3,9 +3,9 @@
 --
 -- 1. Wpisz swój e-mail logowania (ten sam co w aplikacji).
 -- 2. Zamień XXX na numery kart SIM w sterownikach (9 cyfr albo +48…) i HASLO na hasła sterowników.
--- 3. remove_template: polecenie USUNIĘCIA numeru z instrukcji sterownika. Pola do wstawienia:
---    {haslo}, {telefon} (+48…), {telefon9} (9 cyfr), {pozycja}. Zostaw null, jeśli nie znasz – aplikacja przypomni.
---    Polecenie dodania domyślnie: {haslo}#TEL#{telefon}#{pozycja}#  (zmień add_template, jeśli sterownik chce inaczej).
+-- 3. add_template / remove_template: zostaw null – od 0.22.0 aplikacja używa {haslo}#TEL{telefon9}#{pozycja}#
+--    i {haslo}#DEL{telefon9}#{pozycja}# (pola: {haslo}, {telefon} (+48…), {telefon9} (9 cyfr), {pozycja}).
+--    Wpisz własne tylko, gdy sterownik chce inaczej.
 -- 4. Uruchom. Ponowne uruchomienie poprawia dane (on conflict … do update).
 
 insert into public.gates (user_id, numer, nazwa, sim_phone, password, add_template, remove_template, first_slot)

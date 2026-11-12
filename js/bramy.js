@@ -12,9 +12,12 @@ export function bramaJednostki(j) {
 /** Ile dni po końcu najmu (koniec okresu wypowiedzenia) numer zostaje w bramie. */
 export const DNI_PO_KONCU = 3;
 
-export const DOMYSLNE_POLECENIE_DODANIA = '{haslo}#TEL#{telefon}#{pozycja}#';
-export const DOMYSLNA_WIADOMOSC = 'Dzień dobry! Numer {telefon} ma już dostęp do bramy {brama}. '
-  + 'Aby otworzyć bramę, zadzwoń z tego numeru na {numer_bramy}. Pozdrawiamy';
+// Polecenia sterownika (12.11.2026): numer bez +48 (9 cyfr), np. 1234#TEL600111222#205# i 1234#DEL600111222#205#.
+export const DOMYSLNE_POLECENIE_DODANIA = '{haslo}#TEL{telefon9}#{pozycja}#';
+export const DOMYSLNE_POLECENIE_USUNIECIA = '{haslo}#DEL{telefon9}#{pozycja}#';
+/** SMS do klienta po przypisaniu (przy usunięciu z bramy klient nie dostaje SMS-a). */
+export const DOMYSLNA_WIADOMOSC = 'Dzień dobry,\naby otworzyć bramę przy ul. Nad Drwiną 11A proszę zadzwonić pod numer {numer_bramy}.\n'
+  + 'Pozdrawiam\nJakub Chwaja';
 
 /** „600 100 200”, „+48600100200”, „0048 600-100-200” → „+48600100200”; null, gdy to nie polski numer komórkowy. */
 export function telefonMiedzynarodowy(tekst) {
@@ -36,10 +39,9 @@ export function polecenieDodania(brama, { telefon, pozycja }) {
     { haslo: brama.password ?? '', telefon, telefon9: telefon?.slice(-9), pozycja: pozycja ?? '' });
 }
 
-/** Treść polecenia usunięcia; null, gdy w bazie nie ma szablonu (remove_template). */
+/** Treść polecenia usunięcia (remove_template albo domyślne #DEL). */
 export function polecenieUsuniecia(brama, { telefon, pozycja }) {
-  if (!brama.remove_template) return null;
-  return wypelnij(brama.remove_template,
+  return wypelnij(brama.remove_template || DOMYSLNE_POLECENIE_USUNIECIA,
     { haslo: brama.password ?? '', telefon, telefon9: telefon?.slice(-9), pozycja: pozycja ?? '' });
 }
 
