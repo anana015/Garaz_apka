@@ -243,6 +243,7 @@ function wierszNajmu(s, n, dzien) {
         <span>${formatData(n.start_on)} – ${n.end_on ? formatData(n.end_on) : 'trwa'}</span>
         <span class="zawijaj">${szczegoly}</span>
         ${wypowiedzenie}
+        ${trwa && (n.notice_end_on || n.end_on) ? `<span><a class="maly" href="#/kreator/koniec/${id}">Zakończenie krok po kroku ›</a></span>` : ''}
         <span class="zawijaj">płaci: ${esc(platnosc)}${edycja && trwa && platnosc.endsWith('nieustalone')
     ? ` <a class="maly" href="#/najmy/${id}/platnosc">ustal</a>` : ''}</span>
         ${promo ? `<span class="znacznik promocja">${promo.do ? `promocja do ${formatData(promo.do)}` : 'promocja'}</span>` : ''}
@@ -262,6 +263,7 @@ function wierszNajmu(s, n, dzien) {
       <a href="#/najmy/${id}/korekta">Kwota w wybranym miesiącu</a>
       <a href="#/najmy/${id}/platnosc">Gdzie płaci</a>
       ${trwa ? `<a href="#/najmy/${id}/koniec">Zakończ najem</a>` : ''}
+      ${trwa ? `<a href="#/kreator/koniec/${id}">Zakończenie krok po kroku</a>` : ''}
     </div>` : ''}
   </li>`;
 }

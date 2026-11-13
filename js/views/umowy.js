@@ -4,6 +4,7 @@
 //    pobranie wypełnionego .docx.
 // Pliki wzorów leżą w buckecie „umowy” jako {user_id}/wzory/{id}.docx, lista w settings.contract_templates (migracja 011).
 
+import { biezacyKreator, oznaczKrok } from '../kreator.js';
 import { najemZakonczony } from '../dane.js';
 import { formularz, maBledy, obszar, opcje, plik, pole, stanFormularza, wartosciFormularza, wybor, zapisz } from '../formularz.js';
 import { sciezkaWzoru } from '../kopia.js';
@@ -378,6 +379,9 @@ async function pobierzUmowe(form, ctx) {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     ctx.toast(wynik.puste.length ? `Umowa gotowa – ${wynik.puste.length} pól do wpisania ręcznie` : 'Umowa gotowa do wydruku');
     await zapiszLicznikStartowy(ctx, najmy, w.licznik);
+    // Kreator „Nowy klient”: pobrana umowa odhacza krok „Umowa do podpisania”.
+    const kreator = biezacyKreator();
+    if (kreator?.typ === 'klient' && kreator.najemId && najmy.includes(kreator.najemId)) oznaczKrok(`klient:${kreator.najemId}`, 'umowa');
   } catch (e) {
     f.blad = e.message;
   } finally {

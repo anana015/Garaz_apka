@@ -37,6 +37,7 @@
     <header class="naglowek">
       <a id="wstecz" class="wstecz" href="#/pulpit" hidden></a>
       <h1 id="tytul" tabindex="-1">Pulpit</h1>
+      <a id="przycisk-szukaj" class="ikona-btn" href="#/szukaj" aria-label="Szukaj" title="Szukaj (/)"></a>
       <a id="przycisk-import" class="ikona-btn" href="#/import" aria-label="Import wyciągu" title="Import wyciągu"></a>
       <a id="przycisk-ustawienia" class="ikona-btn" href="#/ustawienia" aria-label="Ustawienia" title="Ustawienia"></a>
     </header>
@@ -44,6 +45,12 @@
     <nav id="zakladki" class="zakladki" aria-label="Główne ekrany"></nav>
 
     <main id="widok" class="widok" tabindex="-1"></main>
+
+    <!-- Szybkie akcje (0.24.0): przycisk „+” nad paskiem zakładek, menu otwierane w górę -->
+    <div id="szybkie" class="szybkie">
+      <ul id="menu-plus" class="menu-plus" hidden aria-label="Szybkie akcje"></ul>
+      <button type="button" id="przycisk-plus" class="przycisk-plus" aria-expanded="false" aria-controls="menu-plus" title="Dodaj"></button>
+    </div>
   </div>
 
   <!-- Komunikaty (12.2): nad paskiem zakładek, ogłaszane przez czytnik ekranu -->

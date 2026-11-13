@@ -1,6 +1,6 @@
 // Zadania: notatki klientów z terminem (client_notes.promised_on). Czyste funkcje.
 
-import { roznicaDni } from './utils.js';
+import { dataZeZnacznika, roznicaDni } from './utils.js';
 
 export const KTO = Object.freeze({ ja: 'Moje', klient: 'Klienta' });
 
@@ -40,4 +40,17 @@ export async function oznaczZadanie(el, ctx) {
     el.disabled = false;
     ctx.toast(e.message);
   }
+}
+
+/** Początek notatki zapisanej po wysłaniu przypomnienia o płatności (karta klienta i lista „Przypomnienia”). */
+export const PREFIKS_PRZYPOMNIENIA = 'Przypomnienie o płatności';
+
+/** Data (RRRR-MM-DD, czas lokalny) ostatniego przypomnienia o płatności dla klienta albo null. */
+export function ostatniePrzypomnienie(notatki, klientId) {
+  let ostatnia = null;
+  for (const n of notatki) {
+    if (n.client_id !== klientId || !n.body?.startsWith(PREFIKS_PRZYPOMNIENIA)) continue;
+    if (!ostatnia || n.created_at > ostatnia) ostatnia = n.created_at;
+  }
+  return ostatnia ? dataZeZnacznika(ostatnia) : null;
 }

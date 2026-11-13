@@ -16,6 +16,7 @@ const SCIEZKI = {
   ustawienia: '<path d="M4 6h9"/><path d="M19 6h1"/><circle cx="16" cy="6" r="2.2"/><path d="M4 12h3"/><path d="M13 12h7"/><circle cx="10" cy="12" r="2.2"/><path d="M4 18h11"/><circle cx="18" cy="18" r="2.2"/>',
   wstecz: '<path d="m15 18-6-6 6-6"/>',
   plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
+  szukaj: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/>',
   wyloguj: '<path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H15"/><path d="m10 16 4-4-4-4"/><path d="M14 12H4"/>',
 };
 

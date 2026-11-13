@@ -22,12 +22,28 @@ import koszty from './views/koszty.js';
 import bramy from './views/bramy.js';
 import stawki from './views/stawki.js';
 import prad from './views/prad.js';
+import szukaj from './views/szukaj.js';
+import przypomnienia from './views/przypomnienia.js';
+import kreator from './views/kreator.js';
+import { biezacyKreator, powrotDoKreatora, ustawKreator } from './kreator.js';
 import logowanie from './views/logowanie.js';
 
 // najmy: formularze najmu (nowy, stawka, koniec, korekta, podwyżka) – bez własnej zakładki.
 const EKRANY = {
   pulpit, wplaty, klienci, zadania: zadaniaWidok, jednostki, raporty, import: importWidok, ustawienia, najmy, koszty, bramy, stawki, prad,
+  szukaj, przypomnienia, kreator,
 };
+
+/** Menu przycisku „+” (0.24.0): najczęstsze czynności z każdego ekranu bez formularza. */
+const SZYBKIE_AKCJE = [
+  { tekst: 'Wpłata', href: '#/wplaty/gotowka' },
+  { tekst: 'Nowy klient – krok po kroku', href: '#/kreator/klient' },
+  { tekst: 'Nowy najem', href: '#/najmy/nowy' },
+  { tekst: 'Koszt', href: '#/koszty/nowy' },
+  { tekst: 'Notatka lub zadanie', href: '#/szukaj?cel=notatka' },
+  { tekst: 'Przypomnienia o płatności', href: '#/przypomnienia' },
+  { tekst: 'Miesięczny przegląd', href: '#/kreator/miesiac' },
+];
 const ZAKLADKI = [
   { id: 'pulpit', tekst: 'Pulpit' },
   { id: 'wplaty', tekst: 'Wpłaty' },
@@ -61,8 +77,19 @@ function czytajAdres() {
   return { ekran, parametr, akcja, zapytanie: Object.fromEntries(new URLSearchParams(zapytanie)) };
 }
 
+/**
+ * Formularz otwarty z kreatora (adres jest jednym z kroków) po zapisie wraca do kreatora zamiast na swój ekran.
+ * Dotyczy tylko zapisu formularza (state.ui.form), nie zwykłych przejść.
+ */
+function zKreatora(sciezka) {
+  if (state.ui.ekran === 'kreator' || !state.ui.form) return sciezka;
+  const k = biezacyKreator();
+  if (!k?.sciezki?.includes(location.hash.split('?')[0])) return sciezka;
+  return powrotDoKreatora(k, sciezka) ?? sciezka;
+}
+
 function nawiguj(sciezka) {
-  const cel = `#/${sciezka}`;
+  const cel = `#/${zKreatora(sciezka)}`;
   if (location.hash === cel) {
     state.ui.form = null;   // ten sam adres nie wywoła hashchange – formularz zaczyna od nowa ręcznie
     render();
@@ -70,6 +97,7 @@ function nawiguj(sciezka) {
 }
 
 function poZmianieAdresu() {
+  menuPlus(false);
   const zmiana = location.hash !== state.ui.adres;
   Object.assign(state.ui, czytajAdres(), { adres: location.hash });
   if (zmiana) {
@@ -79,7 +107,8 @@ function poZmianieAdresu() {
   render();
   if (zmiana) {
     window.scrollTo(0, 0);
-    $('tytul').focus({ preventScroll: true });   // czytnik ekranu ogłasza nowy ekran
+    // Czytnik ekranu ogłasza nowy ekran – chyba że widok sam ustawił fokus w polu (np. wyszukiwarka).
+    if (!document.activeElement?.matches?.('#widok input')) $('tytul').focus({ preventScroll: true });
   }
 }
 
@@ -93,7 +122,10 @@ function zbudujPowloke() {
     + ZAKLADKI.map((z) => `
     <a href="#/${z.id}" data-zakladka="${z.id}">${ikona(z.id)}<span>${z.tekst}</span>
       <span class="licznik" hidden></span></a>`).join('');
+  $('przycisk-szukaj').innerHTML = ikona('szukaj');
   $('przycisk-import').innerHTML = ikona('import');
+  $('menu-plus').innerHTML = SZYBKIE_AKCJE.map((a) => `<li><a href="${a.href}">${esc(a.tekst)}</a></li>`).join('');
+  $('przycisk-plus').innerHTML = `${ikona('plus', 26)}<span class="sr-only">Dodaj</span>`;
   $('przycisk-ustawienia').innerHTML = ikona('ustawienia');
 }
 
@@ -132,8 +164,22 @@ function renderPowloka(widok) {
   document.title = `${tytul} · Najem magazynów`;
 }
 
+/** Menu „+”: otwarte / zamknięte (aria-expanded), fokus na pierwszej pozycji po otwarciu. */
+function menuPlus(otworz) {
+  const btn = $('przycisk-plus');
+  btn.setAttribute('aria-expanded', String(otworz));
+  $('menu-plus').hidden = !otworz;
+  if (otworz) $('menu-plus').querySelector('a')?.focus();
+}
+
 function banery() {
   const b = [];
+  const k = state.ui.ekran !== 'kreator' ? biezacyKreator() : null;
+  if (k) {
+    b.push(`<div class="baner kreator-baner" role="note"><span>Kreator: <strong>${esc(k.nazwa)}</strong></span>
+      <span class="pasek-akcji"><a class="przycisk maly" href="${esc(k.href)}">Wróć do kreatora</a>
+      <button type="button" class="link-btn maly" data-akcja="zakoncz-kreator">Zamknij</button></span></div>`);
+  }
   if (state.podglad) {
     b.push(`<div class="baner ostrzezenie" role="note"><span><strong>Tryb podglądu.</strong>
       Brak konfiguracji Supabase w js/config.js – dane nie są pobierane ani zapisywane.</span></div>`);
@@ -185,6 +231,10 @@ export function render() {
     }
   }
   widok.poRenderze?.(main, state);
+  // Przycisk „+” tylko na ekranach bez formularza (nie zasłania „Zapisz”) i bez podglądu danych z kopii.
+  const formularz = Boolean(main.querySelector('form[data-formularz]'));
+  $('szybkie').hidden = formularz || state.ladowanie;
+  if (formularz) menuPlus(false);
 }
 
 // ---------------------------------------------------------------------
@@ -221,6 +271,12 @@ const AKCJE_WSPOLNE = {
   ponow() {
     wczytajDane();
   },
+  /** Koniec pracy z kreatorem: znika pasek „Wróć do kreatora”; data-href – dokąd przejść. */
+  'zakoncz-kreator'(el) {
+    ustawKreator(null);
+    if (el.dataset.href) location.hash = el.dataset.href;
+    else render();
+  },
   /** „Usuń” przy wybranym pliku w formularzu (formularz.plik). */
   'usun-plik'(el) {
     const f = state.ui.form;
@@ -235,6 +291,12 @@ const AKCJE_WSPOLNE = {
 };
 
 function poKliknieciu(ev) {
+  // Przycisk „+” i jego menu (poza widokiem, więc przed delegacją akcji widoków)
+  if (ev.target.closest('#przycisk-plus')) {
+    menuPlus($('przycisk-plus').getAttribute('aria-expanded') !== 'true');
+    return;
+  }
+  if (!ev.target.closest('#menu-plus')) menuPlus(false);
   // Klik w zakładkę: zamyka szczegóły, czyści filtr i wyszukiwanie, przewija na górę (12.1)
   const zakladka = ev.target.closest('[data-zakladka]');
   if (zakladka) {
@@ -242,6 +304,7 @@ function poKliknieciu(ev) {
     delete state.ui.filtry[id];
     delete state.ui.szukaj[id];
     state.ui.edycja = false;
+    ustawKreator(null);   // przejście na zakładkę kończy pracę z kreatorem
     if (location.hash === `#/${id}`) {
       ev.preventDefault();
       render();
@@ -305,6 +368,22 @@ function poWyslaniu(ev) {
   if (obsluga) {
     ev.preventDefault();
     obsluga(form, ctx, ev);
+  }
+}
+
+/** Esc zamyka menu „+”; „/” poza polem tekstowym otwiera wyszukiwarkę (komputer). */
+function poKlawiszu(ev) {
+  if (ev.key === 'Escape' && $('przycisk-plus').getAttribute('aria-expanded') === 'true') {
+    menuPlus(false);
+    $('przycisk-plus').focus();
+    return;
+  }
+  const t = ev.target;
+  const wPolu = t.closest?.('input, textarea, select, [contenteditable="true"]');
+  if (ev.key === '/' && !wPolu && !ev.ctrlKey && !ev.metaKey && !ev.altKey && state.faza === 'aplikacja') {
+    ev.preventDefault();
+    if (state.ui.ekran === 'szukaj') document.getElementById('szukaj-globalne')?.focus();
+    else nawiguj('szukaj');
   }
 }
 
@@ -376,6 +455,7 @@ async function start() {
   document.addEventListener('input', poWpisaniu);
   document.addEventListener('change', poZmianie);
   document.addEventListener('submit', poWyslaniu);
+  document.addEventListener('keydown', poKlawiszu);
   window.addEventListener('hashchange', poZmianieAdresu);
   window.addEventListener('online', () => {
     state.offline = false;
