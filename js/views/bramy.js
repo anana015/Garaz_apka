@@ -4,6 +4,7 @@
 // Dane sterowników (numer SIM, hasło, szablony poleceń) wpisuje się w Supabase – supabase/jednorazowe/bramy_wpisz.sql.
 
 import {
+  usuwanieWymagaPozycji,
   bramyDoZrobienia, czyIos, DNI_PO_KONCU, linkSms, polecenieDodania, polecenieUsuniecia, stanBramKlienta,
   telefonMiedzynarodowy, wiadomoscDlaKlienta, wolnaPozycja,
 } from '../bramy.js';
@@ -97,7 +98,7 @@ function ekranKlienta(s) {
   const dostep = stan?.dostep ?? null;
   const f = stanFormularza(s, `bramy/${klient.id}/${numer}`, () => ({
     telefon: telefonMiedzynarodowy(klient.phone) ?? klient.phone ?? '',
-    pozycja: String(wolnaPozycja(brama, s.dane.gate_access ?? []) ?? ''),
+    pozycja: dostep ? '' : String(wolnaPozycja(brama, s.dane.gate_access ?? []) ?? ''),   // przy usuwaniu – pozycja klienta, nie wolna
   }));
   const kody = (stan?.najmy ?? []).map((n) => s.indeksy.jednostki.get(n.unit_id)?.code ?? '?');
   const naglowek = `<section class="karta"><dl class="opis-pol">
@@ -144,9 +145,11 @@ function ekranKlienta(s) {
     uwaga: '',
     tresc: `${!doUsuniecia ? `<p class="baner ostrzezenie"><span>${stan?.usunOd ? `Termin usunięcia to ${formatData(stan.usunOd)}.`
       : 'Klient ma trwający najem za tą bramą.'} Usuń wcześniej tylko wtedy, gdy na pewno trzeba.</span></p>` : ''}
-      ${dostep.slot == null ? pole(f, { nazwa: 'pozycja', etykieta: 'Pozycja w sterowniku (jeśli znasz)', atrybuty: 'inputmode="numeric"',
-    podpowiedz: 'Klient był wpisany przed aplikacją – polecenie usuwania może wymagać pozycji.' }) : ''}
-      <p class="maly">Polecenie do bramy: <span class="mono">${esc(ukryjHaslo(polecenieUsuniecia(brama, { telefon: dostep.phone, pozycja: dostep.slot ?? '' }), brama))}</span></p>
+      ${dostep.slot == null ? pole(f, { nazwa: 'pozycja', etykieta: 'Pozycja w sterowniku', atrybuty: 'inputmode="numeric"',
+    wymagane: usuwanieWymagaPozycji(brama), odswiez: true,
+    podpowiedz: 'Klient był wpisany przed aplikacją. Polecenie usuwania czyści pozycję, więc trzeba ją podać – sprawdź w sterowniku albo w pliku z numerami.' }) : ''}
+      <p class="maly">Polecenie do bramy: <span class="mono">${esc(ukryjHaslo(polecenieUsuniecia(brama, {
+    telefon: dostep.phone, pozycja: dostep.slot ?? (/^\d{1,5}$/.test(String(f.wartosci.pozycja ?? '').trim()) ? f.wartosci.pozycja : '[pozycja]') }), brama))}</span></p>
       <p class="podpowiedz">Zapisuje usunięcie i pokazuje przycisk SMS-a z poleceniem usunięcia. Klient nie dostaje SMS-a.
         Pozycja ${dostep.slot ?? ''} wraca do puli.</p>
       ${ponownie}`,
@@ -220,6 +223,8 @@ async function usun(form, ctx) {
   const w = wartosciFormularza(form);
   const pozycja = dostep.slot ?? (String(w.pozycja ?? '').trim() ? Number(w.pozycja) : null);
   if (w.pozycja && !/^\d{1,5}$/.test(String(w.pozycja).trim()) && maBledy(ctx, w, { pozycja: 'Same cyfry.' })) return;
+  if (pozycja == null && usuwanieWymagaPozycji(brama)
+    && maBledy(ctx, w, { pozycja: 'Podaj pozycję – polecenie usuwania (…#TEL#pozycja#) bez niej nie zadziała.' })) return;
   await zapisz(ctx, async () => {
     const dzis = dzisiaj();
     const zapisany = await ctx.db.zmien('gate_access', dostep.id, {

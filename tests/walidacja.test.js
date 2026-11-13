@@ -213,7 +213,7 @@ test('korekta „ustaw kwotę należności”: różnica do obecnej kwoty, domy�
   const { bledy, wiersz } = walidujKorekte({ tryb: 'kwota', period_start: '2026-04-01', nowa_kwota: '120' }, { najem, naleznosci });
   assert.deepEqual(bledy, {});
   assert.equal(wiersz.amount_gr, 12000 - okres.kwotaGr);
-  assert.equal(wiersz.reason, 'Ręczna kwota okresu');
+  assert.equal(wiersz.reason, 'Ręczna zmiana kwoty');
   assert.ok(walidujKorekte({ tryb: 'kwota', period_start: '2026-04-01', nowa_kwota: String(okres.kwotaGr / 100) },
     { najem, naleznosci }).bledy.nowa_kwota);
   assert.ok(walidujKorekte({ tryb: 'kwota', period_start: '2026-04-01', nowa_kwota: '-5' }, { najem, naleznosci }).bledy.nowa_kwota);

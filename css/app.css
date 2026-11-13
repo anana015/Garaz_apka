@@ -782,3 +782,17 @@ details.grupa > .jednostki { padding-bottom: 12px; }
 .krok h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 4px 0 2px; }
 .krok .pasek-akcji { margin: 6px 0 0; }
 .krok .przycisk.maly { min-height: 40px; }
+
+/* ---------- 0.25.0: rozbicie salda, cofnij ---------- */
+.tabela .liczba { text-align: right; white-space: nowrap; }
+.rozbicie-salda th { color: var(--fg); font-weight: 400; }
+.rozbicie-salda tr.pod th, .rozbicie-salda tr.pod td { color: var(--muted); font-size: .85rem; border-bottom-style: dashed; }
+.rozbicie-salda .wciecie { padding-left: 16px; display: inline-block; }
+.rozbicie-salda tfoot th, .rozbicie-salda tfoot td { font-weight: 700; border-top: 2px solid var(--line-strong); border-bottom: 0; }
+.toast.z-akcja { pointer-events: auto; display: flex; align-items: center; gap: 14px; padding-right: 8px; }
+.toast-akcja {
+  min-height: 40px; padding: 0 14px; border: 0; border-radius: 8px; cursor: pointer;
+  background: transparent; color: var(--toast-fg); font: inherit; font-weight: 700; text-decoration: underline;
+}
+.toast-akcja:hover, .toast-akcja:focus-visible { background: rgb(255 255 255 / .12); }
+.tabela .status { white-space: nowrap; }

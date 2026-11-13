@@ -82,16 +82,9 @@ function formularzKosztu(s, e) {
   const f = stanFormularza(s, `koszty/${s.ui.parametr}`, () => (e
     ? { spent_on: e.spent_on, amount_gr: kwotaDoPola(e.amount_gr), category: e.category, unit_id: e.unit_id ?? '', note: e.note ?? '' }
     : { spent_on: dzisiaj(), category: '', unit_id: '' }));
-  const usun = !e ? '' : !f.potwierdzUsuniecie
-    ? '<p><button type="button" class="link-btn" data-akcja="usun-koszt">Usuń ten koszt</button></p>'
-    : `<section class="karta" role="alert" aria-labelledby="usun-koszt-tytul">
-      <h2 id="usun-koszt-tytul">Usunąć koszt?</h2>
-      <p><span class="kwota">${formatZl(e.amount_gr)}</span> z ${formatData(e.spent_on)}.${e.source === 'import'
-    ? ' Wypływ z wyciągu wróci przy ponownym imporcie tego pliku – zamiast usuwać, możesz oznaczyć go jako „Pominięty”.' : ''}</p>
-      <div class="pasek-akcji">
-        <button type="button" class="przycisk" data-akcja="usun-koszt-tak"${f.trwa ? ' disabled' : ''}>Usuń</button>
-        <button type="button" class="przycisk drugi" data-akcja="usun-koszt-nie">Nie usuwaj</button>
-      </div></section>`;
+  // Usunięcie od razu, z „Cofnij” w komunikacie (0.25.0).
+  const usun = !e ? '' : `<p><button type="button" class="link-btn" data-akcja="usun-koszt-tak">Usuń ten koszt</button>${e.source === 'import'
+    ? '<br><span class="podpowiedz">Wypływ z wyciągu wróci przy ponownym imporcie tego pliku – zamiast usuwać, możesz oznaczyć go jako „Pominięty”.</span>' : ''}</p>`;
   const zWyciagu = e?.source === 'import' ? `<section class="karta"><dl class="opis-pol">
       <dt>Z wyciągu</dt><dd>${esc(s.indeksy.konta.get(e.bank_account_id)?.name ?? '—')}</dd>
       ${e.counterparty ? `<dt>Odbiorca</dt><dd>${esc(e.counterparty)}</dd>` : ''}
@@ -190,15 +183,6 @@ export default {
       ctx.state.ui.kategoriaKosztow = el.dataset.wartosc;
       ctx.render();
     },
-    'usun-koszt'(_el, ctx) {
-      if (!ctx.state.ui.form) return;
-      ctx.state.ui.form.potwierdzUsuniecie = true;
-      ctx.render();
-    },
-    'usun-koszt-nie'(_el, ctx) {
-      if (ctx.state.ui.form) ctx.state.ui.form.potwierdzUsuniecie = false;
-      ctx.render();
-    },
     async 'usun-koszt-tak'(_el, ctx) {
       const s = ctx.state;
       const e = s.dane.expenses.find((x) => x.id === s.ui.parametr);
@@ -207,7 +191,7 @@ export default {
         await ctx.db.usun('expenses', e.id);
         s.dane = { ...s.dane, expenses: s.dane.expenses.filter((x) => x.id !== e.id) };
         ctx.scal({});
-        ctx.toast(`Usunięto koszt ${formatZl(e.amount_gr)}`);
+        ctx.cofnij(`Usunięto koszt ${formatZl(e.amount_gr)}`, [{ tabela: 'expenses', wiersz: e }]);
         ctx.nawiguj('koszty');
       });
     },

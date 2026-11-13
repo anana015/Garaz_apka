@@ -101,14 +101,12 @@ function render(s) {
     <section class="karta"><h2>Ostatnie odczyty</h2>
       ${historia.length ? `<ul class="lista">${historia.map((o) => {
     const j = s.indeksy.jednostki.get(o.unit_id);
-    const pytanie = s.ui.usunOdczyt === o.id;
     const mozna = ostatnieJednostek.has(o);
     return `<li><div class="wiersz"><div class="glowna"><strong><span class="mono">${esc(j?.code ?? '?')}</span> · ${formatData(o.read_on)}</strong>
         <span>${formatKwh(o.kwh)} kWh${o.amount_gr != null ? ` · doliczono ${formatZl(o.amount_gr)}` : ' · odczyt początkowy'}</span>
-        ${pytanie ? `<span>Usunąć odczyt${o.adjustment_id ? ' i doliczoną kwotę' : ''}?
-          <button type="button" class="link-btn" data-akcja="usun-odczyt-tak" data-id="${esc(o.id)}">Tak, usuń</button> ·
-          <button type="button" class="link-btn" data-akcja="usun-odczyt-nie">Nie</button></span>` : ''}</div>
-      <div class="prawa">${mozna && !pytanie ? `<button type="button" class="link-btn maly" data-akcja="usun-odczyt" data-id="${esc(o.id)}">usuń</button>` : ''}</div>
+        </div>
+      <div class="prawa">${mozna ? `<button type="button" class="link-btn maly" data-akcja="usun-odczyt-tak" data-id="${esc(o.id)}"
+        aria-label="Usuń odczyt ${esc(j?.code ?? '')}${o.adjustment_id ? ' i doliczoną kwotę' : ''}">usuń</button>` : ''}</div>
       </div></li>`;
   }).join('')}</ul>
       <p class="podpowiedz">Usunąć można ostatni odczyt jednostki (np. pomyłka) – razem z doliczoną kwotą.</p>`
@@ -176,8 +174,8 @@ async function zapiszOdczyty(form, ctx) {
 async function usunOdczyt(el, ctx) {
   const s = ctx.state;
   const o = (s.dane.power_readings ?? []).find((x) => x.id === el.dataset.id);
-  s.ui.usunOdczyt = null;
   if (!o) return;
+  const kwota = o.adjustment_id ? s.dane.charge_adjustments.find((x) => x.id === o.adjustment_id) : null;
   if (bezPolaczenia(s)) { ctx.toast('Usuwanie wymaga połączenia z bazą.'); return; }
   try {
     await ctx.db.usun('power_readings', o.id);
@@ -185,7 +183,9 @@ async function usunOdczyt(el, ctx) {
     s.dane = { ...s.dane, power_readings: s.dane.power_readings.filter((x) => x.id !== o.id),
       charge_adjustments: s.dane.charge_adjustments.filter((x) => x.id !== o.adjustment_id) };
     ctx.scal({});
-    ctx.toast('Usunięto odczyt');
+    // Przywracanie w odwrotnej kolejności: najpierw kwota, potem odczyt, który się do niej odwołuje.
+    ctx.cofnij(`Usunięto odczyt${kwota ? ' i doliczoną kwotę' : ''}`,
+      [{ tabela: 'power_readings', wiersz: o }, ...(kwota ? [{ tabela: 'charge_adjustments', wiersz: kwota }] : [])]);
     ctx.render();
   } catch (e) {
     ctx.toast(e.message);
@@ -198,8 +198,6 @@ export default {
   wstecz: () => ({ href: '#/jednostki', tekst: 'Jednostki' }),
   render,
   akcje: {
-    'usun-odczyt'(el, ctx) { ctx.state.ui.usunOdczyt = el.dataset.id; ctx.render(); },
-    'usun-odczyt-nie'(_el, ctx) { ctx.state.ui.usunOdczyt = null; ctx.render(); },
     'usun-odczyt-tak': usunOdczyt,
   },
   formularze: { 'odczyty-pradu': zapiszOdczyty },

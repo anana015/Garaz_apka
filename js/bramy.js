@@ -12,10 +12,10 @@ export function bramaJednostki(j) {
 /** Ile dni po końcu najmu (koniec okresu wypowiedzenia) numer zostaje w bramie. */
 export const DNI_PO_KONCU = 3;
 
-// Polecenia sterownika (12.11.2026, poprawione): 4800 + numer bez +48, np. 1234#TEL4800600111222#205#
-// i 1234#DEL4800600111222#205#.
+// Polecenia sterownika: dodanie – 4800 + numer bez +48, np. 1234#TEL4800600111222#205# (12.11.2026);
+// usunięcie – pusty numer na pozycji, np. 1234#TEL#205# (13.11.2026, zastępuje #DEL…). Pozycja wymagana.
 export const DOMYSLNE_POLECENIE_DODANIA = '{haslo}#TEL4800{telefon9}#{pozycja}#';
-export const DOMYSLNE_POLECENIE_USUNIECIA = '{haslo}#DEL4800{telefon9}#{pozycja}#';
+export const DOMYSLNE_POLECENIE_USUNIECIA = '{haslo}#TEL#{pozycja}#';
 /** SMS do klienta po przypisaniu (przy usunięciu z bramy klient nie dostaje SMS-a). */
 export const DOMYSLNA_WIADOMOSC = 'Dzień dobry,\naby otworzyć bramę przy ul. Nad Drwiną 11A proszę zadzwonić pod numer {numer_bramy}.\n'
   + 'Pozdrawiam\nJakub Chwaja';
@@ -43,7 +43,9 @@ export function polecenieDodania(brama, { telefon, pozycja }) {
     { haslo: brama.password ?? '', telefon, telefon9: telefon?.slice(-9), pozycja: pozycjaSterownika(pozycja) });
 }
 
-/** Treść polecenia usunięcia (remove_template albo domyślne #DEL). */
+/** Treść polecenia usunięcia (remove_template albo domyślne {haslo}#TEL#{pozycja}#). */
+export const usuwanieWymagaPozycji = (brama) => (brama.remove_template || DOMYSLNE_POLECENIE_USUNIECIA).includes('{pozycja}');
+
 export function polecenieUsuniecia(brama, { telefon, pozycja }) {
   return wypelnij(brama.remove_template || DOMYSLNE_POLECENIE_USUNIECIA,
     { haslo: brama.password ?? '', telefon, telefon9: telefon?.slice(-9), pozycja: pozycjaSterownika(pozycja) });

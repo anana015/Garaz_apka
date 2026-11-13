@@ -1,9 +1,11 @@
-// Zadania: wszystkie notatki klientów z terminem – moje i klientów (np. obietnice zapłaty).
+// Zadania: na górze „Do zrobienia” (bramy, wpłaty do przypisania, przypomnienia, kończące się najmy… – 0.25.0, przeniesione
+// z Pulpitu), niżej notatki klientów z terminem – moje i klientów (np. obietnice zapłaty).
 // Adres: #/zadania. Filtry: Do zrobienia, Moje, Klientów, Zrobione. Klik w wiersz → karta klienta.
 
 import { filtry, pustyStan } from '../ui.js';
 import { dataZeZnacznika, esc, dzisiaj, formatData, formatZl, roznicaDni } from '../utils.js';
 import { grupaTerminu, KTO, RODZAJE_NOTATEK, zadania } from '../zadania.js';
+import { kartaDoZrobienia } from './dozrobienia.js';
 
 const FILTRY = {
   'do-zrobienia': { tekst: 'Do zrobienia', warunek: () => true },
@@ -44,7 +46,9 @@ export default {
     const lista = zadania(s.dane.client_notes, { zrobione: filtr === 'zrobione' })
       .filter((n) => FILTRY[filtr].warunek(n));
     const opcjeFiltra = Object.entries(FILTRY).map(([id, f]) => ({ id, tekst: f.tekst }));
-    const naglowek = `${filtry(opcjeFiltra, filtr, 'Rodzaj zadań')}
+    const naglowek = `${filtr === 'zrobione' ? '' : kartaDoZrobienia(s)}
+      <h2 class="naglowek-sekcji">Zadania z terminem</h2>
+      ${filtry(opcjeFiltra, filtr, 'Rodzaj zadań')}
       <p class="podpowiedz">Zadanie to notatka klienta z terminem. Dodasz je na karcie klienta: „Dodaj notatkę” i wpisz termin.</p>`;
 
     if (!lista.length) {

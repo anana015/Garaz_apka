@@ -689,7 +689,7 @@ function formularzKorekty(s, k) {
   const naKwote = s.ui.zapytanie.tryb === 'kwota' || Boolean(zAdresu);
   const f = stanFormularza(s, `najmy/${k.najem.id}/korekta`, () => ({
     tryb: naKwote ? 'kwota' : 'roznica',
-    // Miesiąc z „Kwoty w miesiącach” (?okres=); „Kwota 1. okresu”: pierwszy okres; zwykła zmiana: bieżący.
+    // Miesiąc z „Kwoty w miesiącach” (?okres=); „Zmień kwotę 1. miesiąca”: pierwszy; zwykła zmiana: bieżący.
     period_start: (zAdresu ?? (s.ui.zapytanie.tryb === 'kwota' ? naleznosci[0] : biezacy))?.poczatek ?? '',
   }));
   const kwotaOkresu = naleznosci.find((n) => n.poczatek === f.wartosci.period_start);
@@ -704,13 +704,10 @@ function formularzKorekty(s, k) {
   const dotychczas = [...k.korekty].sort((a, b) => b.period_start.localeCompare(a.period_start));
   const szczegoly = kwotaOkresu ? szczegolyNaleznosci(kwotaOkresu) : '';
   const wierszKorekty = (x) => {
-    const pytanie = s.ui.usunKorekte === x.id;
     return `<li><div class="wiersz"><div class="glowna">
-      <strong>${esc(nazwaMiesiaca(x.period_start))}</strong><span>${esc(x.reason)}</span>
-      ${pytanie ? `<span><button type="button" class="link-btn" data-akcja="usun-korekte-tak" data-id="${esc(x.id)}">Tak, cofnij tę zmianę</button>
-        · <button type="button" class="link-btn" data-akcja="usun-korekte-nie">Nie</button></span>` : ''}</div>
-      <div class="prawa"><span class="kwota">${x.amount_gr > 0 ? '+' : ''}${formatZl(x.amount_gr)}</span>${pytanie ? ''
-    : ` <button type="button" class="link-btn maly" data-akcja="usun-korekte" data-id="${esc(x.id)}">cofnij</button>`}</div></div></li>`;
+      <strong>${esc(nazwaMiesiaca(x.period_start))}</strong><span>${esc(x.reason)}</span></div>
+      <div class="prawa"><span class="kwota">${x.amount_gr > 0 ? '+' : ''}${formatZl(x.amount_gr)}</span>
+        <button type="button" class="link-btn maly" data-akcja="usun-korekte-tak" data-id="${esc(x.id)}">usuń zmianę</button></div></div></li>`;
   };
 
   return `${naglowekNajmu(s, k)}
@@ -722,17 +719,17 @@ function formularzKorekty(s, k) {
           ${wybor(f, { nazwa: 'period_start', etykieta: 'Miesiąc', opcje: okresy, wymagane: true, odswiez: true,
     podpowiedz: szczegoly ? `Wyliczenie: ${esc(szczegoly)}` : 'Także przyszłe miesiące – do 12 miesięcy w przód.' })}
           ${opcje(f, { nazwa: 'tryb', legenda: 'Jak zmienić', odswiez: true, opcje: [
-    { wartosc: 'kwota', tekst: 'Ustaw kwotę za ten miesiąc' }, { wartosc: 'roznica', tekst: 'Zmień o kwotę (+/−)' }] })}
+    { wartosc: 'kwota', tekst: 'Wpisz nową kwotę' }, { wartosc: 'roznica', tekst: 'Zwiększ lub zmniejsz (+/−)' }] })}
           ${f.wartosci.tryb === 'kwota'
     ? pole(f, { nazwa: 'nowa_kwota', etykieta: 'Klient płaci za ten miesiąc (zł)', typ: 'kwota', wymagane: true,
       podpowiedz: `Teraz: ${kwotaOkresu ? formatZl(kwotaOkresu.kwotaGr) : '—'}. Np. obniżka w tym miesiącu do 150 zł albo 0 zł (umorzenie).` })
     : pole(f, { nazwa: 'amount_gr', etykieta: 'O ile zmienić (zł)', typ: 'kwota', wymagane: true,
       podpowiedz: 'Ujemna = obniżka lub umorzenie, np. -50. Dodatnia = dopłata. Należność nie może spaść poniżej 0 zł.' })}
           ${pole(f, { nazwa: 'reason', etykieta: 'Powód', wymagane: f.wartosci.tryb !== 'kwota', atrybuty: 'maxlength="200"',
-    podpowiedz: f.wartosci.tryb === 'kwota' ? 'Np. „obniżka – remont dachu”. Puste = „Ręczna kwota okresu”.' : '' })}
+    podpowiedz: f.wartosci.tryb === 'kwota' ? 'Np. „obniżka – remont dachu”. Puste = „Ręczna zmiana kwoty”.' : '' })}
           <p class="podpowiedz">Zmienia tylko ten jeden miesiąc. Stawka na kolejne miesiące – „Zmień stawkę”.</p>`,
       })}
-      <section class="karta"><h2>Dotychczasowe zmiany kwot</h2>
+      <section class="karta"><h2>Zmiany kwoty w tym najmie</h2>
         ${dotychczas.length ? `<ul class="lista">${dotychczas.map(wierszKorekty).join('')}</ul>`
           : '<p class="wyciszony">Brak zmian.</p>'}
       </section>
@@ -869,8 +866,8 @@ async function zapiszPromocje(form, ctx) {
 
 const FORMULARZE = {
   stawka: { tytul: 'Zmiana stawki', render: formularzStawki },
-  koniec: { tytul: 'Koniec najmu', render: formularzKonca },
-  korekta: { tytul: 'Kwota w miesiącu', render: formularzKorekty },
+  koniec: { tytul: 'Zakończenie najmu', render: formularzKonca },
+  korekta: { tytul: 'Zmiana kwoty miesiąca', render: formularzKorekty },
   promocja: { tytul: 'Promocja', render: formularzPromocji },
   platnosc: { tytul: 'Gdzie płaci', render: formularzPlatnosci },
 };
@@ -921,19 +918,10 @@ export default {
   },
 
   akcje: {
-    'usun-korekte'(el, ctx) {
-      ctx.state.ui.usunKorekte = el.dataset.id;
-      ctx.render();
-    },
-    'usun-korekte-nie'(el, ctx) {
-      ctx.state.ui.usunKorekte = null;
-      ctx.render();
-    },
-    /** Cofnięcie ręcznej zmiany kwoty miesiąca (usunięcie wiersza charge_adjustments) – po potwierdzeniu na ekranie. */
+    /** Usunięcie zmiany kwoty miesiąca (wiersz charge_adjustments) – od razu, z „Cofnij” w komunikacie (0.25.0). */
     async 'usun-korekte-tak'(el, ctx) {
       const s = ctx.state;
       const x = s.dane.charge_adjustments.find((a) => a.id === el.dataset.id);
-      s.ui.usunKorekte = null;
       if (!x) return;
       if (s.podglad || s.offline || s.zKopii) {
         ctx.toast('Cofnięcie zmiany wymaga połączenia z bazą.');
@@ -943,7 +931,7 @@ export default {
         await ctx.db.usun('charge_adjustments', x.id);
         s.dane = { ...s.dane, charge_adjustments: s.dane.charge_adjustments.filter((a) => a.id !== x.id) };
         ctx.scal({});
-        ctx.toast(`Cofnięto zmianę za ${nazwaMiesiaca(x.period_start)} (${formatZl(x.amount_gr)})`);
+        ctx.cofnij(`Usunięto zmianę kwoty: ${nazwaMiesiaca(x.period_start)} (${formatZl(x.amount_gr)})`, [{ tabela: 'charge_adjustments', wiersz: x }]);
         ctx.render();
       } catch (e) {
         ctx.toast(e.message);

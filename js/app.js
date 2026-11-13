@@ -5,7 +5,7 @@ import { state, pusteDane, ustawDane } from './state.js';
 import * as db from './db.js';
 import { doPrzypisania, scalDane } from './dane.js';
 import { wartosciFormularza } from './formularz.js';
-import { ikona, toast } from './ui.js';
+import { ikona, toast, toastZAkcja } from './ui.js';
 import { dzisiaj, esc } from './utils.js';
 
 import pulpit from './views/pulpit.js';
@@ -15,6 +15,7 @@ import jednostki from './views/jednostki.js';
 import raporty from './views/raporty.js';
 import zadaniaWidok from './views/zadania.js';
 import { oznaczZadanie, pilneZadania } from './zadania.js';
+import { doZrobienia } from './views/dozrobienia.js';
 import importWidok from './views/import.js';
 import ustawienia from './views/ustawienia.js';
 import najmy from './views/najmy.js';
@@ -61,8 +62,29 @@ function scal(zmiany) {
   if (state.uzytkownik && !state.podglad) db.zapiszLokalnie(state.uzytkownik, state.dane);
 }
 
+/**
+ * Zamiast ekranu potwierdzenia (0.25.0): po usunięciu komunikat z „Cofnij”, który wstawia usunięte wiersze z powrotem
+ * (te same id, w odwrotnej kolejności – najpierw to, do czego inne się odwołują). usuniete: [{ tabela, wiersz }].
+ */
+function cofnij(tekst, usuniete) {
+  toastZAkcja(tekst, 'Cofnij', async () => {
+    try {
+      const zmiany = {};
+      for (const { tabela, wiersz } of [...usuniete].reverse()) {
+        const { user_id: _wlasciciel, ...bezWlasciciela } = wiersz;   // user_id ustawia baza (auth.uid())
+        (zmiany[tabela] ??= []).push(await db.wstaw(tabela, bezWlasciciela));
+      }
+      scal(zmiany);
+      toast('Przywrócono');
+      render();
+    } catch (e) {
+      toast(`Nie udało się przywrócić: ${e.message}`);
+    }
+  });
+}
+
 /** Kontekst przekazywany do akcji widoków. */
-const ctx = { state, render, toast, db, odswiez: wczytajDane, nawiguj, scal };
+const ctx = { state, render, toast, cofnij, db, odswiez: wczytajDane, nawiguj, scal };
 
 // ---------------------------------------------------------------------
 // Router
@@ -133,7 +155,10 @@ function zbudujPowloke() {
 function liczniki() {
   return {
     wplaty: { n: doPrzypisania(state.dane.payments).length, opis: 'do przypisania' },
-    zadania: { n: pilneZadania(state.dane.client_notes, dzisiaj()), opis: 'zadań na dziś i po terminie' },
+    zadania: {
+      n: pilneZadania(state.dane.client_notes, dzisiaj()) + doZrobienia(state, dzisiaj()).filter((x) => x.pilnosc <= 1).length,
+      opis: 'spraw pilnych i na dziś',
+    },
   };
 }
 

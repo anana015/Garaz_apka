@@ -170,6 +170,48 @@ export function kartoteka({ pozycje, wplaty, saldoOtwarcia = 0, dataStart, dzis 
   });
 }
 
+/**
+ * Skąd się wzięło saldo (0.25.0, „Saldo klikane do rozbicia”): saldo otwarcia + wpłaty − należności z terminem do dziś,
+ * z podziałem należności na jednostki i wpłat na formy. Te same dane co rozliczKlienta, więc suma = r.saldoGr.
+ * @param {{ pozycje: Array, wplaty: Array, saldoOtwarcia?: number, dzis: string }} p pozycje = rozliczKlienta().pozycje
+ */
+export function rozbicieSalda({ pozycje, wplaty, saldoOtwarcia = 0, dzis }) {
+  const wymagalne = pozycje.filter((p) => !p.otwarcie && p.termin <= dzis);
+  const jednostki = new Map();
+  for (const p of wymagalne) {
+    const j = jednostki.get(p.kod) ?? { kod: p.kod, liczba: 0, kwotaGr: 0, korektyGr: 0 };
+    j.liczba += 1;
+    j.kwotaGr += p.kwotaGr;
+    j.korektyGr += p.korektaGr ?? 0;
+    jednostki.set(p.kod, j);
+  }
+  const formy = new Map();
+  let zwrotyGr = 0;
+  for (const w of wplaty) {
+    if (w.amount_gr < 0) { zwrotyGr += w.amount_gr; continue; }
+    const f = formy.get(w.method) ?? { forma: w.method, opis: OPIS_WPLATY[w.method] ?? 'Wpłata', liczba: 0, kwotaGr: 0 };
+    f.liczba += 1;
+    f.kwotaGr += w.amount_gr;
+    formy.set(w.method, f);
+  }
+  const naleznosciGr = wymagalne.reduce((a, p) => a + p.kwotaGr, 0);
+  const wplatyGr = [...formy.values()].reduce((a, f) => a + f.kwotaGr, 0);
+  const niezaplacone = pozycje.filter((p) => p.termin <= dzis && p.zaplaconoGr < p.kwotaGr)
+    .map((p) => ({ ...p, brakGr: p.kwotaGr - p.zaplaconoGr, dniPo: Math.max(0, roznicaDni(p.termin, dzis)) }));
+  return {
+    otwarcieGr: saldoOtwarcia,
+    naleznosciGr,
+    korektyGr: wymagalne.reduce((a, p) => a + (p.korektaGr ?? 0), 0),
+    jednostki: [...jednostki.values()].sort((a, b) => String(a.kod).localeCompare(String(b.kod), 'pl', { numeric: true })),
+    wplatyGr,
+    formy: [...formy.values()].sort((a, b) => b.kwotaGr - a.kwotaGr),
+    zwrotyGr,
+    saldoGr: saldoOtwarcia + wplatyGr + zwrotyGr - naleznosciGr,
+    niezaplacone,
+    nastepne: pozycje.filter((p) => p.termin > dzis && p.zaplaconoGr < p.kwotaGr).slice(0, 3),
+  };
+}
+
 // ---------------------------------------------------------------------
 // Terminowość (5.5)
 // ---------------------------------------------------------------------

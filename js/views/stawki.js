@@ -13,7 +13,7 @@ import { nazwaMiesiaca } from './wspolne.js';
 const ZAKLADKI = [
   { id: 'promocje', tekst: 'Promocje' },
   { id: 'podwyzki', tekst: 'Podwyżki' },
-  { id: 'zmiany', tekst: 'Zmiany kwot w miesiącach' },
+  { id: 'zmiany', tekst: 'Zmiany kwot miesięcy' },
 ];
 
 const STATUS = {
@@ -128,7 +128,7 @@ function widokZmian(s) {
       <div class="glowna"><strong>${esc(z.klient?.name ?? '—')} · ${kod(z)}</strong>
         <span>${esc(nazwaMiesiaca(z.okres))}${z.powod ? ` · ${esc(z.powod)}` : ''}</span></div>
       <div class="prawa kwota">${z.kwotaGr > 0 ? '+' : ''}${formatZl(z.kwotaGr)}</div></a></li>`).join('');
-  return `<section class="karta szeroka"><h2>Zmiany kwot (${zmianyKwot.length})</h2><ul class="lista">${wiersze}</ul>
+  return `<section class="karta szeroka"><h2>Zmiany kwot miesięcy (${zmianyKwot.length})</h2><ul class="lista">${wiersze}</ul>
     <p class="podpowiedz">Kliknij wiersz, żeby poprawić albo cofnąć zmianę.</p></section>`;
 }
 

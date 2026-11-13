@@ -493,9 +493,9 @@ export function walidujKorekte(w, { najem, naleznosci }) {
     }
   } else {
     kw = kwota(w, 'amount_gr', bledy, { wymagana: true, etykieta: 'kwotę korekty (+ albo −)' });
-    if (kw === 0) bledy.amount_gr = 'Korekta nie może wynosić 0 zł.';
+    if (kw === 0) bledy.amount_gr = 'Zmiana kwoty nie może wynosić 0 zł.';
   }
-  const powod = tekst(w.reason) || (w.tryb === 'kwota' ? 'Ręczna kwota okresu' : '');
+  const powod = tekst(w.reason) || (w.tryb === 'kwota' ? 'Ręczna zmiana kwoty' : '');
   if (!powod) bledy.reason = 'Podaj powód korekty.';
   else if (powod.length > 200) bledy.reason = 'Najwyżej 200 znaków.';
 

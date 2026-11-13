@@ -9,7 +9,7 @@ import {
 } from '../formularz.js';
 import { filtry, poleSzukaj, przycisk, pustyStan, przyciskEdycji } from '../ui.js';
 import {
-  dataZeZnacznika, dodajMiesiace, esc, dzisiaj, etykietaMiesiaca, formatData, formatDataKrotka, formatRachunek, formatZl, kwotaDoPola, normalizujTekst, parseKwota, porownajKody,
+  dataZeZnacznika, dodajMiesiace, esc, dzisiaj, etykietaMiesiaca, formatData, formatDataKrotka, formatRachunek, formatZl, kluczMiesiaca, kwotaDoPola, normalizujTekst, odmiana, parseKwota, porownajKody,
 } from '../utils.js';
 import {
   saldoKaucji, TYPY_DOKUMENTU, walidujKaucje, walidujKlienta, walidujPdf, walidujWypowiedzenie,
@@ -22,7 +22,7 @@ import { listaMiesiecy, pokazTerminowosc, rozliczeniaKlientow, ukladKarty, ustaw
 import { naleznosciNajmu } from '../okresy.js';
 import { PROGI_TERMINOWOSCI, bezKaucji } from '../config.js';
 import { doCsv } from '../csv.js';
-import { kartoteka, terminowosc } from '../rozliczenia.js';
+import { kartoteka, rozbicieSalda, terminowosc } from '../rozliczenia.js';
 import { KTO, RODZAJE_NOTATEK } from '../zadania.js';
 import { formularzeUmowy, formularzUmowy, najmyDoUmowy } from './umowy.js';
 import { kartaBramKlienta } from './bramy.js';
@@ -259,8 +259,8 @@ function wierszNajmu(s, n, dzien) {
     ${edycja ? `<div class="akcje-wiersza">
       <a href="#/najmy/${id}/stawka">Zmień stawkę</a>
       <a href="#/najmy/${id}/promocja">Promocja</a>
-      <a href="#/najmy/${id}/korekta?tryb=kwota">Kwota 1. okresu</a>
-      <a href="#/najmy/${id}/korekta">Kwota w wybranym miesiącu</a>
+      <a href="#/najmy/${id}/korekta?tryb=kwota">Zmień kwotę 1. miesiąca</a>
+      <a href="#/najmy/${id}/korekta">Zmień kwotę miesiąca</a>
       <a href="#/najmy/${id}/platnosc">Gdzie płaci</a>
       ${trwa ? `<a href="#/najmy/${id}/koniec">Zakończ najem</a>` : ''}
       ${trwa ? `<a href="#/kreator/koniec/${id}">Zakończenie krok po kroku</a>` : ''}
@@ -329,15 +329,7 @@ function formularzKaucji(s, klient) {
   const f = stanFormularza(s, `klienci/${klient.id}/kaucja?${wpis?.id ?? ''}`, () => (wpis
     ? { contract_id: wpis.contract_id, method: wpis.method, on_date: wpis.on_date, amount_gr: kwotaDoPola(wpis.amount_gr) }
     : { contract_id: umowy.length === 1 ? umowy[0].id : '', method: 'gotowka', on_date: dzisiaj() }));
-  const usuwanie = !wpis ? '' : !f.potwierdzUsuniecie
-    ? '<p><button type="button" class="link-btn" data-akcja="usun-kaucje">Usuń ten wpis kaucji</button></p>'
-    : `<section class="karta" role="alert" aria-labelledby="usun-kaucje-tytul">
-      <h2 id="usun-kaucje-tytul">Usunąć wpis kaucji?</h2>
-      <p>Przyjęcie <span class="kwota">${formatZl(wpis.amount_gr)}</span> z ${formatData(wpis.on_date)}. Tego nie da się cofnąć.</p>
-      <div class="pasek-akcji">
-        <button type="button" class="przycisk" data-akcja="usun-kaucje-tak"${f.trwa ? ' disabled' : ''}>Usuń wpis</button>
-        <button type="button" class="przycisk drugi" data-akcja="usun-kaucje-nie">Nie usuwaj</button>
-      </div></section>`;
+  const usuwanie = !wpis ? '' : '<p><button type="button" class="link-btn" data-akcja="usun-kaucje-tak">Usuń ten wpis kaucji</button></p>';
   return formularz(f, {
     nazwa: 'kaucja', przycisk: wpis ? 'Zapisz zmiany' : 'Zapisz kaucję', anuluj: wstecz,
     uwaga: 'Kaucja nie jest przychodem (Z26). Kaucję wpłaconą przelewem, który jest już w wyciągu, oznacza się przy przypisaniu przelewu – nie dopisuj jej tu drugi raz.',
@@ -403,12 +395,56 @@ function saldo(s, klient, r, najmy, dzien) {
   }).join('');
   const t = pokazTerminowosc(s) ? wynikTerminowosci(s, r) : null;
   return `${glowna}
+    <p class="maly"><a href="#/klienci/${encodeURIComponent(klient.id)}/saldo">Skąd ta kwota? Rozbicie salda ›</a></p>
     ${t ? `<p class="maly">Terminowość: <strong>${esc(t.etykieta)}</strong></p>` : ''}
     ${oplacone ? `<dl class="opis-pol">${oplacone}</dl>` : ''}
     <p class="podpowiedz">Ostatnia wpłata: ${r.ostatniaWplata ? formatData(r.ostatniaWplata) : 'brak'} ·
       <a href="#/wplaty/gotowka?klient=${encodeURIComponent(klient.id)}">dodaj wpłatę</a>${zalega
     ? ` · <a href="#/klienci/${encodeURIComponent(klient.id)}/notatka?rodzaj=obietnica">zapisz obietnicę zapłaty</a>
       · <a href="#/klienci/${encodeURIComponent(klient.id)}/przypomnienie">przypomnienie o płatności</a>` : ''}</p>`;
+}
+
+/** #/klienci/<id>/saldo – rozbicie salda: otwarcie + wpłaty − należności, niezapłacone miesiące, najbliższe należności. */
+function ekranSalda(s, klient) {
+  const r = rozliczeniaKlientow(s).get(klient.id);
+  const id = encodeURIComponent(klient.id);
+  if (!r) return pustyStan('Brak rozliczenia dla tego klienta.', [{ tekst: 'Karta klienta', href: `#/klienci/${id}` }]);
+  const dzis = dzisiaj();
+  const wplaty = s.dane.payments.filter((w) => w.client_id === klient.id && w.kind === 'czynsz');
+  const b = rozbicieSalda({ pozycje: r.pozycje, wplaty, saldoOtwarcia: klient.opening_balance_gr ?? 0, dzis });
+  const zl = (gr, znak = false) => `<span class="kwota">${znak && gr > 0 ? '+' : ''}${formatZl(gr)}</span>`;
+  const wiersz = (opis, gr, klasa = '') => `<tr class="${klasa}"><th scope="row">${opis}</th><td class="liczba">${zl(gr, true)}</td></tr>`;
+  const okres = (p) => (p.otwarcie ? 'saldo otwarcia' : etykietaMiesiaca(kluczMiesiaca(p.poczatek)));
+  const tabela = `<table class="tabela rozbicie-salda"><caption class="sr-only">Rozbicie salda</caption><tbody>
+      ${b.otwarcieGr ? wiersz(`Saldo otwarcia na ${formatData(ustawienia(s).data_start)}`, b.otwarcieGr) : ''}
+      ${wiersz(`Wpłaty (${b.formy.reduce((a, f) => a + f.liczba, 0)})`, b.wplatyGr)}
+      ${b.formy.map((f) => wiersz(`<span class="wciecie">${esc(f.opis)} (${f.liczba})</span>`, f.kwotaGr, 'pod')).join('')}
+      ${b.zwrotyGr ? wiersz('Zwroty nadpłat', b.zwrotyGr) : ''}
+      ${wiersz(`Należności z terminem do dziś (${b.jednostki.reduce((a, j) => a + j.liczba, 0)})`, -b.naleznosciGr)}
+      ${b.jednostki.map((j) => wiersz(`<span class="wciecie"><span class="mono">${esc(j.kod)}</span> · ${odmiana(j.liczba, ['miesiąc', 'miesiące', 'miesięcy'])}${
+    j.korektyGr ? ` · w tym zmiany kwot ${formatZl(j.korektyGr)}` : ''}</span>`, -j.kwotaGr, 'pod')).join('')}
+    </tbody><tfoot>${wiersz('Saldo', b.saldoGr, 'suma')}</tfoot></table>`;
+  const niezaplacone = b.niezaplacone.length ? `<table class="tabela"><thead><tr><th scope="col">Miesiąc</th><th scope="col">Jednostka</th>
+      <th scope="col">Termin</th><th scope="col" class="liczba">Należność</th><th scope="col" class="liczba">Zapłacono</th><th scope="col" class="liczba">Brakuje</th></tr></thead>
+      <tbody>${b.niezaplacone.map((p) => `<tr><td>${esc(okres(p))}</td><td class="mono">${esc(p.kod || '—')}</td>
+        <td>${formatData(p.termin)}${p.dniPo ? ` <span class="status ${p.dniPo > 0 ? 'zalega' : ''}">${p.dniPo} dni po</span>` : ''}</td>
+        <td class="liczba">${zl(p.kwotaGr)}${p.korektaOpis ? `<br><span class="wyciszony maly">${esc(p.korektaOpis)}</span>` : ''}</td>
+        <td class="liczba">${zl(p.zaplaconoGr)}</td><td class="liczba"><strong>${zl(p.brakGr)}</strong></td></tr>`).join('')}</tbody></table>`
+    : '<p class="wyciszony">Wszystkie należności z terminem do dziś są zapłacone.</p>';
+  const nastepne = b.nastepne.length ? `<ul class="lista">${b.nastepne.map((p) => `<li class="wiersz"><div class="glowna">
+      <strong>${esc(okres(p))} · <span class="mono">${esc(p.kod)}</span></strong><span>termin ${formatData(p.termin)}${
+  p.zaplaconoGr ? ` · opłacone z góry ${formatZl(p.zaplaconoGr)}` : ''}</span></div>
+      <div class="prawa">${zl(p.kwotaGr - p.zaplaconoGr)}</div></li>`).join('')}</ul>` : '<p class="wyciszony">Brak.</p>';
+  return `<div class="siatka">
+    <section class="karta" aria-labelledby="s-rozbicie"><h2 id="s-rozbicie">Jak powstało saldo</h2>${tabela}
+      <p class="podpowiedz">Saldo = ${b.otwarcieGr ? 'saldo otwarcia + ' : ''}wpłaty − należności, których termin już minął.
+        Wpłata pokrywa najpierw najstarszą należność (albo wskazaną jednostkę).</p></section>
+    <section class="karta" aria-labelledby="s-nast"><h2 id="s-nast">Najbliższe należności</h2>${nastepne}</section>
+    <section class="karta szeroka" aria-labelledby="s-niezapl"><h2 id="s-niezapl">Niezapłacone należności (${b.niezaplacone.length})</h2>
+      <div class="tabela-przewijana">${niezaplacone}</div></section>
+  </div>
+  <div class="pasek-akcji">${przycisk({ tekst: 'Dodaj wpłatę', href: `#/wplaty/gotowka?klient=${id}`, ikona: 'plus' })}
+    <a class="link-btn" href="#/klienci/${id}">Karta klienta</a></div>`;
 }
 
 // ---------------------------------------------------------------------
@@ -608,7 +644,8 @@ function karta(s, klient) {
 
   return `
     <div class="pasek-akcji">
-      ${przycisk({ tekst: 'Wpłata', href: `#/wplaty/gotowka?klient=${id}`, ikona: 'plus' })}
+      ${przycisk({ tekst: 'Dodaj wpłatę', href: `#/wplaty/gotowka?klient=${id}`, ikona: 'plus' })}
+      ${klient.archived ? '' : przycisk({ tekst: 'Nowy najem', href: `#/najmy/nowy?klient=${id}`, ikona: 'plus', drugi: najmy.length > 0 })}
       ${najmyDoUmowy(s, klient.id, dzien).length ? przycisk({ tekst: 'Umowa do podpisania', href: `#/klienci/${id}/umowa`, drugi: true }) : ''}
       ${najmy.some((n) => najemTrwa(n, dzien) && !n.end_on && !n.notice_end_on)
     ? przycisk({ tekst: 'Wypowiedz umowę', href: `#/klienci/${id}/wypowiedzenie`, drugi: true }) : ''}
@@ -716,6 +753,17 @@ function wartosciKlienta(k) {
   };
 }
 
+/**
+ * Saldo otwarcia (stan sprzed startu danych) dotyczy tylko klientów sprzed startu: z zapisanym saldem albo z najmem,
+ * który zaczął się przed datą startu. Nowy klient go nie ma (prośba 13.11.2026) – pole się nie pokazuje, zapis = 0.
+ */
+function saldoOtwarciaDotyczy(s, k) {
+  if (!k) return false;
+  if (k.opening_balance_gr) return true;
+  const start = ustawienia(s).data_start;
+  return (s.indeksy.najmyKlienta.get(k.id) ?? []).some((n) => n.start_on < start);
+}
+
 function formularzKlienta(s, k) {
   const f = stanFormularza(s, `klienci/${s.ui.parametr}/${s.ui.akcja ?? ''}`, () => wartosciKlienta(k));
   const firma = f.wartosci.kind === 'firma';
@@ -744,8 +792,8 @@ function formularzKlienta(s, k) {
       </div>
       ${pole(f, { nazwa: 'pesel', etykieta: 'PESEL', atrybuty: 'inputmode="numeric" maxlength="11" autocomplete="off"',
     podpowiedz: 'Dane osobowe – nie trafiają do eksportów CSV, ale są w kopii zapasowej.' })}`}
-      ${pole(f, { nazwa: 'opening_balance_gr', etykieta: `Saldo otwarcia na ${formatData(ustawienia(s).data_start)} (zł)`, typ: 'kwota',
-        podpowiedz: 'Stan rozliczeń sprzed startu danych (Z34): ujemne = zaległość, np. -300; dodatnie = nadpłata.' })}
+      ${saldoOtwarciaDotyczy(s, k) ? pole(f, { nazwa: 'opening_balance_gr', etykieta: `Saldo otwarcia na ${formatData(ustawienia(s).data_start)} (zł)`, typ: 'kwota',
+        podpowiedz: 'Stan rozliczeń sprzed startu danych (Z34): ujemne = zaległość, np. -300; dodatnie = nadpłata.' }) : ''}
       ${obszar(f, { nazwa: 'note', etykieta: 'Notatka', wiersze: 2 })}`,
   });
 }
@@ -776,6 +824,7 @@ export default {
     if (akcja === 'kaucja') return `Kaucja: ${nazwa}`;
     if (akcja === 'umowa') return `Umowa: ${nazwa}`;
     if (akcja === 'przypomnienie') return `Przypomnienie: ${nazwa}`;
+    if (akcja === 'saldo') return `Saldo: ${nazwa}`;
     return akcja === 'edycja' ? `Edycja: ${nazwa}` : nazwa;
   },
 
@@ -798,22 +847,13 @@ export default {
     if (akcja === 'kaucja') return formularzKaucji(s, klient);
     if (akcja === 'umowa') return formularzUmowy(s, klient);
     if (akcja === 'przypomnienie') return przypomnienie(s, klient);
+    if (akcja === 'saldo') return ekranSalda(s, klient);
     return akcja === 'edycja' ? formularzKlienta(s, klient) : karta(s, klient);
   },
 
   akcje: {
     ...akcjeAnulowania,
     ...akcjePrzypomnienia,
-    'usun-kaucje'(_el, ctx) {
-      if (!ctx.state.ui.form) return;
-      ctx.state.ui.form.potwierdzUsuniecie = true;
-      ctx.render();
-      document.getElementById('usun-kaucje-tytul')?.scrollIntoView({ block: 'center' });
-    },
-    'usun-kaucje-nie'(_el, ctx) {
-      if (ctx.state.ui.form) ctx.state.ui.form.potwierdzUsuniecie = false;
-      ctx.render();
-    },
     async 'usun-kaucje-tak'(_el, ctx) {
       const s = ctx.state;
       const klient = s.indeksy.klienci.get(s.ui.parametr);
@@ -823,7 +863,7 @@ export default {
         await ctx.db.usun('deposits', wpis.id);
         s.dane = { ...s.dane, deposits: s.dane.deposits.filter((d) => d.id !== wpis.id) };
         ctx.scal({});
-        ctx.toast(`Usunięto wpis kaucji ${formatZl(wpis.amount_gr)}`);
+        ctx.cofnij(`Usunięto wpis kaucji ${formatZl(wpis.amount_gr)}`, [{ tabela: 'deposits', wiersz: wpis }]);
         ctx.nawiguj(`klienci/${encodeURIComponent(klient.id)}`);
       });
     },
@@ -864,10 +904,12 @@ export default {
     },
     async 'usun-notatke'(el, ctx) {
       const id = el.dataset.id;
+      const notatka = ctx.state.dane.client_notes.find((n) => n.id === id);
       try {
         await ctx.db.usun('client_notes', id);
         ctx.state.dane = { ...ctx.state.dane, client_notes: ctx.state.dane.client_notes.filter((n) => n.id !== id) };
-        ctx.toast('Usunięto notatkę');
+        ctx.scal({});
+        if (notatka) ctx.cofnij('Usunięto notatkę', [{ tabela: 'client_notes', wiersz: notatka }]);
         ctx.render();
       } catch (e) {
         ctx.toast(e.message);

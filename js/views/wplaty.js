@@ -181,21 +181,9 @@ function formularzGotowki(s, wplata) {
   });
 }
 
-/** „Usuń wpłatę” przy poprawianiu wpłaty gotówką – z potwierdzeniem na ekranie (8.2, bez okienek przeglądarki). */
-function usuwanieGotowki(s, w) {
-  const f = s.ui.form;
-  const kto = s.indeksy.klienci.get(w.client_id)?.name ?? '';
-  if (!f?.potwierdzUsuniecie) {
-    return `<p><button type="button" class="link-btn" data-akcja="usun-gotowke">Usuń tę wpłatę</button></p>`;
-  }
-  return `<section class="karta" role="alert" aria-labelledby="usun-tytul">
-    <h2 id="usun-tytul">Usunąć wpłatę?</h2>
-    <p><span class="kwota">${formatZl(w.amount_gr)}</span> z ${formatData(w.booked_on)}${kto ? ` – ${esc(kto)}` : ''}.
-      Saldo klienta i przychód przeliczą się od razu. Tego nie da się cofnąć.</p>
-    <div class="pasek-akcji">
-      <button type="button" class="przycisk" data-akcja="usun-gotowke-tak"${f.trwa ? ' disabled' : ''}>Usuń wpłatę</button>
-      <button type="button" class="przycisk drugi" data-akcja="usun-gotowke-nie">Nie usuwaj</button>
-    </div></section>`;
+/** „Usuń wpłatę” przy poprawianiu wpłaty wpisanej ręcznie – od razu, z „Cofnij” w komunikacie (0.25.0). */
+function usuwanieGotowki() {
+  return '<p><button type="button" class="link-btn" data-akcja="usun-gotowke-tak">Usuń tę wpłatę</button></p>';
 }
 
 // ---------------------------------------------------------------------
@@ -293,16 +281,6 @@ export default {
   },
 
   akcje: {
-    'usun-gotowke'(_el, ctx) {
-      if (!ctx.state.ui.form) return;
-      ctx.state.ui.form.potwierdzUsuniecie = true;
-      ctx.render();
-      document.getElementById('usun-tytul')?.scrollIntoView({ block: 'center' });
-    },
-    'usun-gotowke-nie'(_el, ctx) {
-      if (ctx.state.ui.form) ctx.state.ui.form.potwierdzUsuniecie = false;
-      ctx.render();
-    },
     async 'usun-gotowke-tak'(_el, ctx) {
       const s = ctx.state;
       const w = s.dane.payments.find((p) => p.id === s.ui.parametr && wplataReczna(p));
@@ -311,7 +289,7 @@ export default {
         await ctx.db.usun('payments', w.id);
         s.dane = { ...s.dane, payments: s.dane.payments.filter((p) => p.id !== w.id) };
         ctx.scal({});   // przelicza indeksy i odświeża kopię na urządzeniu
-        ctx.toast(`Usunięto wpłatę ${formatZl(w.amount_gr)} z ${formatData(w.booked_on)}`);
+        ctx.cofnij(`Usunięto wpłatę ${formatZl(w.amount_gr)} z ${formatData(w.booked_on)}`, [{ tabela: 'payments', wiersz: w }]);
         if (s.ui.zapytanie.klient) ctx.nawiguj(`klienci/${encodeURIComponent(s.ui.zapytanie.klient)}`);
         else ctx.nawiguj('wplaty');
       });

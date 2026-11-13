@@ -35,9 +35,31 @@ export function toast(tekst) {
   const el = document.getElementById('toast');
   if (!el) return;
   el.textContent = tekst;
+  el.classList.remove('z-akcja');
   el.classList.add('widoczny');
   clearTimeout(zegarToastu);
   zegarToastu = setTimeout(() => el.classList.remove('widoczny'), TOAST_MS);
+}
+
+/** Jak dłużej trwa komunikat z przyciskiem (np. „Cofnij” po usunięciu, 0.25.0). */
+export const TOAST_AKCJA_MS = 8000;
+
+/** Komunikat z jednym przyciskiem akcji; znika po TOAST_AKCJA_MS albo po użyciu przycisku. */
+export function toastZAkcja(tekst, etykieta, akcja) {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  const napis = document.createElement('span');
+  napis.textContent = tekst;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'toast-akcja';
+  btn.textContent = etykieta;
+  const schowaj = () => el.classList.remove('widoczny', 'z-akcja');
+  btn.addEventListener('click', () => { clearTimeout(zegarToastu); schowaj(); akcja(); }, { once: true });
+  el.replaceChildren(napis, btn);
+  el.classList.add('widoczny', 'z-akcja');
+  clearTimeout(zegarToastu);
+  zegarToastu = setTimeout(schowaj, TOAST_AKCJA_MS);
 }
 
 // ---------------------------------------------------------------------

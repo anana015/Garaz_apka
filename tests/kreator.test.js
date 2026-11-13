@@ -117,3 +117,35 @@ test('ostatnie przypomnienie o płatności z notatek klienta', () => {
   assert.equal(ostatniePrzypomnienie(notatki, 'k1'), '2026-11-10');
   assert.equal(ostatniePrzypomnienie(notatki, 'k2'), null);
 });
+
+test('rozbicie salda: otwarcie + wpłaty − należności = saldo z rozliczenia', async () => {
+  const { rozliczKlienta, rozbicieSalda } = await import('../js/rozliczenia.js');
+  const naleznosci = [
+    { najemId: 'r1', kod: 'G-03', termin: '2026-10-20', poczatek: '2026-10-01', koniec: '2026-10-31', kwotaGr: 40000, korektaGr: -5000 },
+    { najemId: 'r1', kod: 'G-03', termin: '2026-11-20', poczatek: '2026-11-01', koniec: '2026-11-30', kwotaGr: 45000 },
+    { najemId: 'r2', kod: 'B-12', termin: '2026-11-20', poczatek: '2026-11-01', koniec: '2026-11-30', kwotaGr: 20000 },
+    { najemId: 'r1', kod: 'G-03', termin: '2026-12-20', poczatek: '2026-12-01', koniec: '2026-12-31', kwotaGr: 45000 },
+  ];
+  const wplaty = [
+    { booked_on: '2026-10-19', amount_gr: 30000, method: 'przelew' },
+    { booked_on: '2026-11-02', amount_gr: 10000, method: 'gotowka' },
+  ];
+  const p = { naleznosci, wplaty, saldoOtwarcia: -5000, dataStart: '2026-01-01', dzis: '2026-11-25' };
+  const r = rozliczKlienta(p);
+  const b = rozbicieSalda({ pozycje: r.pozycje, wplaty, saldoOtwarcia: -5000, dzis: '2026-11-25' });
+  assert.equal(b.saldoGr, r.saldoGr);
+  assert.equal(b.naleznosciGr, 105000);
+  assert.equal(b.korektyGr, -5000);
+  assert.deepEqual(b.jednostki.map((j) => [j.kod, j.liczba]), [['B-12', 1], ['G-03', 2]]);
+  assert.equal(b.formy.length, 2);
+  assert.equal(b.niezaplacone.reduce((a, x) => a + x.brakGr, 0), r.zalegloscGr);
+  assert.equal(b.nastepne.length, 1);
+});
+
+test('bramy: usunięcie numeru = {haslo}#TEL#{pozycja}#', async () => {
+  const { polecenieUsuniecia, usuwanieWymagaPozycji } = await import('../js/bramy.js');
+  const brama = { password: '1234' };
+  assert.equal(polecenieUsuniecia(brama, { telefon: '+48600111222', pozycja: 205 }), '1234#TEL#205#');
+  assert.equal(polecenieUsuniecia(brama, { telefon: '+48600111222', pozycja: 6 }), '1234#TEL#006#');
+  assert.equal(usuwanieWymagaPozycji(brama), true);
+});
