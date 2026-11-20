@@ -27,6 +27,7 @@ import szukaj from './views/szukaj.js';
 import przypomnienia from './views/przypomnienia.js';
 import kreator from './views/kreator.js';
 import promocjaBoxow from './views/promocjaBoxow.js';
+import { instaluj as instalujWyborKlienta } from './wyborKlienta.js';
 import { biezacyKreator, powrotDoKreatora, ustawKreator } from './kreator.js';
 import logowanie from './views/logowanie.js';
 
@@ -482,6 +483,7 @@ async function start() {
   document.addEventListener('change', poZmianie);
   document.addEventListener('submit', poWyslaniu);
   document.addEventListener('keydown', poKlawiszu);
+  instalujWyborKlienta();
   window.addEventListener('hashchange', poZmianieAdresu);
   window.addEventListener('online', () => {
     state.offline = false;

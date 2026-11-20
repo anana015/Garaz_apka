@@ -211,3 +211,13 @@ test('promocja startowa dla wszystkich boxów: plan, pominięcie istniejących, 
   assert.equal(wynik.r2.plan.gratisDo, '2026-09-30');
   assert.deepEqual(wynik.r2.wiersze.map((w) => [w.valid_from, w.amount_gr]), [['2026-09-25', 0], ['2026-10-01', 9000], ['2026-12-01', 18000]]);
 });
+
+test('wybór klienta: podpowiedzi bez ogonków, po jednostce, limit', async () => {
+  const { podpowiedzi } = await import('../js/wyborKlienta.js');
+  const klienci = [{ id: '1', tekst: 'Łucja Żółć (B-12)' }, { id: '2', tekst: 'Jan Nowak (G-03, G-04)' }, { id: '3', tekst: 'Firma ABC' }];
+  assert.deepEqual(podpowiedzi(klienci, 'zolc').map((k) => k.id), ['1']);
+  assert.deepEqual(podpowiedzi(klienci, 'g03').map((k) => k.id), ['2']);
+  assert.deepEqual(podpowiedzi(klienci, 'nowak jan').map((k) => k.id), ['2']);
+  assert.equal(podpowiedzi(klienci, '').length, 3);
+  assert.equal(podpowiedzi(klienci, '', 2).length, 2);
+});

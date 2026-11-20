@@ -796,3 +796,22 @@ details.grupa > .jednostki { padding-bottom: 12px; }
 }
 .toast-akcja:hover, .toast-akcja:focus-visible { background: rgb(255 255 255 / .12); }
 .tabela .status { white-space: nowrap; }
+
+/* ---------- 0.27.0: wybór klienta z wyszukiwarką ---------- */
+.wybor-klienta { position: relative; flex: 1 1 260px; }
+.wk-ramka { position: relative; }
+.wk-pole { width: 100%; padding-right: 44px; }
+.wk-wyczysc {
+  position: absolute; right: 2px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px;
+  border: 0; background: transparent; color: var(--muted); font-size: 1.4rem; cursor: pointer; border-radius: 50%;
+}
+.wk-wyczysc:hover, .wk-wyczysc:focus-visible { color: var(--fg); background: var(--accent-soft); }
+.wk-lista {
+  position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none;
+  max-height: 264px; overflow-y: auto; overscroll-behavior: contain;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-sm); box-shadow: var(--toast-shadow);
+}
+.wk-lista [role="option"] { padding: 10px 12px; min-height: 44px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; }
+.wk-lista [role="option"]:hover, .wk-lista [role="option"][aria-selected="true"] { background: var(--accent-soft); color: var(--accent); }
+.wk-lista .wk-brak { padding: 10px 12px; color: var(--muted); }
+.wk-stan { margin: 4px 0 0; color: var(--muted); min-height: 1em; }

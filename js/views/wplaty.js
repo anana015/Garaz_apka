@@ -14,6 +14,7 @@ import {
 } from '../utils.js';
 import { RODZAJE_GOTOWKI, walidujGotowke } from '../walidacja.js';
 import { pasujaceDoPlatnika, planZapamietania } from '../rozpoznanie.js';
+import { poleKlienta, zarejestruj } from '../wyborKlienta.js';
 import { opcjeNajmowKlienta, poleNajmu, ustawienia, wplatyDoPrzypisania, wyborMiesiaca, pokazWybranyMiesiac } from './wspolne.js';
 
 const FILTRY = {
@@ -166,7 +167,12 @@ function formularzGotowki(s, wplata) {
     tresc: `
       ${opcje(f, { nazwa: 'method', legenda: 'Forma', odswiez: true,
     opcje: [{ wartosc: 'gotowka', tekst: 'Gotówka' }, { wartosc: 'przelew', tekst: 'Przelew' }] })}
-      ${wybor(f, { nazwa: 'client_id', etykieta: 'Klient', wymagane: true, pusta: 'Wybierz klienta…', opcje: opcjeKlientow(s), odswiez: true })}
+      ${(() => {
+    const klienci = opcjeKlientow(s).map((o) => ({ id: o.wartosc, tekst: o.tekst }));
+    zarejestruj('wplata', klienci);
+    return poleKlienta({ id: 'f-client_id', nazwa: 'client_id', lista: 'wplata', klienci, wybrany: f.wartosci.client_id || null,
+      odswiez: true, wymagane: true, blad: f.bledy.client_id, pusto: 'Wybierz klienta – wpisz nazwisko albo jednostkę i dotknij go na liście.' });
+  })()}
       ${poleZaJednostke(s, f)}
       ${przelew ? `${wybor(f, { nazwa: 'bank_account_id', etykieta: 'Na konto', wymagane: true, pusta: 'Wybierz konto…', opcje: konta })}
       <p class="podpowiedz">Gdy potem wczytasz wyciąg z tym przelewem, połączę go z tym wpisem (to samo konto i kwota,
@@ -245,8 +251,12 @@ function formularzPrzypisania(s, w) {
     tresc: `
       ${opcje(f, { nazwa: 'kind', legenda: 'Co to za wpłata', odswiez: true,
         opcje: Object.entries(RODZAJE_PRZELEWU).map(([wartosc, tekst]) => ({ wartosc, tekst })) })}
-      ${f.wartosci.kind !== 'pominieta' ? wybor(f, { nazwa: 'client_id', etykieta: 'Klient', pusta: '— do przypisania —',
-        opcje: opcjeKlientow(s), odswiez: true, wymagane: kaucja }) : ''}
+      ${f.wartosci.kind !== 'pominieta' ? (() => {
+    const klienci = opcjeKlientow(s).map((o) => ({ id: o.wartosc, tekst: o.tekst }));
+    zarejestruj('przypisanie', klienci);
+    return poleKlienta({ id: 'f-client_id', nazwa: 'client_id', lista: 'przypisanie', klienci, wybrany: f.wartosci.client_id || null,
+      odswiez: true, wymagane: kaucja, blad: f.bledy.client_id });
+  })() : ''}
       ${kaucja && f.wartosci.client_id ? (umowy.length ? wybor(f, { nazwa: 'contract_id', etykieta: 'Umowa, do której jest kaucja',
         wymagane: true, pusta: umowy.length > 1 ? 'Wybierz umowę…' : null, opcje: umowy })
         : '<p class="baner">Ten klient nie ma umowy – najpierw dodaj najem.</p>') : ''}

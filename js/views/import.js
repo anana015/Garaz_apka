@@ -11,6 +11,7 @@ import { dekoduj } from '../csv.js';
 import { najemZakonczony, ostatniaWplataNaKoncie, wplataReczna } from '../dane.js';
 import { formularz, plik, przelacznik, stanFormularza, wartosciFormularza, wybor, zapisz } from '../formularz.js';
 import { indeksPlatnikow, rozpoznaj } from '../rozpoznanie.js';
+import { poleKlienta, zarejestruj } from '../wyborKlienta.js';
 import { przycisk, pustyStan } from '../ui.js';
 import {
   esc, dzisiaj, formatData, formatZl, formatRachunek, dataZeZnacznika, noweId, normalizujTekst, odmiana, porownajKody,
@@ -193,8 +194,7 @@ function podglad(s, p) {
   const przypisane = p.nowe.filter((w) => w.klientId);
   const zRachunku = przypisane.filter((w) => w.metoda === 'rachunek').length;
   const klienci = opcjeKlientow(s);
-  const opcje = (wybrany) => `<option value="">— do przypisania —</option>${klienci.map((k) =>
-    `<option value="${esc(k.id)}"${k.id === wybrany ? ' selected' : ''}>${esc(k.tekst)}</option>`).join('')}`;
+  zarejestruj('import', klienci);
 
   const wiersze = p.nowe.map((w, i) => {
     const z = w.reczna ? { klasa: 'ok', tekst: `wpisana ręcznie ${formatData(w.reczna.booked_on)} – połączę` }
@@ -206,8 +206,7 @@ function podglad(s, p) {
       <div class="prawa"><div class="kwota">${formatZl(w.kwotaGr)}</div>
         <div class="maly"><span class="status ${z.klasa}">${esc(z.tekst)}</span></div></div></div>
       <div class="pola-w-rzedzie">
-        <div class="pole"><label for="imp-k-${i}">Klient</label>
-          <select id="imp-k-${i}" name="klient-${i}">${opcje(w.klientId)}</select></div>
+        ${poleKlienta({ id: `imp-k-${i}`, nazwa: `klient-${i}`, lista: 'import', klienci, wybrany: w.klientId })}
         <div class="pole pole-wyboru"><input id="imp-p-${i}" name="pomin-${i}" type="checkbox">
           <label for="imp-p-${i}">Pomiń (nie czynsz)</label></div>
       </div></li>`;
