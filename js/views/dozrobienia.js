@@ -5,7 +5,7 @@
 
 import { DNI_BEZ_IMPORTU } from '../config.js';
 import { krokiMiesiaca, postep, reczneKroki } from '../kreator.js';
-import { biezacyNajem, doPrzypisania } from '../dane.js';
+import { biezacyNajem } from '../dane.js';
 import { zadania } from '../zadania.js';
 import { bramyDoZrobienia } from '../bramy.js';
 import { doRozliczenia, kwartalDoRozliczenia } from '../prad.js';
@@ -14,7 +14,7 @@ import { etykietaKwartalu, GRUPY_RYCZALTU, kwartalyDoZaplaty, nazwaGrupy } from 
 import { dodajDni, esc, dzisiaj, etykietaMiesiaca, formatZl, formatData, kluczMiesiaca, odmiana, roznicaDni } from '../utils.js';
 import { koniecUmowy } from './jednostki.js';
 import { zalegajacy } from './przypomnienia.js';
-import { ustawienia } from './wspolne.js';
+import { ustawienia, wplatyDoPrzypisania } from './wspolne.js';
 
 const dni = (n) => `${n} ${n === 1 ? 'dzień' : 'dni'}`;
 
@@ -85,7 +85,7 @@ export function doZrobienia(s, dzis = dzisiaj(), { zZadaniami = false } = {}) {
   }
 
   // Wpłaty do przypisania – zbiorczo, „Przypisz” otwiera najstarszą.
-  const nieprzypisane = doPrzypisania(s.dane.payments).sort((a, b) => a.booked_on.localeCompare(b.booked_on));
+  const nieprzypisane = wplatyDoPrzypisania(s).sort((a, b) => a.booked_on.localeCompare(b.booked_on));
   if (nieprzypisane.length) {
     dodaj(1, `${odmiana(nieprzypisane.length, ['wpłata czeka', 'wpłaty czekają', 'wpłat czeka'])} na przypisanie`,
       `najstarsza z ${formatData(nieprzypisane[0].booked_on)}`,

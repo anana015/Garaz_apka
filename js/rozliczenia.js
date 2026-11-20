@@ -13,9 +13,16 @@ import { roznicaDni } from './utils.js';
  * @param {number} k.saldoOtwarcia clients.opening_balance_gr (ujemne = zaległość)
  * @param {string} k.dataStart, k.dzis RRRR-MM-DD
  * @param {number} k.tolerancja dni (settings.tolerance_days)
+ * @param {string|null} k.rozliczoneDo settings.settled_through (0.26.0): wszystko do tego dnia uznane za rozliczone –
+ *   należności z terminem do tego dnia są opłacone (rozliczone: true), wpłaty z datą do tego dnia i saldo otwarcia
+ *   (gdy rozliczoneDo ≥ dataStart) nie wchodzą do rozliczenia. Przychód kasowy (Raporty, ryczałt) liczy wpłaty jak dotąd.
  */
-export function rozliczKlienta({ naleznosci, wplaty, saldoOtwarcia = 0, dataStart, dzis, tolerancja = 0 }) {
-  const pozycje = naleznosci.map((n) => ({ ...n, zaplaconoGr: 0, zaplaconoDnia: null }));
+export function rozliczKlienta({ naleznosci, wplaty, saldoOtwarcia = 0, dataStart, dzis, tolerancja = 0, rozliczoneDo = null }) {
+  const rozliczona = (n) => rozliczoneDo != null && n.termin <= rozliczoneDo;
+  const pozycje = naleznosci.map((n) => (rozliczona(n)
+    ? { ...n, zaplaconoGr: n.kwotaGr, zaplaconoDnia: n.termin, rozliczone: true }
+    : { ...n, zaplaconoGr: 0, zaplaconoDnia: null }));
+  if (rozliczoneDo != null && rozliczoneDo >= dataStart) saldoOtwarcia = 0;
   if (saldoOtwarcia < 0) {
     pozycje.push({ otwarcie: true, termin: dataStart, poczatek: dataStart, koniec: dataStart, kod: '',
       kwotaGr: -saldoOtwarcia, zaplaconoGr: 0, zaplaconoDnia: null });
@@ -24,7 +31,7 @@ export function rozliczKlienta({ naleznosci, wplaty, saldoOtwarcia = 0, dataStar
   pozycje.sort((a, b) => a.termin.localeCompare(b.termin) || (b.otwarcie ? 1 : 0) - (a.otwarcie ? 1 : 0)
     || String(a.kod).localeCompare(String(b.kod), 'pl', { numeric: true }));
 
-  const ruchy = [...wplaty]
+  const ruchy = wplaty.filter((w) => rozliczoneDo == null || w.booked_on > rozliczoneDo)
     .sort((a, b) => a.booked_on.localeCompare(b.booked_on) || String(a.created_at).localeCompare(String(b.created_at)))
     .map((w) => ({ data: w.booked_on, kwota: w.amount_gr, najemId: w.rental_id ?? null }));
   if (saldoOtwarcia > 0) ruchy.unshift({ data: dataStart, kwota: saldoOtwarcia });
@@ -69,7 +76,7 @@ export function rozliczKlienta({ naleznosci, wplaty, saldoOtwarcia = 0, dataStar
   }
 
   const sumaWplat = ruchy.reduce((s, r) => s + r.kwota, 0);
-  const wymagalne = pozycje.filter((p) => p.termin <= dzis);
+  const wymagalne = pozycje.filter((p) => p.termin <= dzis && !p.rozliczone);
   const saldoGr = sumaWplat - wymagalne.reduce((s, p) => s + p.kwotaGr, 0);
   const zalegle = pozycje.filter((p) => p.termin < dzis && p.zaplaconoGr < p.kwotaGr);
   const zalegloscGr = zalegle.reduce((s, p) => s + p.kwotaGr - p.zaplaconoGr, 0);
@@ -101,8 +108,8 @@ const pamiec = new WeakMap();
  * Rozliczenia wszystkich klientów: Map(clientId → wynik rozliczKlienta).
  * Liczone raz dla danego obiektu danych (state.dane podmienia się przy każdej zmianie).
  */
-export function rozliczenia(dane, { dataStart, dzis, tolerancja = 0 }) {
-  const klucz = `${dataStart}|${dzis}|${tolerancja}`;
+export function rozliczenia(dane, { dataStart, dzis, tolerancja = 0, rozliczoneDo = null }) {
+  const klucz = `${dataStart}|${dzis}|${tolerancja}|${rozliczoneDo}`;
   const zapisane = pamiec.get(dane);
   if (zapisane?.klucz === klucz) return zapisane.wynik;
 
@@ -124,7 +131,7 @@ export function rozliczenia(dane, { dataStart, dzis, tolerancja = 0 }) {
   }
   const wynik = new Map(dane.clients.map((k) => [k.id, rozliczKlienta({
     naleznosci: naleznosci.get(k.id) ?? [], wplaty: wplaty.get(k.id) ?? [],
-    saldoOtwarcia: k.opening_balance_gr ?? 0, dataStart, dzis, tolerancja,
+    saldoOtwarcia: k.opening_balance_gr ?? 0, dataStart, dzis, tolerancja, rozliczoneDo,
   })]));
   pamiec.set(dane, { klucz, wynik });
   return wynik;
@@ -141,8 +148,16 @@ const OPIS_WPLATY = { przelew: 'Wpłata przelewem', gotowka: 'Wpłata gotówką'
  * z saldem narastająco. Przy tej samej dacie najpierw należność, potem wpłata.
  * @returns {Array<{data, opis, winienGr, maGr, saldoGr}>}
  */
-export function kartoteka({ pozycje, wplaty, saldoOtwarcia = 0, dataStart, dzis }) {
+export function kartoteka({ pozycje, wplaty, saldoOtwarcia = 0, dataStart, dzis, rozliczoneDo = null }) {
   const wiersze = [];
+  if (rozliczoneDo != null) {
+    // Wszystko do rozliczoneDo uznane za uregulowane: jeden wiersz zamiast należności i wpłat sprzed tej daty.
+    if (rozliczoneDo >= dataStart) saldoOtwarcia = 0;
+    pozycje = pozycje.filter((p) => !p.rozliczone);
+    wplaty = wplaty.filter((w) => w.booked_on > rozliczoneDo);
+    wiersze.push({ data: rozliczoneDo, kolej: 0, opis: `Rozliczone do ${rozliczoneDo.slice(8, 10)}.${rozliczoneDo.slice(5, 7)}.${rozliczoneDo.slice(0, 4)}`,
+      winienGr: 0, maGr: 0 });
+  }
   if (saldoOtwarcia) {
     wiersze.push({ data: dataStart, kolej: 0, opis: 'Saldo otwarcia',
       winienGr: saldoOtwarcia < 0 ? -saldoOtwarcia : 0, maGr: saldoOtwarcia > 0 ? saldoOtwarcia : 0 });
@@ -175,8 +190,12 @@ export function kartoteka({ pozycje, wplaty, saldoOtwarcia = 0, dataStart, dzis 
  * z podziałem należności na jednostki i wpłat na formy. Te same dane co rozliczKlienta, więc suma = r.saldoGr.
  * @param {{ pozycje: Array, wplaty: Array, saldoOtwarcia?: number, dzis: string }} p pozycje = rozliczKlienta().pozycje
  */
-export function rozbicieSalda({ pozycje, wplaty, saldoOtwarcia = 0, dzis }) {
-  const wymagalne = pozycje.filter((p) => !p.otwarcie && p.termin <= dzis);
+export function rozbicieSalda({ pozycje, wplaty, saldoOtwarcia = 0, dzis, rozliczoneDo = null, dataStart = null }) {
+  if (rozliczoneDo != null) {
+    if (!dataStart || rozliczoneDo >= dataStart) saldoOtwarcia = 0;
+    wplaty = wplaty.filter((w) => w.booked_on > rozliczoneDo);
+  }
+  const wymagalne = pozycje.filter((p) => !p.otwarcie && !p.rozliczone && p.termin <= dzis);
   const jednostki = new Map();
   for (const p of wymagalne) {
     const j = jednostki.get(p.kod) ?? { kod: p.kod, liczba: 0, kwotaGr: 0, korektyGr: 0 };
@@ -200,6 +219,7 @@ export function rozbicieSalda({ pozycje, wplaty, saldoOtwarcia = 0, dzis }) {
     .map((p) => ({ ...p, brakGr: p.kwotaGr - p.zaplaconoGr, dniPo: Math.max(0, roznicaDni(p.termin, dzis)) }));
   return {
     otwarcieGr: saldoOtwarcia,
+    rozliczoneDo,
     naleznosciGr,
     korektyGr: wymagalne.reduce((a, p) => a + (p.korektaGr ?? 0), 0),
     jednostki: [...jednostki.values()].sort((a, b) => String(a.kod).localeCompare(String(b.kod), 'pl', { numeric: true })),
@@ -232,7 +252,7 @@ export function terminowosc(pozycje, { dzis, tolerancja = 0, miesiecy = 12, prog
   const od = `${klucze[0]}-01`;
   const oceny = [];
   for (const p of pozycje) {
-    if (p.otwarcie || p.termin < od || p.termin > dzis || !p.kwotaGr) continue;
+    if (p.otwarcie || p.rozliczone || p.termin < od || p.termin > dzis || !p.kwotaGr) continue;
     const granica = roznicaDni(p.termin, dzis);
     const zaplacona = p.zaplaconoGr >= p.kwotaGr && p.zaplaconoDnia;
     if (!zaplacona && granica <= tolerancja) { oceny.push({ p, stan: 'czeka' }); continue; }

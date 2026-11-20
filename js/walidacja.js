@@ -528,12 +528,14 @@ export function walidujUstawienia(w, { dzis }) {
     vat_limit_gr: kwota(w, 'vat_limit_gr', bledy, { wymagana: true, nieujemna: true, etykieta: 'limit' }),
     tax_account: null,
     data_start: data(w, 'data_start', bledy, { wymagana: true, etykieta: 'datę startu danych' }),
+    settled_through: data(w, 'settled_through', bledy, { etykieta: 'datę „Rozliczone do”' }),
   };
   if (tekst(w.tax_account)) {
     wiersz.tax_account = oczyscRachunek(w.tax_account);
     if (!wiersz.tax_account) bledy.tax_account = 'Numer rachunku musi mieć 26 cyfr.';
   }
   if (wiersz.data_start && wiersz.data_start > dzis) bledy.data_start = 'Data startu nie może być w przyszłości.';
+  if (wiersz.settled_through && wiersz.settled_through > dzis) bledy.settled_through = 'Data nie może być w przyszłości.';
   return { bledy, wiersz };
 }
 

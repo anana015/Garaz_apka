@@ -37,7 +37,8 @@ function indeksy(dane) {
   };
 }
 
-const rozl = (dane, dzis, u) => rozliczenia(dane, { dataStart: u.data_start, dzis, tolerancja: u.tolerance_days });
+const rozl = (dane, dzis, u) => rozliczenia(dane, { dataStart: u.data_start, dzis, tolerancja: u.tolerance_days,
+  rozliczoneDo: u.settled_through ?? null });
 
 /** Klienci: dane, aktywne jednostki, saldo, zaległość, terminowość. */
 export function eksportKlientow(dane, { dzis, ustawienia: u }) {

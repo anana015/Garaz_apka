@@ -89,8 +89,12 @@ export function stawkaNaDzien(stawki = [], dzien) {
   return wynik?.amount_gr ?? null;
 }
 
-/** Wpłaty czynszowe bez klienta – „Do przypisania” (4. Zasady zapisu). */
-export const doPrzypisania = (wplaty) => wplaty.filter((w) => w.kind === 'czynsz' && !w.client_id);
+/**
+ * Wpłaty czynszowe bez klienta – „Do przypisania” (4. Zasady zapisu). rozliczoneDo (settings.settled_through, 0.26.0):
+ * wpłat z datą do tego dnia nie trzeba przypisywać – okres jest uznany za rozliczony.
+ */
+export const doPrzypisania = (wplaty, rozliczoneDo = null) => wplaty.filter((w) => w.kind === 'czynsz' && !w.client_id
+  && (rozliczoneDo == null || w.booked_on > rozliczoneDo));
 
 /**
  * Liczba pełnych miesięcy kalendarzowych z wpłatami: od miesiąca najstarszej wpłaty

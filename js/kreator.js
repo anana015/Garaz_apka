@@ -184,7 +184,7 @@ export function krokiMiesiaca(s, { miesiac, dzis, reczne = new Set(), doPrzypomn
   const przedTerminem = dzis < termin;
   const konta = s.dane.bank_accounts.filter((k) => !k.archived);
   const bezWyciagu = konta.filter((k) => !s.dane.imports.some((i) => i.bank_account_id === k.id && i.imported_at.slice(0, 10) >= termin));
-  const nieprzypisane = doPrzypisania(s.dane.payments).length;
+  const nieprzypisane = doPrzypisania(s.dane.payments, s.dane.settings?.settled_through ?? null).length;
   const zadan = pilneZadania(s.dane.client_notes, dzis);
   const kosztyMiesiaca = (s.dane.expenses ?? []).filter((e) => e.category !== 'pominiety' && e.spent_on?.startsWith(miesiac));
 

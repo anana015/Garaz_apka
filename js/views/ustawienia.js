@@ -56,6 +56,7 @@ function listaPromocjiKarta(s) {
   return `${html}<div class="pasek-akcji">
       ${przycisk({ tekst: 'Dodaj promocję', href: '#/ustawienia/promocja/nowa', drugi: true, ikona: 'plus' })}
       ${przycisk({ tekst: 'Kto korzysta z promocji', href: '#/stawki', drugi: true })}
+      ${przycisk({ tekst: 'Promocja startowa dla wszystkich boxów', href: '#/promocja-boxow', drugi: true })}
       ${Array.isArray(ustawienia(s).promotions) ? '<button type="button" class="przycisk drugi" data-akcja="domyslne-promocje">Przywróć domyślne</button>' : ''}
     </div>
     <p class="podpowiedz">Jak liczymy N miesięcy promocji: start 1.–10. dnia – ten miesiąc to 1. miesiąc promocji;
@@ -187,6 +188,7 @@ function przeglad(s) {
         ['Ostrzeżenie o końcu umowy', `${u.expiring_days} dni wcześniej`],
         ['Ostatni okres najmu', ostatni],
         ['Dzień płatności nowych najmów', `${u.default_billing_day ?? 20}.`],
+        ['Rozliczone do', u.settled_through ? `${formatData(u.settled_through)} – wszyscy klienci, bez łączenia wpłat` : 'nie ustawiono'],
       ]), '#/ustawienia/edycja')}
       ${sekcjaKarty('karta-klienta', 'Karta klienta', `<p>${ukladKarty(s).filter((k) => k.widoczna)
     .map((k) => esc(nazwaKarty(k.id)) + (k.szeroka ? ' <span class="wyciszony">(szeroka)</span>' : '')).join(' · ')}</p>
@@ -237,6 +239,7 @@ function wartosciUstawien(u) {
     tax_rate_low_bp: procentDoPola(u.tax_rate_low_bp), tax_rate_high_bp: procentDoPola(u.tax_rate_high_bp),
     tax_threshold_gr: kwotaDoPola(u.tax_threshold_gr), vat_limit_gr: kwotaDoPola(u.vat_limit_gr),
     tax_account: u.tax_account ? formatRachunek(u.tax_account) : '', data_start: u.data_start,
+    settled_through: u.settled_through ?? '',
   };
 }
 
@@ -259,6 +262,9 @@ function formularzUstawien(s) {
         ${pole(f, { nazwa: 'default_billing_day', etykieta: 'Dzień płatności nowych najmów', typ: 'number', wymagane: true,
           podpowiedz: 'Termin zapłaty za cały bieżący miesiąc. Okresy to miesiące kalendarzowe; niepełny pierwszy miesiąc – proporcjonalnie.', atrybuty: 'min="1" max="31" inputmode="numeric"' })}
         </div>
+        ${pole(f, { nazwa: 'settled_through', etykieta: 'Rozliczone do (wszyscy klienci)', typ: 'date',
+          podpowiedz: 'Należności z terminem do tej daty są uznane za zapłacone, a wpłat z tego okresu nie trzeba przypisywać '
+            + '(nie wchodzą do sald, saldo otwarcia przestaje się liczyć). Przychód i ryczałt liczą je jak dotąd. Puste – wyłączone.' })}
         ${opcje(f, { nazwa: 'default_last_period', legenda: 'Domyślny ostatni okres nowego najmu (Z8)', opcje: [
           { wartosc: 'proporcjonalnie', tekst: 'Proporcjonalnie do dni' }, { wartosc: 'pelny', tekst: 'Pełny okres' }] })}`)}
       ${sekcja('Podatek', `
@@ -285,6 +291,8 @@ async function zapiszUstawienia(form, ctx) {
   const w = wartosciFormularza(form);
   const { bledy, wiersz } = walidujUstawienia(w, { dzis: dzisiaj() });
   if (maBledy(ctx, w, bledy)) return;
+  // Bez migracji 019 kolumny nie ma – puste pole nie trafia do zapisu (reszta ustawień zapisze się normalnie).
+  if (!wiersz.settled_through && !('settled_through' in (s.dane.settings ?? {}))) delete wiersz.settled_through;
   await zapisz(ctx, async () => {
     ctx.scal({ settings: await ctx.db.zapiszUstawienia(s.uzytkownik.id, wiersz) });
     ctx.toast('Ustawienia zapisane');

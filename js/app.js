@@ -26,13 +26,14 @@ import prad from './views/prad.js';
 import szukaj from './views/szukaj.js';
 import przypomnienia from './views/przypomnienia.js';
 import kreator from './views/kreator.js';
+import promocjaBoxow from './views/promocjaBoxow.js';
 import { biezacyKreator, powrotDoKreatora, ustawKreator } from './kreator.js';
 import logowanie from './views/logowanie.js';
 
 // najmy: formularze najmu (nowy, stawka, koniec, korekta, podwyżka) – bez własnej zakładki.
 const EKRANY = {
   pulpit, wplaty, klienci, zadania: zadaniaWidok, jednostki, raporty, import: importWidok, ustawienia, najmy, koszty, bramy, stawki, prad,
-  szukaj, przypomnienia, kreator,
+  szukaj, przypomnienia, kreator, 'promocja-boxow': promocjaBoxow,
 };
 
 /** Menu przycisku „+” (0.24.0): najczęstsze czynności z każdego ekranu bez formularza. */
@@ -154,7 +155,7 @@ function zbudujPowloke() {
 /** Liczniki w czerwonym kółku (12.1) z opisem dla czytnika ekranu. */
 function liczniki() {
   return {
-    wplaty: { n: doPrzypisania(state.dane.payments).length, opis: 'do przypisania' },
+    wplaty: { n: doPrzypisania(state.dane.payments, state.dane.settings?.settled_through ?? null).length, opis: 'do przypisania' },
     zadania: {
       n: pilneZadania(state.dane.client_notes, dzisiaj()) + doZrobienia(state, dzisiaj()).filter((x) => x.pilnosc <= 1).length,
       opis: 'spraw pilnych i na dziś',

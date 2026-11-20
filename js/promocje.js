@@ -16,7 +16,7 @@
 // Jednorazowy SQL supabase/jednorazowe/promocja_startowa_boxy.sql (najmy sprzed 0.19.0) zostaje przy regule z 0.13.0.
 
 import { naleznosciNajmu, pierwszyOkresOd } from './okresy.js';
-import { dodajDni, dodajMiesiace, iso, parseData } from './utils.js';
+import { dodajDni, dodajMiesiace, formatData, iso, parseData } from './utils.js';
 
 export const DOMYSLNE_PROMOCJE = Object.freeze([
   Object.freeze({ id: 'startowa', nazwa: 'Promocja startowa −50% / 2 mies.', rabat: 50, okresy: 2 }),
@@ -274,4 +274,72 @@ export function zestawienieStawek(dane, indeksy, dzien) {
     podwyzki: podwyzki.sort((a, b) => b.od.localeCompare(a.od)),
     zmianyKwot: zmianyKwot.sort((a, b) => b.okres.localeCompare(a.okres)),
   };
+}
+
+// ---------------------------------------------------------------------
+// Jednorazowo (0.26.0, prośba 20.11.2026): promocja startowa −50% / 2 mies. dla WSZYSTKICH najmów boxów
+// (trwających i zakończonych), które jeszcze nie mają promocji w historii stawek. Ta sama reguła co formularz
+// „Promocja” (planPromocji, wierszeStawek). Ekran: #/promocja-boxow (Ustawienia → Promocje).
+// ---------------------------------------------------------------------
+
+/** Cena regularna boxu, gdy jednostka nie ma ceny z cennika (decyzja 20). */
+export const CENA_REGULARNA_BOXU = Object.freeze({ box_duzy: 20000, box_maly: 18000 });
+
+/**
+ * Plan dla każdego najmu boxu.
+ * Stawka normalna = stawka z historii najmu wyższa niż połowa ceny regularnej (stawka ≤ połowy to stawka promocyjna):
+ * na start promocji – do wyliczenia rabatu, w dniu końca promocji – stawka po promocji (zachowuje podwyżki).
+ * Brak takiej stawki – cena regularna (cennik jednostki albo 200 / 180 zł).
+ * @returns {Array<{ najem, jednostka, klient, status, opis, plan?, wiersze?, doUsuniecia? }>}
+ *   status: 'nowa' | 'uwaga' (dziś płaci stawkę promocyjną, a promocja według daty startu minęła – po zapisie
+ *   od końca promocji normalna stawka) | 'ma-promocje' | 'brak'
+ */
+export function planPromocjiBoxow(dane, indeksy, { dzis, rabat = 50, okresy = 2, nazwa = DOMYSLNE_PROMOCJE[0].nazwa }) {
+  const stawkiNajmu = new Map();
+  for (const st of dane.rental_rates) {
+    if (!stawkiNajmu.has(st.rental_id)) stawkiNajmu.set(st.rental_id, []);
+    stawkiNajmu.get(st.rental_id).push(st);
+  }
+  const naDzien = (stawki, dzien) => {
+    let w = null;
+    for (const st of stawki) if (st.valid_from <= dzien && (!w || st.valid_from > w.valid_from)) w = st;
+    return w?.amount_gr ?? null;
+  };
+  const wynik = [];
+  for (const najem of dane.rentals) {
+    const jednostka = indeksy.jednostki.get(najem.unit_id);
+    if (!jednostka || !(jednostka.type in CENA_REGULARNA_BOXU)) continue;
+    const klient = indeksy.klienci.get(indeksy.umowy.get(najem.contract_id)?.client_id) ?? null;
+    const stawki = stawkiNajmu.get(najem.id) ?? [];
+    const baza = { najem, jednostka, klient };
+    if (promocjeNajmu(stawki).length) {
+      wynik.push({ ...baza, status: 'ma-promocje', opis: 'Promocja jest już w historii stawek.' });
+      continue;
+    }
+    const regularna = jednostka.list_price_gr || CENA_REGULARNA_BOXU[jednostka.type];
+    const normalne = stawki.filter((st) => st.amount_gr * 2 > regularna);
+    const najwczesniejsza = [...normalne].sort((a, b) => a.valid_from.localeCompare(b.valid_from))[0]?.amount_gr;
+    const normalnaStart = naDzien(normalne, najem.start_on) ?? najwczesniejsza ?? regularna;
+    const plan = planPromocji(najem, { normalnaGr: normalnaStart, rabat, okresy });
+    if (!plan) {
+      wynik.push({ ...baza, status: 'brak', opis: 'Nie da się wyliczyć promocji (sprawdź daty najmu).' });
+      continue;
+    }
+    const normalnaPo = plan.koniec ? (naDzien(normalne, plan.koniec) ?? normalnaStart) : normalnaStart;
+    const wiersze = wierszeStawek(najem.id, plan, normalnaPo, nazwa);
+    // Jak w formularzu „Promocja”: stawki wpisane w trakcie promocji usuwamy, żeby nie nadpisały rabatu.
+    const daty = new Set(wiersze.map((x) => x.valid_from));
+    const doUsuniecia = stawki.filter((st) => !daty.has(st.valid_from) && st.valid_from > plan.poczatek
+      && (!plan.koniec || st.valid_from < plan.koniec));
+    const dzisiaj = najem.start_on <= dzis && (najem.end_on == null || najem.end_on >= dzis) ? naDzien(stawki, dzis) : null;
+    const uwaga = plan.koniec && plan.koniec <= dzis && dzisiaj != null && dzisiaj * 2 <= regularna;
+    wynik.push({
+      ...baza, plan, wiersze, doUsuniecia, normalnaGr: normalnaPo,
+      status: uwaga ? 'uwaga' : 'nowa',
+      opis: uwaga ? `Dziś płaci ${(dzisiaj / 100).toFixed(0)} zł (stawka promocyjna), a promocja według daty startu skończyła się `
+        + `${formatData(plan.koniec)}. Po zapisie od ${formatData(plan.koniec)} liczy się ${(normalnaPo / 100).toFixed(0)} zł – sprawdź, czy tak ma być.` : '',
+    });
+  }
+  const KOLEJNOSC = { uwaga: 0, nowa: 1, brak: 2, 'ma-promocje': 3 };
+  return wynik.sort((a, b) => KOLEJNOSC[a.status] - KOLEJNOSC[b.status] || b.najem.start_on.localeCompare(a.najem.start_on));
 }

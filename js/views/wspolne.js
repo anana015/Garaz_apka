@@ -4,6 +4,7 @@ import { DOMYSLNE_USTAWIENIA } from '../config.js';
 import { doCsv } from '../csv.js';
 import { eksportDluznikow, eksportJednostek, eksportKlientow, eksportKosztow, eksportWplat } from '../eksport.js';
 import { daneGrupy, GRUPY_RYCZALTU, NAGLOWEK_CSV, wierszeCsv, zestawienieRoku } from '../podatek.js';
+import { doPrzypisania } from '../dane.js';
 import { rozliczenia } from '../rozliczenia.js';
 import { pobierzPlik } from '../ui.js';
 import {
@@ -73,7 +74,12 @@ export function pokazWybranyMiesiac(root) {
 /** Rozliczenia wszystkich klientów na dziś (rozliczenia.js; liczone raz na stan danych). */
 export function rozliczeniaKlientow(s) {
   const u = ustawienia(s);
-  return rozliczenia(s.dane, { dataStart: u.data_start, dzis: dzisiaj(), tolerancja: u.tolerance_days });
+  return rozliczenia(s.dane, { dataStart: u.data_start, dzis: dzisiaj(), tolerancja: u.tolerance_days, rozliczoneDo: u.settled_through ?? null });
+}
+
+/** Wpłaty do przypisania – bez tych z okresu uznanego za rozliczony (Ustawienia → Rozliczenia → „Rozliczone do”). */
+export function wplatyDoPrzypisania(s) {
+  return doPrzypisania(s.dane.payments, ustawienia(s).settled_through ?? null);
 }
 
 /** Pasek postępu (np. próg 100 000 zł, limit VAT). klasa: '' | 'czesciowo' | 'zalega'. */

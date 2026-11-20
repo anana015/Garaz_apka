@@ -149,3 +149,65 @@ test('bramy: usunięcie numeru = {haslo}#TEL#{pozycja}#', async () => {
   assert.equal(polecenieUsuniecia(brama, { telefon: '+48600111222', pozycja: 6 }), '1234#TEL#006#');
   assert.equal(usuwanieWymagaPozycji(brama), true);
 });
+
+test('rozliczone do 30.09: należności do terminu opłacone, wcześniejsze wpłaty i saldo otwarcia pominięte', async () => {
+  const { rozliczKlienta, kartoteka, rozbicieSalda } = await import('../js/rozliczenia.js');
+  const { doPrzypisania } = await import('../js/dane.js');
+  const n = (m, kwota) => ({ najemId: 'r1', kod: 'G-03', termin: `2026-${m}-20`, poczatek: `2026-${m}-01`, koniec: `2026-${m}-28`, kwotaGr: kwota });
+  const naleznosci = [n('08', 40000), n('09', 40000), n('10', 40000), n('11', 40000)];
+  const wplaty = [
+    { booked_on: '2026-09-18', amount_gr: 40000, method: 'przelew' },   // za wrzesień – pominięta
+    { booked_on: '2026-10-19', amount_gr: 40000, method: 'przelew' },
+  ];
+  const p = { naleznosci, wplaty, saldoOtwarcia: -30000, dataStart: '2026-01-01', dzis: '2026-11-25', rozliczoneDo: '2026-09-30' };
+  const r = rozliczKlienta(p);
+  assert.equal(r.saldoGr, -40000, 'zaległy tylko listopad');
+  assert.equal(r.zalegloscGr, 40000);
+  assert.ok(r.pozycje.filter((x) => x.termin <= '2026-09-30').every((x) => x.rozliczone && x.zaplaconoGr === x.kwotaGr));
+  assert.equal(r.pozycje.find((x) => x.termin === '2026-10-20').status, 'oplacona');
+  const b = rozbicieSalda({ pozycje: r.pozycje, wplaty, saldoOtwarcia: -30000, dzis: '2026-11-25', rozliczoneDo: '2026-09-30', dataStart: '2026-01-01' });
+  assert.equal(b.saldoGr, r.saldoGr);
+  const k = kartoteka({ pozycje: r.pozycje, wplaty, saldoOtwarcia: -30000, dataStart: '2026-01-01', dzis: '2026-11-25', rozliczoneDo: '2026-09-30' });
+  assert.equal(k.at(-1).saldoGr, r.saldoGr);
+  assert.match(k[0].opis, /Rozliczone do 30\.09\.2026/);
+  // Bez „rozliczone do” – jak dotąd
+  assert.equal(rozliczKlienta({ ...p, rozliczoneDo: null }).saldoGr, -30000 + 80000 - 160000);
+  const platnosci = [{ kind: 'czynsz', client_id: null, booked_on: '2026-09-10' }, { kind: 'czynsz', client_id: null, booked_on: '2026-10-10' }];
+  assert.equal(doPrzypisania(platnosci, '2026-09-30').length, 1);
+  assert.equal(doPrzypisania(platnosci).length, 2);
+});
+
+test('promocja startowa dla wszystkich boxów: plan, pominięcie istniejących, zachowanie podwyżki', async () => {
+  const { planPromocjiBoxow } = await import('../js/promocje.js');
+  const dane = {
+    units: [{ id: 'u1', code: 'B-01', type: 'box_duzy' }, { id: 'u2', code: 'B-02', type: 'box_maly' }, { id: 'u3', code: 'G-01', type: 'garaz' },
+      { id: 'u4', code: 'B-03', type: 'box_duzy' }],
+    clients: [{ id: 'k1', name: 'A' }], contracts: [{ id: 'c1', client_id: 'k1' }],
+    rentals: [
+      { id: 'r1', contract_id: 'c1', unit_id: 'u1', start_on: '2026-01-15', end_on: null, period_months: 1 },
+      { id: 'r2', contract_id: 'c1', unit_id: 'u2', start_on: '2026-09-25', end_on: null, period_months: 1 },
+      { id: 'r3', contract_id: 'c1', unit_id: 'u3', start_on: '2026-09-01', end_on: null, period_months: 1 },
+      { id: 'r4', contract_id: 'c1', unit_id: 'u4', start_on: '2026-03-03', end_on: null, period_months: 1 },
+    ],
+    rental_rates: [
+      { id: 's1', rental_id: 'r1', valid_from: '2026-01-15', amount_gr: 18000 },
+      { id: 's2', rental_id: 'r1', valid_from: '2026-02-01', amount_gr: 20000, reason: 'podwyżka' },
+      { id: 's3', rental_id: 'r2', valid_from: '2026-09-25', amount_gr: 18000 },
+      { id: 's4', rental_id: 'r4', valid_from: '2026-03-03', amount_gr: 10000, reason: 'Promocja startowa −50% / 2 mies.' },
+      { id: 's5', rental_id: 'r4', valid_from: '2026-05-01', amount_gr: 20000, reason: 'koniec promocji' },
+    ],
+  };
+  const s = { dane, indeksy: zbudujIndeksy({ ...stan().dane, ...dane, payments: [], gates: [], gate_access: [] }) };
+  const wynik = Object.fromEntries(planPromocjiBoxow(s.dane, s.indeksy, { dzis: '2026-11-20' }).map((x) => [x.najem.id, x]));
+  assert.equal(wynik.r3, undefined, 'garaż pominięty');
+  assert.equal(wynik.r4.status, 'ma-promocje');
+  // r1: start 15.01 (11.–22.) – rabat od 180 zł, po promocji 200 zł (podwyżka z 01.02 zachowana i usunięta ze środka promocji)
+  assert.equal(wynik.r1.status, 'nowa');
+  assert.equal(wynik.r1.plan.promocyjnaGr, 9000);
+  assert.equal(wynik.r1.normalnaGr, 20000);
+  assert.deepEqual(wynik.r1.doUsuniecia.map((x) => x.id), ['s2']);
+  assert.equal(wynik.r1.wiersze.at(-1).valid_from, '2026-03-16');
+  // r2: start 25.09 (od 23.) – końcówka gratis, październik i listopad po 90 zł, od grudnia 180 zł
+  assert.equal(wynik.r2.plan.gratisDo, '2026-09-30');
+  assert.deepEqual(wynik.r2.wiersze.map((w) => [w.valid_from, w.amount_gr]), [['2026-09-25', 0], ['2026-10-01', 9000], ['2026-12-01', 18000]]);
+});

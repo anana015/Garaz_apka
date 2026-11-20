@@ -142,6 +142,9 @@ export function komunikatZapisu(error) {
   const m = `${error?.message ?? ''} ${error?.details ?? ''}`;
   const ograniczenie = Object.keys(OGRANICZENIA).find((nazwa) => m.includes(nazwa));
   if (ograniczenie) return OGRANICZENIA[ograniczenie];
+  if (/settled_through/.test(m)) {
+    return '„Rozliczone do” wymaga zmiany w bazie. Uruchom w Supabase plik supabase/migracje/019_rozliczone_do.sql.';
+  }
   if (/power_readings|power_price_gr|client_card_layout/.test(m)) {
     return 'Ta funkcja wymaga zmiany w bazie. Uruchom w Supabase plik supabase/migracje/017_prad_karta_klienta.sql.';
   }

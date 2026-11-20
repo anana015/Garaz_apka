@@ -3,7 +3,7 @@
 // #/wplaty/<id>/edycja (wpłata ręczna: gotówka albo przelew bez wyciągu),
 // #/wplaty/<id>/przypisz (przelew: klient, rodzaj, „Zapamiętaj płatnika”).
 
-import { doPrzypisania, najemZakonczony, wplataReczna } from '../dane.js';
+import { najemZakonczony, wplataReczna } from '../dane.js';
 import {
   formularz, maBledy, obszar, opcje, pole, przelacznik, stanFormularza, wartosciFormularza, wybor, zapisz,
 } from '../formularz.js';
@@ -14,11 +14,14 @@ import {
 } from '../utils.js';
 import { RODZAJE_GOTOWKI, walidujGotowke } from '../walidacja.js';
 import { pasujaceDoPlatnika, planZapamietania } from '../rozpoznanie.js';
-import { opcjeNajmowKlienta, poleNajmu, ustawienia, wyborMiesiaca, pokazWybranyMiesiac } from './wspolne.js';
+import { opcjeNajmowKlienta, poleNajmu, ustawienia, wplatyDoPrzypisania, wyborMiesiaca, pokazWybranyMiesiac } from './wspolne.js';
 
 const FILTRY = {
   wszystkie: { tekst: 'Wszystkie', warunek: (w, s) => kluczMiesiaca(w.booked_on) === s.ui.miesiac },
-  'do-przypisania': { tekst: 'Do przypisania', warunek: (w) => w.kind === 'czynsz' && !w.client_id },
+  'do-przypisania': {
+    tekst: 'Do przypisania',
+    warunek: (w, s) => w.kind === 'czynsz' && !w.client_id && !(w.booked_on <= (ustawienia(s).settled_through ?? '')),
+  },
   gotowka: { tekst: 'Gotówka', warunek: (w) => w.method === 'gotowka' },
   reczne: { tekst: 'Wpisane ręcznie', warunek: (w) => w.method === 'przelew' && wplataReczna(w) },
   kaucje: { tekst: 'Kaucje', warunek: (w) => w.kind === 'kaucja' },
@@ -89,7 +92,7 @@ function lista(s) {
     .sort((a, b) => b.booked_on.localeCompare(a.booked_on) || b.created_at.localeCompare(a.created_at));
 
   const opcjeFiltra = Object.entries(FILTRY).map(([id, f]) => ({
-    id, tekst: f.tekst, liczba: id === 'do-przypisania' ? doPrzypisania(wszystkie).length : undefined,
+    id, tekst: f.tekst, liczba: id === 'do-przypisania' ? wplatyDoPrzypisania(s).length : undefined,
   }));
 
   return `${akcje}

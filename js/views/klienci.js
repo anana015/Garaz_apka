@@ -411,11 +411,14 @@ function ekranSalda(s, klient) {
   if (!r) return pustyStan('Brak rozliczenia dla tego klienta.', [{ tekst: 'Karta klienta', href: `#/klienci/${id}` }]);
   const dzis = dzisiaj();
   const wplaty = s.dane.payments.filter((w) => w.client_id === klient.id && w.kind === 'czynsz');
-  const b = rozbicieSalda({ pozycje: r.pozycje, wplaty, saldoOtwarcia: klient.opening_balance_gr ?? 0, dzis });
+  const u = ustawienia(s);
+  const b = rozbicieSalda({ pozycje: r.pozycje, wplaty, saldoOtwarcia: klient.opening_balance_gr ?? 0, dzis,
+    rozliczoneDo: u.settled_through ?? null, dataStart: u.data_start });
   const zl = (gr, znak = false) => `<span class="kwota">${znak && gr > 0 ? '+' : ''}${formatZl(gr)}</span>`;
   const wiersz = (opis, gr, klasa = '') => `<tr class="${klasa}"><th scope="row">${opis}</th><td class="liczba">${zl(gr, true)}</td></tr>`;
   const okres = (p) => (p.otwarcie ? 'saldo otwarcia' : etykietaMiesiaca(kluczMiesiaca(p.poczatek)));
   const tabela = `<table class="tabela rozbicie-salda"><caption class="sr-only">Rozbicie salda</caption><tbody>
+      ${b.rozliczoneDo ? `<tr class="pod"><th scope="row">Wszystko do ${formatData(b.rozliczoneDo)} uznane za rozliczone</th><td class="liczba">—</td></tr>` : ''}
       ${b.otwarcieGr ? wiersz(`Saldo otwarcia na ${formatData(ustawienia(s).data_start)}`, b.otwarcieGr) : ''}
       ${wiersz(`Wpłaty (${b.formy.reduce((a, f) => a + f.liczba, 0)})`, b.wplatyGr)}
       ${b.formy.map((f) => wiersz(`<span class="wciecie">${esc(f.opis)} (${f.liczba})</span>`, f.kwotaGr, 'pod')).join('')}
@@ -455,7 +458,7 @@ function wierszeKartoteki(s, klient, r) {
   const u = ustawienia(s);
   const wplaty = s.dane.payments.filter((w) => w.client_id === klient.id && w.kind === 'czynsz');
   return kartoteka({ pozycje: r.pozycje, wplaty, saldoOtwarcia: klient.opening_balance_gr ?? 0,
-    dataStart: u.data_start, dzis: dzisiaj() });
+    dataStart: u.data_start, dzis: dzisiaj(), rozliczoneDo: u.settled_through ?? null });
 }
 
 const kwotaLubNic = (gr) => (gr ? formatZl(gr) : '');
